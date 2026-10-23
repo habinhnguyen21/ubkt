@@ -15,8 +15,48 @@ import type {
   TrangThaiDonVi,
 } from '../types';
 import { db as firestoreDb } from './firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, doc, deleteDoc } from 'firebase/firestore';
 
+export const STORAGE_DELETED_DON_VI_IDS = 'ubkt_deleted_don_vi_ids';
+export const STORAGE_DELETED_CHUONG_TRINH_IDS = 'ubkt_deleted_chuong_trinh_ids';
+
+export function getDeletedDonViIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_DELETED_DON_VI_IDS);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveDeletedDonViId(id: string) {
+  try {
+    const set = getDeletedDonViIds();
+    set.add(id);
+    localStorage.setItem(STORAGE_DELETED_DON_VI_IDS, JSON.stringify(Array.from(set)));
+  } catch (err) {
+    console.error('Lỗi lưu ID tổ chức đã xóa:', err);
+  }
+}
+
+export function getDeletedChuongTrinhIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_DELETED_CHUONG_TRINH_IDS);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveDeletedChuongTrinhId(id: string) {
+  try {
+    const set = getDeletedChuongTrinhIds();
+    set.add(id);
+    localStorage.setItem(STORAGE_DELETED_CHUONG_TRINH_IDS, JSON.stringify(Array.from(set)));
+  } catch (err) {
+    console.error('Lỗi lưu ID chương trình đã xóa:', err);
+  }
+}
 
 // Giao thức giao tiếp Trực tuyến (Full Online API Client)
 async function requestApi<T>(
@@ -115,11 +155,20 @@ function getInitialProductionDb(): MockDb {
 
 function getMockDb(): MockDb {
   const raw = localStorage.getItem(MOCK_STORAGE_KEY);
+  const deletedDvIds = getDeletedDonViIds();
+  const deletedCtIds = getDeletedChuongTrinhIds();
+
   if (raw) {
     try {
       const parsed: MockDb = JSON.parse(raw);
       if (!parsed.users || parsed.users.length === 0) {
         parsed.users = getInitialProductionDb().users;
+      }
+      if (parsed.donViList) {
+        parsed.donViList = parsed.donViList.filter((d) => !deletedDvIds.has(d.id) && !d.deleted_at);
+      }
+      if (parsed.chuongTrinhList) {
+        parsed.chuongTrinhList = parsed.chuongTrinhList.filter((c) => !deletedCtIds.has(c.id));
       }
       return parsed;
     } catch {
@@ -128,11 +177,25 @@ function getMockDb(): MockDb {
   }
 
   const initial = getInitialProductionDb();
+  if (initial.donViList) {
+    initial.donViList = initial.donViList.filter((d) => !deletedDvIds.has(d.id));
+  }
+  if (initial.chuongTrinhList) {
+    initial.chuongTrinhList = initial.chuongTrinhList.filter((c) => !deletedCtIds.has(c.id));
+  }
   localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(initial));
   return initial;
 }
 
 function saveMockDb(db: MockDb) {
+  const deletedDvIds = getDeletedDonViIds();
+  const deletedCtIds = getDeletedChuongTrinhIds();
+  if (db.donViList) {
+    db.donViList = db.donViList.filter((d) => !deletedDvIds.has(d.id) && !d.deleted_at);
+  }
+  if (db.chuongTrinhList) {
+    db.chuongTrinhList = db.chuongTrinhList.filter((c) => !deletedCtIds.has(c.id));
+  }
   localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(db));
 }
 
@@ -151,14 +214,21 @@ export async function ensureFirestoreSynced(): Promise<void> {
 
       if (!donViSnap.empty || !ctSnap.empty) {
         const currentDb = getMockDb();
+        const deletedDvIds = getDeletedDonViIds();
+        const deletedCtIds = getDeletedChuongTrinhIds();
+
         if (!usersSnap.empty) {
           currentDb.users = usersSnap.docs.map((d) => d.data() as User);
         }
         if (!donViSnap.empty) {
-          currentDb.donViList = donViSnap.docs.map((d) => d.data() as DonVi);
+          currentDb.donViList = donViSnap.docs
+            .map((d) => d.data() as DonVi)
+            .filter((d) => !deletedDvIds.has(d.id) && !d.deleted_at);
         }
         if (!ctSnap.empty) {
-          currentDb.chuongTrinhList = ctSnap.docs.map((d) => d.data() as ChuongTrinhKtGs);
+          currentDb.chuongTrinhList = ctSnap.docs
+            .map((d) => d.data() as ChuongTrinhKtGs)
+            .filter((c) => !deletedCtIds.has(c.id));
         }
         if (!dtSnap.empty) {
           currentDb.donThuList = dtSnap.docs.map((d) => d.data() as DonThu);
@@ -306,11 +376,21 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       if (hasChildren) {
         throw new Error('Không thể xóa đơn vị đang có đơn vị cấp dưới trực thuộc.');
       }
+      saveDeletedDonViId(id);
       const item = db.donViList.find((d) => d.id === id);
       if (item) {
         item.deleted_at = new Date().toISOString();
-        saveMockDb(db);
       }
+      db.donViList = db.donViList.filter((d) => d.id !== id);
+      saveMockDb(db);
+
+      // Đồng bộ xóa trực tiếp trên Firebase Firestore nếu có
+      try {
+        deleteDoc(doc(firestoreDb, 'don_vi', id)).catch(() => {});
+      } catch {
+        // ignore
+      }
+
       return undefined as T;
     }
 
@@ -494,41 +574,8 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         db.chuongTrinhList = [];
       }
       let needsSave = false;
-      const hasBtvItem = db.chuongTrinhList.some((c) => c.co_quan_ban_hanh === 'Ban Thường vụ Đảng ủy phường' || (c.so_van_ban === null && c.loai_chuong_trinh === 'NHIEM_KY'));
-      if (!hasBtvItem) {
-        db.chuongTrinhList.unshift({
-          id: 'ct-nk-btv',
-          nam: 2025,
-          loai_chuong_trinh: 'NHIEM_KY',
-          nhiem_ky: '2025 - 2030',
-          khoa_nhiem_ky: '2025 - 2030',
-          has_nhiem_ky: true,
-          term_start_year: 2025,
-          term_end_year: 2030,
-          ten_chuong_trinh: 'Kiểm tra, giám sát theo Quyết định/Kế hoạch số ...',
-          co_quan_ban_hanh: 'Ban Thường vụ Đảng ủy phường',
-          chu_the_ap_dung: 'Toàn Đảng bộ',
-          thoi_gian_loai: 'CA_NHIEM_KY',
-          chu_the: 'Ban Thường vụ Đảng ủy phường',
-          don_vi_id: '01918a00-0000-7000-8000-000000000002',
-          ten_don_vi: 'Ban Thường vụ Đảng ủy',
-          loai_hinh: null,
-          doi_tuong: 'Toàn Đảng bộ',
-          noi_dung: 'Kiểm tra, giám sát theo Quyết định/Kế hoạch số ...: Kiểm tra việc lãnh đạo, chỉ đạo và tổ chức thực hiện nhiệm vụ chính trị, công tác xây dựng Đảng, giữ gìn đoàn kết nội bộ.',
-          ngay_bat_dau: null,
-          ngay_ket_thuc: null,
-          so_van_ban: null,
-          trang_thai: 'DANG_THUC_HIEN',
-          file_pdf_ten: 'CT-KTGS của BCH, BTV.pdf',
-          file_pdf_url: null,
-          file_pdf_dung_luong: 2450000,
-          ghi_chu_pdf: 'Kèm theo Quyết định của BTV Đảng ủy',
-          danh_sach_thay_doi_bo_sung: [],
-          created_at: '2025-08-01T08:00:00Z',
-          updated_at: '2025-08-01T08:00:00Z',
-        });
-        needsSave = true;
-      }
+      const deletedCtIds = getDeletedChuongTrinhIds();
+      db.chuongTrinhList = db.chuongTrinhList.filter((c) => !deletedCtIds.has(c.id));
 
       db.chuongTrinhList.forEach((c) => {
         if (!c.term_start_year && c.nhiem_ky) {
@@ -701,9 +748,18 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
 
     case 'delete_chuong_trinh': {
       const { id } = args as { id: string };
+      saveDeletedChuongTrinhId(id);
       if (!db.chuongTrinhList) db.chuongTrinhList = [];
       db.chuongTrinhList = db.chuongTrinhList.filter((c) => c.id !== id);
       saveMockDb(db);
+
+      // Đồng bộ xóa trực tiếp trên Firebase Firestore nếu có
+      try {
+        deleteDoc(doc(firestoreDb, 'chuong_trinh', id)).catch(() => {});
+      } catch {
+        // ignore
+      }
+
       return undefined as T;
     }
 

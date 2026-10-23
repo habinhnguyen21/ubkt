@@ -25,6 +25,8 @@ import { GoogleDriveConfigModal } from './GoogleDriveConfigModal';
 import {
   getGoogleDriveConfig,
   uploadFileToGoogleDrive,
+  deleteFileFromGoogleDrive,
+  extractGoogleDriveFileId,
   isGoogleDriveConfigured,
 } from '../services/googleDriveService';
 
@@ -95,6 +97,7 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
 
   // Modal xác nhận xóa
   const [deleteTarget, setDeleteTarget] = useState<PdfKhoItem | null>(null);
+  const [isDeletingFile, setIsDeletingFile] = useState(false);
 
   // Modal xem preview tệp
   const [previewPdf, setPreviewPdf] = useState<PdfKhoItem | null>(null);
@@ -375,10 +378,28 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
+    setIsDeletingFile(true);
     try {
+      // 1. Tự động xóa tệp tương ứng trên Google Drive nếu có
+      const driveFileId =
+        deleteTarget.google_drive_id ||
+        extractGoogleDriveFileId(deleteTarget.url || deleteTarget.file_url);
+
+      if (driveFileId) {
+        try {
+          const delDriveRes = await deleteFileFromGoogleDrive(driveFileId);
+          if (!delDriveRes.success) {
+            console.warn('Cảnh báo xóa tệp Google Drive:', delDriveRes.error);
+          }
+        } catch (gdriveErr) {
+          console.warn('Lỗi khi gọi xóa tệp trên Google Drive:', gdriveErr);
+        }
+      }
+
+      // 2. Xóa khỏi cơ sở dữ liệu nội bộ
       await api.deletePdf(deleteTarget.id);
 
-      // Nếu tệp có nguồn gốc từ Hồ sơ địa bàn: Đồng thời gỡ khỏi ubkt_ho_so_dia_ban_files
+      // 3. Nếu tệp có nguồn gốc từ Hồ sơ địa bàn: Đồng thời gỡ khỏi ubkt_ho_so_dia_ban_files
       try {
         const rawFiles = localStorage.getItem('ubkt_ho_so_dia_ban_files');
         if (rawFiles) {
@@ -397,6 +418,8 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
       onDataChanged?.();
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsDeletingFile(false);
     }
   };
 
@@ -1050,35 +1073,63 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
       )}
 
       {/* ── MODAL XÁC NHẬN XÓA ───────────────────────────────────────────── */}
-      {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-xl border border-slate-200 space-y-4">
-            <div className="flex items-center space-x-2 text-red-600">
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
-              <h3 className="text-sm font-bold text-slate-900">Gỡ tệp khỏi kho</h3>
-            </div>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Bạn có chắc chắn muốn gỡ tệp <strong className="text-slate-800">{deleteTarget.ten_file}</strong> khỏi Kho dữ liệu? Nếu tệp thuộc hồ sơ địa bàn, hồ sơ đó cũng sẽ được đồng bộ gỡ bỏ.
-            </p>
-            <div className="flex items-center justify-end space-x-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setDeleteTarget(null)}
-                className="px-3 py-1.5 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-medium cursor-pointer"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteConfirm}
-                className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
-              >
-                Xác nhận gỡ
-              </button>
+      {deleteTarget && (() => {
+        const isTargetDrive = Boolean(
+          deleteTarget.is_google_drive ||
+          deleteTarget.google_drive_id ||
+          deleteTarget.file_url?.includes('drive.google.com') ||
+          deleteTarget.url?.includes('drive.google.com')
+        );
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-xl border border-slate-200 space-y-4">
+              <div className="flex items-center space-x-2 text-red-600">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                <h3 className="text-sm font-bold text-slate-900">Gỡ tệp khỏi kho</h3>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Bạn có chắc chắn muốn gỡ tệp <strong className="text-slate-800">{deleteTarget.ten_file}</strong> khỏi Kho dữ liệu?
+              </p>
+
+              {isTargetDrive && (
+                <div className="flex items-start space-x-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-[11px] text-emerald-800 leading-snug">
+                  <Cloud className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Tự động xóa Google Drive:</strong> Tệp này cũng sẽ được tự động xóa trên Google Drive (chuyển vào Thùng rác).
+                  </span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end space-x-3 pt-2">
+                <button
+                  type="button"
+                  disabled={isDeletingFile}
+                  onClick={() => setDeleteTarget(null)}
+                  className="px-3 py-1.5 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-medium cursor-pointer disabled:opacity-50"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingFile}
+                  onClick={handleDeleteConfirm}
+                  className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer disabled:opacity-50 flex items-center space-x-1.5"
+                >
+                  {isDeletingFile ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Đang xóa...</span>
+                    </>
+                  ) : (
+                    <span>Xác nhận gỡ</span>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── MODAL XEM TRƯỚC TỆP TRỰC TIẾP ────────────────────────────────────────── */}
       {previewPdf && (() => {

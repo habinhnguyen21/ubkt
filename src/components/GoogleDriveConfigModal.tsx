@@ -172,6 +172,9 @@ export const GoogleDriveConfigModal: React.FC<Props> = ({ isOpen, onClose, onSav
               <li>
                 Nhấn <strong>Triển khai</strong>, cấp quyền truy cập Google Drive và sao chép <strong>URL ứng dụng web (Web app URL)</strong> dán vào ô bên dưới.
               </li>
+              <li className="text-emerald-800 font-semibold bg-emerald-50/80 p-2 rounded-lg border border-emerald-200/80">
+                💡 <strong>Nếu bạn đã triển khai trước đó và muốn cập nhật mã mới (hỗ trợ tự động xóa tệp):</strong> Dán đè mã kịch bản mới &gt; bấm <strong>Triển khai (Deploy)</strong> &gt; <strong>Quản lý bản triển khai (Manage deployments)</strong> &gt; bấm biểu tượng <strong>Chỉnh sửa (Cây bút)</strong> &gt; tại mục <em>Phiên bản (Version)</em> chọn <strong>Phiên bản mới (New version)</strong> &gt; bấm <strong>Triển khai (Deploy)</strong>.
+              </li>
             </ol>
           </div>
 

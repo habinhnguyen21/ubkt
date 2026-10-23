@@ -521,44 +521,7 @@ app.get('/api/don-vi/:id/relations', (req, res) => {
   });
 });
 
-app.delete('/api/don-vi/:id', (req, res) => {
-  const { id } = req.params;
-  const { user_id, actor_name } = req.body || {};
-  const db = readDb();
 
-  const hasChildren = db.donViList.some((d) => d.don_vi_cha_id === id && !d.deleted_at);
-  if (hasChildren) {
-    return res.status(400).json({ message: 'Không thể xóa đơn vị đang có đơn vị cấp dưới trực thuộc.' });
-  }
-
-  // Kiểm tra nếu có hồ sơ nghiệp vụ liên quan
-  const hasKtGs = (db.chuongTrinhList || []).some((c) => c.don_vi_id === id);
-  if (hasKtGs) {
-    return res.status(400).json({
-      message: 'Tổ chức này đã phát sinh hồ sơ kiểm tra, giám sát. Hãy chọn "Ngừng hoạt động" thay vì xóa để bảo toàn dữ liệu lịch sử.',
-    });
-  }
-
-  const item = db.donViList.find((d) => d.id === id);
-  if (item) {
-    item.deleted_at = new Date().toISOString();
-    db.auditLogs.unshift({
-      id: `log-${Date.now()}`,
-      nguoi_dung_id: user_id || null,
-      ten_nguoi_dung: actor_name || 'Cán bộ quản trị',
-      hanh_dong: `Xóa tổ chức: ${item.ten}`,
-      bang_anh_huong: 'don_vi',
-      ban_ghi_id: item.id,
-      du_lieu_cu: JSON.stringify(item),
-      du_lieu_moi: null,
-      thoi_gian: new Date().toISOString(),
-    });
-
-    writeDb(db);
-  }
-
-  res.json({ success: true });
-});
 
 // ── Chuong Trinh KT-GS ──────────────────────────────────────────────────────
 app.get('/api/chuong-trinh', (req, res) => {
