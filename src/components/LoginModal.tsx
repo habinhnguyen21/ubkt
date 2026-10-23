@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api } from '../services/api';
 import type { User } from '../types';
+import logoUbkt from '../assets/logo-ubkt.jpg';
 
 // Font chuyên nghiệp từ Google Fonts
 if (typeof document !== 'undefined' && !document.getElementById('gfont-bevietnam')) {
@@ -87,7 +88,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
         }}
       >
         <img
-          src="/logo-ubkt.jpg"
+          src={logoUbkt}
           alt="Logo Ủy ban Kiểm tra Đảng"
           style={{
             width: 110,

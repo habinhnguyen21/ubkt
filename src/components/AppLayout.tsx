@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { AppInfo, User } from '../types';
+import logoUbkt from '../assets/logo-ubkt.jpg';
 
 type TabKey = 'tong_quan' | 'don_vi' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
 
@@ -104,7 +105,7 @@ export function AppLayout({
             onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
           >
             <img
-              src="/logo-ubkt.jpg"
+              src={logoUbkt}
               alt="Logo UBKT"
               style={{
                 width: sidebarCollapsed ? 38 : 42,
