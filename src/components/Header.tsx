@@ -1,11 +1,10 @@
 import React from 'react';
 import type { User } from '../types';
-import { Lock, LogOut, KeyRound, History, Building2, HelpCircle, Users } from 'lucide-react';
+import { LogOut, KeyRound, History, Building2, HelpCircle, Users } from 'lucide-react';
 
 interface HeaderProps {
   user: User | null;
   onLogout: () => void;
-  onLockScreen: () => void;
   onChangePassword: () => void;
   onOpenAuditLogs: () => void;
   onOpenGuide?: () => void;
@@ -17,7 +16,6 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   user,
   onLogout,
-  onLockScreen,
   onChangePassword,
   onOpenAuditLogs,
   onOpenGuide,
@@ -105,13 +103,6 @@ export const Header: React.FC<HeaderProps> = ({
                   className="p-1.5 text-red-100 hover:text-amber-300 hover:bg-red-700/60 rounded-md transition cursor-pointer"
                 >
                   <KeyRound className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={onLockScreen}
-                  title="Khóa màn hình tạm thời"
-                  className="p-1.5 text-red-100 hover:text-amber-300 hover:bg-red-700/60 rounded-md transition cursor-pointer"
-                >
-                  <Lock className="w-4 h-4" />
                 </button>
                 <button
                   onClick={onLogout}

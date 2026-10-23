@@ -5,7 +5,6 @@ import { AppLayout } from './components/AppLayout';
 import { Dashboard } from './components/Dashboard';
 import { LoginModal } from './components/LoginModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
-import { LockScreen } from './components/LockScreen';
 import { DonViManager } from './components/DonViManager';
 import { ChuongTrinhManager } from './components/ChuongTrinhManager';
 import { LichThangManager } from './components/LichThangManager';
@@ -17,13 +16,29 @@ import { DonThuManager } from './components/DonThuManager';
 
 type TabKey = 'tong_quan' | 'don_vi' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
 
+// Dọn sạch dữ liệu chạy thử nghiệm cũ khỏi localStorage để sẵn sàng chạy chính thức
+if (typeof window !== 'undefined') {
+  try {
+    const isCleaned = localStorage.getItem('ubkt_prod_clean_done');
+    if (!isCleaned) {
+      localStorage.removeItem('ubkt_ho_so_dia_ban_records');
+      localStorage.removeItem('ubkt_ho_so_dia_ban_files');
+      localStorage.removeItem('ubkt_bao_cao_thang_items');
+      localStorage.removeItem('ubkt_phan_cong_dia_ban');
+      localStorage.removeItem('ubkt_mock_db');
+      localStorage.setItem('ubkt_prod_clean_done', 'true');
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('ubkt_current_user');
     return saved ? JSON.parse(saved) : null;
   });
 
-  const [isLocked, setIsLocked] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [showAuditLogs, setShowAuditLogs] = useState(false);
   const [showUserManager, setShowUserManager] = useState(false);
@@ -73,31 +88,8 @@ export function App() {
     return () => window.removeEventListener('ubkt_navigate', handleNav);
   }, [handleTabChange]);
 
-  // Tự động khóa màn hình sau 15 phút không hoạt động
-  useEffect(() => {
-    if (!currentUser || isLocked) return;
-
-    let timeoutId: number;
-    const resetTimer = () => {
-      window.clearTimeout(timeoutId);
-      timeoutId = window.setTimeout(() => {
-        setIsLocked(true);
-      }, 15 * 60 * 1000);
-    };
-
-    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
-    events.forEach((e) => window.addEventListener(e, resetTimer));
-    resetTimer();
-
-    return () => {
-      window.clearTimeout(timeoutId);
-      events.forEach((e) => window.removeEventListener(e, resetTimer));
-    };
-  }, [currentUser, isLocked]);
-
   const handleLoginSuccess = (user: User, token: string) => {
     setCurrentUser(user);
-    setIsLocked(false);
     localStorage.setItem('ubkt_current_user', JSON.stringify(user));
     localStorage.setItem('ubkt_session_token', token);
     fetchAppInfo();
@@ -105,7 +97,6 @@ export function App() {
 
   const handleLogout = () => {
     setCurrentUser(null);
-    setIsLocked(false);
     localStorage.removeItem('ubkt_current_user');
     localStorage.removeItem('ubkt_session_token');
   };
@@ -162,7 +153,6 @@ export function App() {
           activeTab={activeTab}
           onTabChange={handleTabChange}
           onLogout={handleLogout}
-          onLockScreen={() => setIsLocked(true)}
           onChangePassword={() => setShowChangePasswordModal(true)}
           onOpenAuditLogs={() => setShowAuditLogs(true)}
           onOpenUserManager={() => setShowUserManager(true)}
@@ -171,15 +161,6 @@ export function App() {
         >
           {renderContent()}
         </AppLayout>
-      )}
-
-      {/* Màn hình khóa */}
-      {currentUser && isLocked && (
-        <LockScreen
-          user={currentUser}
-          onUnlock={() => setIsLocked(false)}
-          onLogout={handleLogout}
-        />
       )}
 
       {/* Modal đổi mật khẩu */}

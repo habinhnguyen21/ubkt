@@ -44,6 +44,7 @@ import { OrgFormModal } from './donvi/OrgFormModal';
 import { OrgChangeParentModal } from './donvi/OrgChangeParentModal';
 import { OrgImportExcelModal } from './donvi/OrgImportExcelModal';
 import { OrgAuditHistoryModal } from './donvi/OrgAuditHistoryModal';
+import { OrgDeleteModal } from './donvi/OrgDeleteModal';
 
 interface DonViManagerProps {
   user: User;
@@ -121,6 +122,9 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isAuditHistoryOpen, setIsAuditHistoryOpen] = useState(false);
   const [auditTargetUnit, setAuditTargetUnit] = useState<DonVi | null>(null);
+
+  // Modal xác nhận xóa tổ chức
+  const [deleteTargetUnit, setDeleteTargetUnit] = useState<DonVi | null>(null);
 
   // Modal cập nhật trạng thái hoạt động (Đang hoạt động / Tạm ngừng / Đã chấm dứt)
   const [toggleStatusTarget, setToggleStatusTarget] = useState<DonVi | null>(null);
@@ -450,7 +454,16 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
     }
   };
 
-  // 8. Xuất danh sách Excel / CSV
+  // 8. Xóa tổ chức Đảng
+  const handleConfirmDelete = async (unitId: string) => {
+    await api.deleteDonVi(unitId, user.id, user.ho_ten);
+    if (selectedUnitId === unitId) setSelectedUnitId(null);
+    if (detailUnit?.id === unitId) setDetailUnit(null);
+    await loadData();
+    onDataChanged?.();
+  };
+
+  // 9. Xuất danh sách Excel / CSV
   const handleExportCsv = () => {
     exportUnitsToCsv(allDonVi);
   };
@@ -960,6 +973,10 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
                       const match = allDonVi.find((u) => u.id === node.id);
                       if (match) handlePromptToggleStatus(match);
                     }}
+                    onDeleteUnit={(node) => {
+                      const match = allDonVi.find((u) => u.id === node.id);
+                      if (match) setDeleteTargetUnit(match);
+                    }}
                   />
                 </div>
 
@@ -987,6 +1004,9 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
                     }}
                     onToggleStatus={(unit) => {
                       handlePromptToggleStatus(unit);
+                    }}
+                    onDeleteUnit={(unit) => {
+                      setDeleteTargetUnit(unit);
                     }}
                     onBatchToggleStatus={async (batchUnits, newStatus) => {
                       for (const u of batchUnits) {
@@ -1045,6 +1065,10 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
                   onSelectUnit={(u) => {
                     setSelectedUnitId(u.id);
                     setDetailUnit(u);
+                  }}
+                  onDelete={(u) => {
+                    setDetailUnit(null);
+                    setDeleteTargetUnit(u);
                   }}
                 />
               </div>
@@ -1386,6 +1410,15 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
         isOpen={isAuditHistoryOpen}
         targetUnit={auditTargetUnit}
         onClose={() => setIsAuditHistoryOpen(false)}
+      />
+
+      {/* Modal: Xác nhận xóa tổ chức Đảng */}
+      <OrgDeleteModal
+        isOpen={Boolean(deleteTargetUnit)}
+        unit={deleteTargetUnit}
+        allUnits={allDonVi}
+        onClose={() => setDeleteTargetUnit(null)}
+        onConfirm={handleConfirmDelete}
       />
 
       {/* Modal 5: Thay đổi trạng thái hoạt động (Đang hoạt động / Tạm ngừng / Đã chấm dứt) */}

@@ -10,7 +10,6 @@ interface LayoutProps {
   activeTab: TabKey;
   onTabChange: (tab: TabKey) => void;
   onLogout: () => void;
-  onLockScreen: () => void;
   onChangePassword: () => void;
   onOpenAuditLogs: () => void;
   onOpenUserManager: () => void;
@@ -43,7 +42,6 @@ export function AppLayout({
   activeTab,
   onTabChange,
   onLogout,
-  onLockScreen,
   onChangePassword,
   onOpenAuditLogs,
   onOpenUserManager,
@@ -278,7 +276,6 @@ export function AppLayout({
                   { icon: '👥', label: 'Quản lý tài khoản', id: 'menu-user-manager', action: onOpenUserManager, adminOnly: true },
                   { icon: '📜', label: 'Nhật ký hoạt động', id: 'menu-audit-log', action: onOpenAuditLogs },
                   { icon: '🔑', label: 'Đổi mật khẩu', id: 'menu-change-pw', action: onChangePassword },
-                  { icon: '🔒', label: 'Khóa màn hình', id: 'menu-lock', action: onLockScreen },
                   null,
                   { icon: '🚪', label: 'Đăng xuất', id: 'menu-logout', action: onLogout, danger: true },
                 ].map((item, i) => {

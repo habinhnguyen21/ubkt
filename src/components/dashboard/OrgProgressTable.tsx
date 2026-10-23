@@ -5,7 +5,7 @@ import type { UnitProgressRow } from '../../services/dashboardStats';
 interface OrgProgressTableProps {
   data: UnitProgressRow[];
   currentYear: number | 'ALL';
-  onNavigateToUnit: (donViId: string) => void;
+  onNavigateToUnit?: (donViId: string) => void;
 }
 
 type SortField = 'ten' | 'soKiemTra' | 'soGiamSat' | 'daHoanThanh' | 'chuaThucHien' | 'tyLeHoanThanh';
@@ -185,13 +185,13 @@ export const OrgProgressTable: React.FC<OrgProgressTableProps> = ({
               >
                 Tiến độ {getSortIcon('tyLeHoanThanh')}
               </th>
-              <th className="p-3 text-center w-20">Hồ sơ</th>
+              {onNavigateToUnit && <th className="p-3 text-center w-20">Hồ sơ</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-700">
             {paginatedData.length === 0 ? (
               <tr>
-                <td colSpan={10} className="p-8 text-center text-slate-400">
+                <td colSpan={onNavigateToUnit ? 10 : 9} className="p-8 text-center text-slate-400">
                   Không tìm thấy đơn vị nào phù hợp với điều kiện lọc.
                 </td>
               </tr>
@@ -252,15 +252,17 @@ export const OrgProgressTable: React.FC<OrgProgressTableProps> = ({
                         </span>
                       </div>
                     </td>
-                    <td className="p-3 text-center">
-                      <button
-                        onClick={() => onNavigateToUnit(row.donViId)}
-                        title="Xem Hồ sơ địa bàn chi tiết"
-                        className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
+                    {onNavigateToUnit && (
+                      <td className="p-3 text-center">
+                        <button
+                          onClick={() => onNavigateToUnit(row.donViId)}
+                          title="Xem Hồ sơ địa bàn chi tiết"
+                          className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })

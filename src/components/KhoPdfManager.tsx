@@ -16,7 +16,43 @@ import {
   Database,
   RefreshCw,
   X,
+  Cloud,
+  ExternalLink,
+  FileSpreadsheet,
+  Info,
 } from 'lucide-react';
+import { GoogleDriveConfigModal } from './GoogleDriveConfigModal';
+import {
+  getGoogleDriveConfig,
+  uploadFileToGoogleDrive,
+  isGoogleDriveConfigured,
+} from '../services/googleDriveService';
+
+// Chuyển đổi an toàn Base64 Data URL sang Blob URL để xem trực tiếp trong iframe và mở tab mới
+const getBlobUrlFromDataUrl = (dataUrl?: string | null): string | null => {
+  if (!dataUrl) return null;
+  if (dataUrl.startsWith('blob:') || dataUrl.startsWith('http://') || dataUrl.startsWith('https://')) {
+    return dataUrl;
+  }
+  if (dataUrl.startsWith('data:')) {
+    try {
+      const parts = dataUrl.split(',');
+      const mimeMatch = parts[0].match(/:(.*?);/);
+      const mime = mimeMatch ? mimeMatch[1] : 'application/pdf';
+      const byteCharacters = atob(parts[1]);
+      const byteArrays = new Uint8Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteArrays[i] = byteCharacters.charCodeAt(i);
+      }
+      const blob = new Blob([byteArrays], { type: mime });
+      return URL.createObjectURL(blob);
+    } catch (err) {
+      console.warn('Lỗi chuyển data URL sang Blob:', err);
+      return dataUrl;
+    }
+  }
+  return dataUrl;
+};
 
 interface KhoPdfManagerProps {
   user: User;
@@ -28,6 +64,11 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
   const [allPrograms, setAllPrograms] = useState<ChuongTrinhKtGs[]>([]);
   const [allDonVi, setAllDonVi] = useState<DonVi[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Google Drive Modal & State
+  const [isGdriveModalOpen, setIsGdriveModalOpen] = useState(false);
+  const [isGdriveActive, setIsGdriveActive] = useState(() => isGoogleDriveConfigured());
+  const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
 
   // Bộ lọc
   const [searchQuery, setSearchQuery] = useState('');
@@ -88,33 +129,41 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
         if (rawHsdb) {
           const hsdbFiles = JSON.parse(rawHsdb);
           if (Array.isArray(hsdbFiles)) {
-            hsdbFiles.forEach((f: HoSoDiaBanFile) => {
-              const fileKey = 'hsdb-' + f.id;
-              if (!seenIds.has(fileKey)) {
-                seenIds.add(fileKey);
-                combinedList.push({
-                  id: fileKey,
-                  ten_file: f.ten_file,
-                  dung_luong: f.dung_luong || 250000,
-                  url: f.url || f.file_url || null,
-                  file_url: f.file_url || f.url || null,
-                  loai_file: f.loai_file || (f.ten_file?.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx'),
-                  the_loai_van_ban: f.the_loai_van_ban || 'Tài liệu hồ sơ',
-                  so_van_ban: f.so_van_ban || null,
-                  trich_yeu: f.trich_yeu || f.mo_ta || null,
-                  nguoi_ky: f.nguoi_ky || null,
-                  don_vi_id: f.don_vi_id || null,
-                  ten_don_vi: f.ten_don_vi || null,
-                  nguon_goc: 'HO_SO_DIA_BAN',
-                  chu_the: f.ten_don_vi ? `Hồ sơ địa bàn ${f.ten_don_vi}` : 'Hồ sơ địa bàn cơ sở',
-                  doi_tuong: f.ten_don_vi || 'Cơ sở',
-                  nam: new Date().getFullYear(),
-                  ngay_ban_hanh: f.ngay_ban_hanh || (f.ngay_tao ? f.ngay_tao.slice(0, 10) : new Date().toISOString().slice(0, 10)),
-                  ghi_chu: f.loai_tai_lieu || 'Tài liệu hồ sơ địa bàn',
-                  created_at: f.ngay_tao || new Date().toISOString(),
-                });
-              }
-            });
+            const hasMock = hsdbFiles.some((f: any) => f.id === 'f-01' || f.id === 'f-02' || f.ten_don_vi?.includes('Quân sự'));
+            if (hasMock) {
+              localStorage.removeItem('ubkt_ho_so_dia_ban_files');
+            } else {
+              hsdbFiles.forEach((f: HoSoDiaBanFile) => {
+                const fileKey = 'hsdb-' + f.id;
+                if (!seenIds.has(fileKey)) {
+                  seenIds.add(fileKey);
+                  combinedList.push({
+                    id: fileKey,
+                    ten_file: f.ten_file,
+                    dung_luong: f.dung_luong || 250000,
+                    url: f.url || f.file_url || null,
+                    file_url: f.file_url || f.url || null,
+                    loai_file: f.loai_file || (f.ten_file?.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx'),
+                    the_loai_van_ban: f.the_loai_van_ban || 'Tài liệu hồ sơ',
+                    so_van_ban: f.so_van_ban || null,
+                    trich_yeu: f.trich_yeu || f.mo_ta || null,
+                    nguoi_ky: f.nguoi_ky || null,
+                    don_vi_id: f.don_vi_id || null,
+                    ten_don_vi: f.ten_don_vi || null,
+                    nguon_goc: 'HO_SO_DIA_BAN',
+                    chu_the: f.ten_don_vi ? `Hồ sơ địa bàn ${f.ten_don_vi}` : 'Hồ sơ địa bàn cơ sở',
+                    doi_tuong: f.ten_don_vi || 'Cơ sở',
+                    nam: new Date().getFullYear(),
+                    ngay_ban_hanh: f.ngay_ban_hanh || (f.ngay_tao ? f.ngay_tao.slice(0, 10) : new Date().toISOString().slice(0, 10)),
+                    ghi_chu: f.loai_tai_lieu || 'Tài liệu hồ sơ địa bàn',
+                    google_drive_id: f.google_drive_id || (f as any).google_drive_id || null,
+                    google_drive_preview_url: f.google_drive_preview_url || (f as any).google_drive_preview_url || null,
+                    is_google_drive: Boolean(f.is_google_drive || (f as any).is_google_drive || (f.url && f.url.includes('drive.google.com'))),
+                    created_at: f.ngay_tao || new Date().toISOString(),
+                  });
+                }
+              });
+            }
           }
         }
       } catch (err) {
@@ -143,10 +192,16 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
     window.addEventListener('ubkt_kho_du_lieu_updated', handleSync);
     window.addEventListener('ubkt_assignments_updated', handleSync);
 
+    const handleGdriveUpdate = () => {
+      setIsGdriveActive(isGoogleDriveConfigured());
+    };
+    window.addEventListener('ubkt_gdrive_config_updated', handleGdriveUpdate);
+
     return () => {
       window.removeEventListener('ubkt_diaban_records_updated', handleSync);
       window.removeEventListener('ubkt_kho_du_lieu_updated', handleSync);
       window.removeEventListener('ubkt_assignments_updated', handleSync);
+      window.removeEventListener('ubkt_gdrive_config_updated', handleGdriveUpdate);
     };
   }, []);
 
@@ -213,12 +268,39 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
     setFormError(null);
 
     try {
-      const reader = new FileReader();
-      const readPromise = new Promise<string>((resolve) => {
-        reader.onload = () => resolve(reader.result as string);
-      });
-      reader.readAsDataURL(selectedFile);
-      const dataUrl = await readPromise;
+      let finalUrl = '';
+      let googleDriveId: string | undefined = undefined;
+      let googleDrivePreviewUrl: string | undefined = undefined;
+      let isGoogleDrive = false;
+
+      // Kiểm tra cấu hình Google Drive và thực hiện tải lên nếu được bật
+      const gdriveCfg = getGoogleDriveConfig();
+      if (gdriveCfg.scriptUrl && gdriveCfg.autoUpload) {
+        setIsUploadingToDrive(true);
+        try {
+          const driveRes = await uploadFileToGoogleDrive(selectedFile, gdriveCfg.folderId);
+          if (driveRes.success && driveRes.fileUrl) {
+            finalUrl = driveRes.fileUrl;
+            googleDriveId = driveRes.fileId;
+            googleDrivePreviewUrl = driveRes.previewUrl;
+            isGoogleDrive = true;
+          }
+        } catch (gdriveErr: any) {
+          console.warn('Lỗi tải tệp lên Google Drive, chuyển sang lưu Base64 dự phòng:', gdriveErr);
+        } finally {
+          setIsUploadingToDrive(false);
+        }
+      }
+
+      // Nếu không dùng Google Drive hoặc tải lên Drive gặp lỗi, fallback sang đọc DataURL Base64
+      if (!finalUrl) {
+        const reader = new FileReader();
+        const readPromise = new Promise<string>((resolve) => {
+          reader.onload = () => resolve(reader.result as string);
+        });
+        reader.readAsDataURL(selectedFile);
+        finalUrl = await readPromise;
+      }
 
       const ext = selectedFile.name.split('.').pop()?.toLowerCase() || 'docx';
       const fileType = ext === 'pdf' ? 'pdf' : ext === 'xlsx' || ext === 'xls' ? 'xlsx' : 'docx';
@@ -229,7 +311,11 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
       await api.createOrAttachPdf({
         ten_file: selectedFile.name,
         dung_luong: selectedFile.size,
-        url: dataUrl,
+        url: finalUrl,
+        file_url: finalUrl,
+        google_drive_id: googleDriveId,
+        google_drive_preview_url: googleDrivePreviewUrl,
+        is_google_drive: isGoogleDrive,
         chuong_trinh_id: selectedProgramId || null,
         don_vi_id: selectedDonViId || null,
         ten_don_vi: donViObj ? donViObj.ten : null,
@@ -251,8 +337,11 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
           ten_file: selectedFile.name,
           loai_file: fileType,
           dung_luong: selectedFile.size,
-          url: dataUrl,
-          file_url: dataUrl,
+          url: finalUrl,
+          file_url: finalUrl,
+          google_drive_id: googleDriveId,
+          google_drive_preview_url: googleDrivePreviewUrl,
+          is_google_drive: isGoogleDrive,
           loai_tai_lieu: '5. Tài liệu của cơ sở và hồ sơ liên quan',
           mo_ta: docTrichYeu.trim(),
           ngay_tao: new Date().toLocaleDateString('vi-VN'),
@@ -335,11 +424,7 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
   };
 
   const handleViewPdf = (item: PdfKhoItem) => {
-    if (item.url || item.file_url) {
-      window.open((item.url || item.file_url)!, '_blank');
-    } else {
-      setPreviewPdf(item);
-    }
+    setPreviewPdf(item);
   };
 
   const filteredData = useMemo(() => {
@@ -415,6 +500,22 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
         </div>
 
         <div className="flex items-center space-x-2">
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setIsGdriveModalOpen(true)}
+              className={`inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                isGdriveActive
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 shadow-2xs'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+              }`}
+              title="Cấu hình lưu trữ tệp lên Google Drive qua Google Apps Script Web App"
+            >
+              <Cloud className={`w-4 h-4 ${isGdriveActive ? 'text-emerald-600' : 'text-slate-500'}`} />
+              <span>{isGdriveActive ? 'Google Drive: BẬT' : 'Cấu hình Google Drive'}</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={loadData}
@@ -649,6 +750,15 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                           >
                             {isPdf ? 'PDF' : isWord ? 'DOCX' : isExcel ? 'XLSX' : 'FILE'}
                           </span>
+                          {(item.is_google_drive || item.google_drive_id || item.file_url?.includes('drive.google.com')) && (
+                            <span
+                              className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-0.5"
+                              title="Tệp được lưu trữ trên Google Drive"
+                            >
+                              <Cloud className="w-2.5 h-2.5 text-emerald-600" />
+                              <span>Drive</span>
+                            </span>
+                          )}
                           <span className="text-slate-500 text-[11px]">
                             {formatFileSize(item.dung_luong)}
                           </span>
@@ -658,16 +768,14 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                       {/* 8. Thao tác */}
                       <td className="py-3 px-3 text-center whitespace-nowrap">
                         <div className="inline-flex items-center space-x-1">
-                          {isPdf && (
-                            <button
-                              type="button"
-                              onClick={() => handleViewPdf(item)}
-                              title="Xem trực tiếp PDF"
-                              className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleViewPdf(item)}
+                            title={`Xem trực tiếp / Chi tiết: ${item.ten_file}`}
+                            className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-blue-50 rounded cursor-pointer transition"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleDownload(item)}
@@ -724,6 +832,34 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                   <span>{formError}</span>
                 </div>
               )}
+
+              {/* Trạng thái Google Drive */}
+              <div
+                className={`p-2.5 rounded-lg border flex items-center justify-between text-xs ${
+                  isGdriveActive
+                    ? 'bg-emerald-50/80 border-emerald-200 text-emerald-800'
+                    : 'bg-slate-50 border-slate-200 text-slate-600'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <Cloud className={`w-4 h-4 ${isGdriveActive ? 'text-emerald-600' : 'text-slate-400'}`} />
+                  <span>
+                    Lưu trữ đám mây: <strong>{isGdriveActive ? 'Google Drive (Tự động tải lên)' : 'Cục bộ (Chưa cấu hình Drive)'}</strong>
+                  </span>
+                </div>
+                {!isGdriveActive && canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddModalOpen(false);
+                      setIsGdriveModalOpen(true);
+                    }}
+                    className="text-[11px] text-blue-700 font-bold hover:underline cursor-pointer"
+                  >
+                    Bật Drive
+                  </button>
+                )}
+              </div>
 
               {/* Chọn tệp từ máy */}
               <div>
@@ -896,9 +1032,16 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50"
+                  className="px-5 py-2 bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50 flex items-center space-x-1.5"
                 >
-                  {isSubmitting ? 'Đang lưu...' : 'Lưu vào Kho dữ liệu'}
+                  {isSubmitting ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>{isUploadingToDrive ? 'Đang tải lên Drive...' : 'Đang lưu tệp...'}</span>
+                    </>
+                  ) : (
+                    <span>Lưu vào Kho dữ liệu</span>
+                  )}
                 </button>
               </div>
             </form>
@@ -937,58 +1080,355 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
         </div>
       )}
 
-      {/* ── MODAL XEM TRƯỚC TỆP KHI KHÔNG CÓ DATA URL BLOB ─────────────── */}
-      {previewPdf && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center space-x-2">
-                <FileText className="w-5 h-5 text-red-600" />
-                <h3 className="text-sm font-bold text-slate-900 truncate max-w-md">
-                  {previewPdf.ten_file}
-                </h3>
+      {/* ── MODAL XEM TRƯỚC TỆP TRỰC TIẾP ────────────────────────────────────────── */}
+      {previewPdf && (() => {
+        const fileRawUrl = previewPdf.url || previewPdf.file_url;
+        const isDrive = Boolean(
+          previewPdf.is_google_drive ||
+          previewPdf.google_drive_preview_url ||
+          previewPdf.google_drive_id ||
+          fileRawUrl?.includes('drive.google.com')
+        );
+
+        // Chuẩn hóa link preview và link mở Google Drive
+        let drivePreviewUrl: string | null = null;
+        let driveOpenUrl: string | null = null;
+        if (isDrive) {
+          if (previewPdf.google_drive_preview_url) {
+            drivePreviewUrl = previewPdf.google_drive_preview_url;
+          } else if (previewPdf.google_drive_id) {
+            drivePreviewUrl = `https://drive.google.com/file/d/${previewPdf.google_drive_id}/preview`;
+          } else if (fileRawUrl?.includes('drive.google.com')) {
+            drivePreviewUrl = fileRawUrl.replace(/\/view(\?.*)?$/, '/preview');
+          }
+
+          driveOpenUrl =
+            fileRawUrl ||
+            (previewPdf.google_drive_id ? `https://drive.google.com/file/d/${previewPdf.google_drive_id}/view` : null) ||
+            drivePreviewUrl;
+        }
+
+        // Chuyển đổi Base64 Data URL sang Blob URL an toàn
+        const blobUrl = getBlobUrlFromDataUrl(fileRawUrl);
+
+        const fileNameLower = previewPdf.ten_file.toLowerCase();
+        const isPdf = fileNameLower.endsWith('.pdf') || previewPdf.loai_file === 'pdf' || (fileRawUrl?.startsWith('data:application/pdf') ?? false);
+        const isWord = fileNameLower.endsWith('.docx') || fileNameLower.endsWith('.doc') || previewPdf.loai_file === 'docx' || previewPdf.loai_file === 'doc';
+        const isExcel = fileNameLower.endsWith('.xlsx') || fileNameLower.endsWith('.xls') || previewPdf.loai_file === 'xlsx' || previewPdf.loai_file === 'xls';
+        const isImage = /\.(png|jpe?g|webp|svg|gif|bmp)$/i.test(fileNameLower) || (fileRawUrl?.startsWith('data:image/') ?? false);
+
+        const handleOpenExternal = () => {
+          if (isDrive && driveOpenUrl) {
+            window.open(driveOpenUrl, '_blank');
+          } else if (blobUrl) {
+            window.open(blobUrl, '_blank');
+          } else {
+            handleDownload(previewPdf);
+          }
+        };
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-slate-900/60 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-5xl w-full shadow-2xl border border-slate-200 flex flex-col max-h-[92vh] overflow-hidden animate-in zoom-in-95 duration-150">
+              {/* Header Modal */}
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 bg-slate-50/70">
+                <div className="flex items-center space-x-2.5 overflow-hidden pr-2">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-xs border bg-white">
+                    {isDrive ? (
+                      <Cloud className="w-4 h-4 text-emerald-600" />
+                    ) : isPdf ? (
+                      <FileText className="w-4 h-4 text-red-600" />
+                    ) : isWord ? (
+                      <FileText className="w-4 h-4 text-blue-600" />
+                    ) : isExcel ? (
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                    ) : (
+                      <FileText className="w-4 h-4 text-slate-600" />
+                    )}
+                  </div>
+                  <div className="overflow-hidden">
+                    <div className="flex items-center space-x-2">
+                      <h3 className="text-sm font-bold text-slate-900 truncate" title={previewPdf.ten_file}>
+                        {previewPdf.ten_file}
+                      </h3>
+                      {isDrive && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                          Google Drive
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-3 text-[11px] text-slate-500">
+                      <span>{formatFileSize(previewPdf.dung_luong)}</span>
+                      <span>•</span>
+                      <span>{previewPdf.the_loai_van_ban || 'Văn bản'}</span>
+                      {previewPdf.ten_don_vi && (
+                        <>
+                          <span>•</span>
+                          <span className="truncate max-w-[200px]">{previewPdf.ten_don_vi}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2 shrink-0">
+                  {/* Nút mở tab mới */}
+                  {(isDrive || blobUrl) && (
+                    <button
+                      type="button"
+                      onClick={handleOpenExternal}
+                      title={isDrive ? 'Mở trực tiếp trên Google Drive trong tab mới' : 'Mở toàn màn hình tab mới'}
+                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">{isDrive ? 'Mở Google Drive' : 'Mở toàn màn hình'}</span>
+                    </button>
+                  )}
+
+                  {/* Nút tải về */}
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(previewPdf)}
+                    title={`Tải tệp về máy: ${previewPdf.ten_file}`}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-xs transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Tải về máy</span>
+                  </button>
+
+                  {/* Nút đóng */}
+                  <button
+                    type="button"
+                    onClick={() => setPreviewPdf(null)}
+                    title="Đóng bản xem trước"
+                    className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg cursor-pointer transition"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setPreviewPdf(null)}
-                className="text-xs text-slate-400 hover:text-slate-700 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
 
-            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-2">
-              <p><strong>Địa bàn / Đơn vị:</strong> {previewPdf.ten_don_vi || previewPdf.doi_tuong || 'Tài liệu dùng chung'}</p>
-              <p><strong>Thể loại:</strong> {previewPdf.the_loai_van_ban || 'Văn bản'}</p>
-              {previewPdf.so_van_ban && <p><strong>Số ký hiệu:</strong> {previewPdf.so_van_ban}</p>}
-              {previewPdf.trich_yeu && <p><strong>Trích yếu:</strong> {previewPdf.trich_yeu}</p>}
-              <p><strong>Dung lượng:</strong> {formatFileSize(previewPdf.dung_luong)}</p>
-              {previewPdf.ghi_chu && <p><strong>Ghi chú:</strong> {previewPdf.ghi_chu}</p>}
-              <p className="text-slate-500 italic pt-2">
-                Bạn có thể bấm nút &quot;Tải tệp về&quot; bên dưới để mở và đọc trên máy tính.
-              </p>
-            </div>
+              {/* Vùng xem trước tệp chính */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-slate-100/50">
+                {/* 1. Nếu là Google Drive */}
+                {isDrive && drivePreviewUrl ? (
+                  <div className="space-y-2">
+                    <div className="w-full h-[540px] rounded-xl overflow-hidden border border-slate-300 bg-white shadow-xs relative">
+                      <iframe
+                        src={drivePreviewUrl}
+                        className="w-full h-full border-0"
+                        allow="autoplay"
+                        title={previewPdf.ten_file}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 bg-emerald-50/60 border border-emerald-200/60 rounded-lg px-3 py-2">
+                      <div className="flex items-center space-x-1.5 text-emerald-800">
+                        <Cloud className="w-3.5 h-3.5 shrink-0" />
+                        <span>Tệp được đồng bộ trên Google Drive bảo mật đám mây.</span>
+                      </div>
+                      {driveOpenUrl && (
+                        <a
+                          href={driveOpenUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-semibold text-emerald-700 hover:underline inline-flex items-center space-x-1"
+                        >
+                          <span>Xem trên Google Drive nếu trình duyệt chặn nhúng iframe</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ) : isPdf ? (
+                  /* 2. Nếu là PDF (Data URL Base64 / Blob URL / Cục bộ) */
+                  <div className="space-y-2">
+                    <div className="w-full h-[560px] rounded-xl overflow-hidden border border-slate-300 bg-white shadow-xs">
+                      {blobUrl ? (
+                        <iframe
+                          src={`${blobUrl}#toolbar=1`}
+                          className="w-full h-full border-0"
+                          title={previewPdf.ten_file}
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-full text-slate-500 space-y-2">
+                          <FileText className="w-12 h-12 text-slate-300" />
+                          <p className="text-xs">Không tìm thấy nội dung PDF để xem trực tiếp.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : isImage ? (
+                  /* 3. Nếu là Hình ảnh */
+                  <div className="w-full min-h-[420px] max-h-[560px] flex items-center justify-center rounded-xl overflow-hidden border border-slate-300 bg-slate-900/5 p-4 shadow-xs">
+                    <img
+                      src={blobUrl || fileRawUrl || ''}
+                      alt={previewPdf.ten_file}
+                      className="max-h-[520px] max-w-full object-contain rounded-lg shadow-md"
+                    />
+                  </div>
+                ) : (isWord || isExcel) ? (
+                  /* 4. Nếu là Word / Excel lưu cục bộ */
+                  <div className="bg-white rounded-xl border border-slate-200 p-8 shadow-xs text-center space-y-5">
+                    <div className="w-20 h-20 mx-auto rounded-2xl flex items-center justify-center shadow-sm border border-slate-100 bg-slate-50">
+                      {isWord ? (
+                        <FileText className="w-10 h-10 text-blue-600" />
+                      ) : (
+                        <FileSpreadsheet className="w-10 h-10 text-emerald-600" />
+                      )}
+                    </div>
+                    <div className="max-w-md mx-auto space-y-1">
+                      <h4 className="text-base font-bold text-slate-900">{previewPdf.ten_file}</h4>
+                      <p className="text-xs text-slate-500">
+                        Định dạng: <strong className="uppercase">{isWord ? 'Microsoft Word' : 'Microsoft Excel'}</strong> • Dung lượng: {formatFileSize(previewPdf.dung_luong)}
+                      </p>
+                    </div>
 
-            <div className="flex items-center justify-end space-x-3 pt-2">
-              <button
-                type="button"
-                onClick={() => handleDownload(previewPdf)}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-semibold cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Tải tệp về</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewPdf(null)}
-                className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-medium cursor-pointer"
-              >
-                Đóng
-              </button>
+                    <div className="bg-blue-50/60 border border-blue-200/70 rounded-xl p-4 max-w-lg mx-auto text-xs text-blue-900 text-left space-y-1.5 leading-relaxed">
+                      <div className="flex items-center space-x-1.5 font-bold text-blue-950">
+                        <Info className="w-4 h-4 text-blue-600 shrink-0" />
+                        <span>Xem và chỉnh sửa tài liệu:</span>
+                      </div>
+                      <p className="text-slate-600">
+                        Tệp văn bản này được lưu trữ ở máy chủ nội bộ. Quý đồng chí vui lòng tải tệp về máy để mở trực tiếp bằng Microsoft Office / WPS hoặc lưu trữ qua Google Drive để đọc trực tuyến trên trình duyệt.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-center space-x-3 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(previewPdf)}
+                        className="inline-flex items-center space-x-2 px-5 py-2.5 bg-[#133863] hover:bg-blue-900 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer transition"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>Tải tệp về máy ({formatFileSize(previewPdf.dung_luong)})</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  /* 5. Tệp định dạng khác */
+                  <div className="bg-white rounded-xl border border-slate-200 p-8 shadow-xs text-center space-y-4">
+                    <FileText className="w-16 h-16 text-slate-300 mx-auto" />
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">{previewPdf.ten_file}</h4>
+                      <p className="text-xs text-slate-500 mt-1">Dung lượng: {formatFileSize(previewPdf.dung_luong)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDownload(previewPdf)}
+                      className="inline-flex items-center space-x-2 px-4 py-2 bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-xs"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Tải tệp về máy</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Khung chi tiết Metadata của văn bản */}
+                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-3">
+                  <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-800 border-b border-slate-100 pb-2">
+                    <Info className="w-3.5 h-3.5 text-[#133863]" />
+                    <span>Thông tin hồ sơ / Thuộc tính văn bản</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500">Đơn vị / Địa bàn:</span>
+                        <span className="font-semibold text-slate-900 text-right">
+                          {previewPdf.ten_don_vi || previewPdf.doi_tuong || 'Tài liệu dùng chung'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500">Thể loại văn bản:</span>
+                        <span className="font-semibold text-slate-900">{previewPdf.the_loai_van_ban || 'Văn bản'}</span>
+                      </div>
+                      {previewPdf.so_van_ban && (
+                        <div className="flex justify-between py-1 border-b border-slate-100">
+                          <span className="text-slate-500">Số ký hiệu:</span>
+                          <span className="font-mono font-bold text-slate-900">{previewPdf.so_van_ban}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500">Người ký / Ban hành:</span>
+                        <span className="font-medium text-slate-900">{previewPdf.nguoi_ky || previewPdf.chu_the || 'Ủy ban Kiểm tra Đảng ủy'}</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500">Ngày ban hành:</span>
+                        <span className="font-mono font-semibold text-slate-900">{formatDateVn(previewPdf.ngay_ban_hanh || previewPdf.created_at)}</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500">Dung lượng tệp:</span>
+                        <span className="font-semibold text-slate-900">{formatFileSize(previewPdf.dung_luong)}</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500">Nguồn dữ liệu:</span>
+                        <span className="font-medium text-slate-800">
+                          {previewPdf.nguon_goc === 'HO_SO_DIA_BAN' ? 'Hồ sơ địa bàn' : previewPdf.nguon_goc === 'BAO_CAO_THANG' ? 'Báo cáo định kỳ tháng' : 'Kho dữ liệu tập trung'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500">Trạng thái lưu trữ:</span>
+                        <span className="font-semibold text-emerald-700">
+                          {isDrive ? 'Đám mây Google Drive' : 'Bộ nhớ máy chủ nội bộ'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {previewPdf.trich_yeu && (
+                    <div className="pt-2 border-t border-slate-100 text-xs">
+                      <span className="text-slate-500 block mb-1 font-medium">Trích yếu nội dung:</span>
+                      <p className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 text-slate-800 leading-relaxed italic">
+                        "{previewPdf.trich_yeu}"
+                      </p>
+                    </div>
+                  )}
+
+                  {previewPdf.ghi_chu && previewPdf.ghi_chu !== previewPdf.trich_yeu && (
+                    <div className="text-xs text-slate-500 pt-1">
+                      <span className="font-medium">Ghi chú thêm:</span> {previewPdf.ghi_chu}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer Modal */}
+              <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 bg-slate-50/70">
+                <span className="text-xs text-slate-500 font-mono">
+                  Mã tài liệu: {previewPdf.id}
+                </span>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(previewPdf)}
+                    className="inline-flex items-center space-x-1.5 px-4 py-2 bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-xs transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Tải tệp về</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewPdf(null)}
+                    className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-lg text-xs font-medium cursor-pointer transition"
+                  >
+                    Đóng
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {/* ── MODAL CẤU HÌNH GOOGLE DRIVE ────────────────────────────────────── */}
+      <GoogleDriveConfigModal
+        isOpen={isGdriveModalOpen}
+        onClose={() => setIsGdriveModalOpen(false)}
+        onSaved={() => setIsGdriveActive(isGoogleDriveConfigured())}
+      />
     </div>
   );
 };

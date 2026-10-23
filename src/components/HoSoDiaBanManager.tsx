@@ -53,498 +53,29 @@ interface Props {
 const STORAGE_DIA_BAN_RECORDS = 'ubkt_ho_so_dia_ban_records';
 const STORAGE_HO_SO_FILES = 'ubkt_ho_so_dia_ban_files';
 const STORAGE_BAO_CAO_THANG = 'ubkt_bao_cao_thang_items';
+const STORAGE_DELETED_DIA_BAN_IDS = 'ubkt_deleted_diaban_ids';
 
-// Dữ liệu mẫu ban đầu cho danh sách hồ sơ địa bàn
-const DEFAULT_DIA_BAN_DATA: DiaBanRecord[] = [
-  {
-    id: '01918a00-0000-7000-8000-000000000017',
-    ten_dia_ban: 'Chi bộ Quân sự',
-    loai_to_chuc: 'CHI_BO',
-    can_bo_phu_trach_id: 'mock-user-01',
-    can_bo_phu_trach_ten: 'Đ/c Nguyễn Văn An',
-    can_bo_chuc_vu: 'Ủy viên UBKT Đảng ủy',
-    thoi_gian_phan_cong: '15/01/2026',
-    van_ban_phan_cong: 'QĐ số 08-QĐ/UBKT ngày 10/01/2026',
-    tinh_trang_bao_cao_thang: 'DA_NOP_DUNG_HAN',
-    thang_hien_tai: 'T10/2026',
-    so_van_de_theo_doi: 2,
-    danh_sach_van_de: [
-      {
-        id: 'vd-01',
-        noi_dung: 'Theo dõi tiến độ rà soát nguồn công dân nhập ngũ năm 2027 và sinh hoạt chi bộ định kỳ.',
-        muc_do: 'QUAN_TRONG',
-        ngay_ghi_nhan: '10/10/2026',
-        trang_thai: 'DANG_THEO_DOI',
-      },
-      {
-        id: 'vd-02',
-        noi_dung: 'Nắm tình hình công tác quản lý vũ khí, trang thiết bị quân sự và lực lượng dân quân tự vệ.',
-        muc_do: 'THUONG',
-        ngay_ghi_nhan: '05/10/2026',
-        trang_thai: 'DANG_THEO_DOI',
-      },
-    ],
-    so_chi_dao_chua_hoan_thanh: 1,
-    danh_sach_chi_dao: [
-      {
-        id: 'cd-01',
-        noi_dung: 'Báo cáo Đảng ủy kết quả kiểm tra công tác sẵn sàng chiến đấu trước ngày 25/10/2026.',
-        van_ban_chi_dao: 'Kết luận số 05-KL/ĐU',
-        han_hoan_thanh: '25/10/2026',
-        trang_thai: 'CHUA_HOAN_THANH',
-      },
-    ],
-    thoi_diem_cap_nhat_gan_nhat: '18/10/2026 14:30',
-    nguoi_cap_nhat_gan_nhat: 'Đ/c Nguyễn Văn An',
-    so_luong_tai_lieu: 3,
-    ghi_chu: 'Chi bộ hoạt động nền nếp, chấp hành tốt các quy định của Đảng ủy',
-    trang_thai_ho_so: 'DANG_THEO_DOI',
-    lich_su_phu_trach: [
-      {
-        id: 'ls-qs-01',
-        can_bo_id: 'mock-user-03',
-        can_bo_ten: 'Đ/c Lê Văn Cường',
-        can_bo_chuc_vu: 'Chuyên viên UBKT Đảng ủy',
-        tu_ngay: '01/01/2025',
-        den_ngay: '15/01/2026',
-        van_ban_phan_cong: 'QĐ số 02-QĐ/UBKT ngày 28/12/2024',
-        ly_do_thay_doi: 'Luân chuyển cán bộ phụ trách theo định kỳ',
-        nguoi_thuc_hien: 'Chủ nhiệm UBKT',
-        created_at: '2025-01-01T08:00:00Z',
-      },
-      {
-        id: 'ls-qs-02',
-        can_bo_id: 'mock-user-01',
-        can_bo_ten: 'Đ/c Nguyễn Văn An',
-        can_bo_chuc_vu: 'Ủy viên UBKT Đảng ủy',
-        tu_ngay: '15/01/2026',
-        den_ngay: undefined,
-        van_ban_phan_cong: 'QĐ số 08-QĐ/UBKT ngày 10/01/2026',
-        ly_do_thay_doi: 'Phân công nhiệm vụ mới & Bàn giao toàn bộ hồ sơ địa bàn',
-        nguoi_thuc_hien: 'Thường trực Đảng ủy',
-        created_at: '2026-01-15T08:00:00Z',
-      },
-    ],
-  },
-  {
-    id: '01918a00-0000-7000-8000-000000000018',
-    ten_dia_ban: 'Chi bộ Công an',
-    loai_to_chuc: 'CHI_BO',
-    can_bo_phu_trach_id: 'mock-user-02',
-    can_bo_phu_trach_ten: 'Đ/c Trần Thị Bình',
-    can_bo_chuc_vu: 'Chuyên viên UBKT Đảng ủy',
-    thoi_gian_phan_cong: '15/01/2026',
-    van_ban_phan_cong: 'QĐ số 08-QĐ/UBKT ngày 10/01/2026',
-    tinh_trang_bao_cao_thang: 'DA_NOP_DUNG_HAN',
-    thang_hien_tai: 'T10/2026',
-    so_van_de_theo_doi: 1,
-    danh_sach_van_de: [
-      {
-        id: 'vd-03',
-        noi_dung: 'Theo dõi tình hình giải quyết đơn thư tố giác tội phạm liên quan đến cán bộ cơ sở.',
-        muc_do: 'PHUC_TAP',
-        ngay_ghi_nhan: '12/10/2026',
-        trang_thai: 'DANG_THEO_DOI',
-      },
-    ],
-    so_chi_dao_chua_hoan_thanh: 0,
-    danh_sach_chi_dao: [],
-    thoi_diem_cap_nhat_gan_nhat: '17/10/2026 09:15',
-    nguoi_cap_nhat_gan_nhat: 'Đ/c Trần Thị Bình',
-    so_luong_tai_lieu: 4,
-    ghi_chu: 'Thực hiện tốt nhiệm vụ bảo đảm an ninh trật tự địa bàn',
-  },
-  {
-    id: '01918a00-0000-7000-8000-000000000010',
-    ten_dia_ban: 'Chi bộ Tiền Trung',
-    loai_to_chuc: 'CHI_BO',
-    can_bo_phu_trach_id: 'mock-user-01',
-    can_bo_phu_trach_ten: 'Đ/c Nguyễn Văn An',
-    can_bo_chuc_vu: 'Ủy viên UBKT Đảng ủy',
-    thoi_gian_phan_cong: '15/01/2026',
-    van_ban_phan_cong: 'QĐ số 08-QĐ/UBKT ngày 10/01/2026',
-    tinh_trang_bao_cao_thang: 'CHUA_NOP',
-    thang_hien_tai: 'T10/2026',
-    so_van_de_theo_doi: 3,
-    danh_sach_van_de: [
-      {
-        id: 'vd-04',
-        noi_dung: 'Tình trạng chậm trễ trong việc thu nộp đảng phí quý III/2026.',
-        muc_do: 'QUAN_TRONG',
-        ngay_ghi_nhan: '08/10/2026',
-        trang_thai: 'DANG_THEO_DOI',
-      },
-      {
-        id: 'vd-05',
-        noi_dung: 'Còn ý kiến băn khoăn về quy hoạch đất xen kẹp tại khu dân cư Tiền Trung.',
-        muc_do: 'PHUC_TAP',
-        ngay_ghi_nhan: '14/10/2026',
-        trang_thai: 'DANG_THEO_DOI',
-      },
-      {
-        id: 'vd-06',
-        noi_dung: 'Tỷ lệ đảng viên miễn sinh hoạt công tác chưa được thẩm định lại đúng kỳ hạn.',
-        muc_do: 'THUONG',
-        ngay_ghi_nhan: '02/10/2026',
-        trang_thai: 'DANG_THEO_DOI',
-      },
-    ],
-    so_chi_dao_chua_hoan_thanh: 2,
-    danh_sach_chi_dao: [
-      {
-        id: 'cd-02',
-        noi_dung: 'Tổ chức sinh hoạt chuyên đề về nâng cao chất lượng sinh hoạt chi bộ trước 30/10/2026.',
-        van_ban_chi_dao: 'Thông báo số 21-TB/ĐU',
-        han_hoan_thanh: '30/10/2026',
-        trang_thai: 'CHUA_HOAN_THANH',
-      },
-      {
-        id: 'cd-03',
-        noi_dung: 'Nộp báo cáo tình hình đảng phí và công tác quản lý đảng viên về UBKT.',
-        van_ban_chi_dao: 'Công văn số 09-CV/UBKT',
-        han_hoan_thanh: '20/10/2026',
-        trang_thai: 'CHUA_HOAN_THANH',
-      },
-    ],
-    thoi_diem_cap_nhat_gan_nhat: '15/10/2026 16:45',
-    nguoi_cap_nhat_gan_nhat: 'Đ/c Nguyễn Văn An',
-    so_luong_tai_lieu: 2,
-    ghi_chu: 'Cần đôn đốc nộp báo cáo tháng 10 và hoàn thành các chỉ đạo',
-  },
-  {
-    id: '01918a00-0000-7000-8000-000000000006',
-    ten_dia_ban: 'Đảng bộ Trường THCS Ái Quốc',
-    loai_to_chuc: 'DANG_BO',
-    can_bo_phu_trach_id: 'mock-user-03',
-    can_bo_phu_trach_ten: 'Đ/c Lê Văn Cường',
-    can_bo_chuc_vu: 'Chuyên viên UBKT Đảng ủy',
-    thoi_gian_phan_cong: '15/01/2026',
-    van_ban_phan_cong: 'QĐ số 08-QĐ/UBKT ngày 10/01/2026',
-    tinh_trang_bao_cao_thang: 'DA_NOP_MUON',
-    thang_hien_tai: 'T10/2026',
-    so_van_de_theo_doi: 1,
-    danh_sach_van_de: [
-      {
-        id: 'vd-07',
-        noi_dung: 'Theo dõi công tác tạo nguồn kết nạp đảng viên mới trong đội ngũ giáo viên trẻ.',
-        muc_do: 'THUONG',
-        ngay_ghi_nhan: '06/10/2026',
-        trang_thai: 'DANG_THEO_DOI',
-      },
-    ],
-    so_chi_dao_chua_hoan_thanh: 1,
-    danh_sach_chi_dao: [
-      {
-        id: 'cd-04',
-        noi_dung: 'Rà soát quy chế làm việc giữa Đảng ủy và Ban Giám hiệu nhà trường.',
-        van_ban_chi_dao: 'Kết luận số 14-KL/ĐU',
-        han_hoan_thanh: '15/11/2026',
-        trang_thai: 'CHUA_HOAN_THANH',
-      },
-    ],
-    thoi_diem_cap_nhat_gan_nhat: '16/10/2026 11:20',
-    nguoi_cap_nhat_gan_nhat: 'Đ/c Lê Văn Cường',
-    so_luong_tai_lieu: 5,
-    ghi_chu: 'Đã nộp báo cáo tháng 10 vào ngày 16/10 (chậm 1 ngày so với quy định)',
-  },
-  {
-    id: '01918a00-0000-7000-8000-000000000016',
-    ten_dia_ban: 'Chi bộ Y tế',
-    loai_to_chuc: 'CHI_BO',
-    can_bo_phu_trach_id: 'mock-user-02',
-    can_bo_phu_trach_ten: 'Đ/c Trần Thị Bình',
-    can_bo_chuc_vu: 'Chuyên viên UBKT Đảng ủy',
-    thoi_gian_phan_cong: '15/01/2026',
-    van_ban_phan_cong: 'QĐ số 08-QĐ/UBKT ngày 10/01/2026',
-    tinh_trang_bao_cao_thang: 'CHO_DUYET',
-    thang_hien_tai: 'T10/2026',
-    so_van_de_theo_doi: 0,
-    danh_sach_van_de: [],
-    so_chi_dao_chua_hoan_thanh: 0,
-    danh_sach_chi_dao: [],
-    thoi_diem_cap_nhat_gan_nhat: '18/10/2026 08:30',
-    nguoi_cap_nhat_gan_nhat: 'Đ/c Trần Thị Bình',
-    so_luong_tai_lieu: 3,
-    ghi_chu: 'Báo cáo tháng 10 đã gửi, đã lưu trữ đầy đủ hồ sơ theo dõi chuyên đề y tế',
-    trang_thai_ho_so: 'DA_KET_THUC',
-    ngay_ket_thuc_ho_so: '18/10/2026',
-    nguoi_ket_thuc: 'Đ/c Trần Thị Bình',
-    van_ban_ket_thuc: 'Báo cáo số 36-BC/UBKT hoàn thành giám sát chuyên đề',
-    ghi_chu_ket_thuc: 'Đã hoàn thành đầy đủ báo cáo định kỳ, không phát sinh đơn thư kiến nghị, đã lưu trữ đủ hồ sơ theo quy định.',
-    lich_su_phu_trach: [
-      {
-        id: 'ls-yt-01',
-        can_bo_id: 'mock-user-02',
-        can_bo_ten: 'Đ/c Trần Thị Bình',
-        can_bo_chuc_vu: 'Chuyên viên UBKT Đảng ủy',
-        tu_ngay: '15/01/2026',
-        den_ngay: '18/10/2026',
-        van_ban_phan_cong: 'QĐ số 08-QĐ/UBKT ngày 10/01/2026',
-        ly_do_thay_doi: 'Kết thúc hồ sơ theo dõi chuyên đề y tế cơ sở',
-        nguoi_thuc_hien: 'Chủ nhiệm UBKT',
-        created_at: '2026-01-15T08:00:00Z',
-      },
-    ],
-  },
-  {
-    id: '01918a00-0000-7000-8000-000000000008',
-    ten_dia_ban: 'Chi bộ Hiệp Hòa',
-    loai_to_chuc: 'CHI_BO',
-    can_bo_phu_trach_id: 'mock-user-01',
-    can_bo_phu_trach_ten: 'Đ/c Nguyễn Văn An',
-    can_bo_chuc_vu: 'Ủy viên UBKT Đảng ủy',
-    thoi_gian_phan_cong: '15/01/2026',
-    van_ban_phan_cong: 'QĐ số 08-QĐ/UBKT ngày 10/01/2026',
-    tinh_trang_bao_cao_thang: 'DA_NOP_DUNG_HAN',
-    thang_hien_tai: 'T10/2026',
-    so_van_de_theo_doi: 1,
-    danh_sach_van_de: [
-      {
-        id: 'vd-08',
-        noi_dung: 'Theo dõi việc thực hiện Nghị quyết xây dựng khu dân cư nông thôn mới nâng cao.',
-        muc_do: 'THUONG',
-        ngay_ghi_nhan: '09/10/2026',
-        trang_thai: 'DANG_THEO_DOI',
-      },
-    ],
-    so_chi_dao_chua_hoan_thanh: 0,
-    danh_sach_chi_dao: [],
-    thoi_diem_cap_nhat_gan_nhat: '17/10/2026 15:00',
-    nguoi_cap_nhat_gan_nhat: 'Đ/c Nguyễn Văn An',
-    so_luong_tai_lieu: 2,
-    ghi_chu: 'Chi bộ đoàn kết, chấp hành nghiêm quy chế',
-  },
-];
+const getDeletedDiaBanIds = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(STORAGE_DELETED_DIA_BAN_IDS);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch {
+    // ignore
+  }
+  return new Set();
+};
 
 // 6 nhóm hồ sơ tài liệu địa bàn
-const NHOM_HO_SO = [
+export const NHOM_HO_SO = [
   { id: '1', ten: '1. Hồ sơ pháp lý & Quyết định phân công', mo_ta: 'Quyết định thành lập, phân công cán bộ, quy chế' },
   { id: '2', ten: '2. Quy chế làm việc & Danh sách cấp ủy', mo_ta: 'Quy chế cấp ủy, danh sách cấp ủy viên và đảng viên' },
   { id: '3', ten: '3. Báo cáo định kỳ (tháng, quý, năm)', mo_ta: 'Các báo cáo định kỳ cán bộ phụ trách nộp về UBKT' },
   { id: '4', ten: '4. Biên bản kiểm tra, giám sát chuyên đề', mo_ta: 'Biên bản làm việc, thông báo kiểm tra, giám sát' },
   { id: '5', ten: '5. Đơn thư, kiến nghị & Phản ánh địa bàn', mo_ta: 'Tổng hợp phản ánh của nhân dân, đơn thư phát sinh' },
   { id: '6', ten: '6. Kết luận kiểm tra & Văn bản chỉ đạo', mo_ta: 'Kết luận của Đảng ủy, UBKT và thông báo chỉ đạo' },
-];
-
-// Dữ liệu mẫu ban đầu cho tài liệu hồ sơ địa bàn
-const DEFAULT_HO_SO_FILES: HoSoDiaBanFile[] = [
-  {
-    id: 'f-01',
-    don_vi_id: '01918a00-0000-7000-8000-000000000017',
-    ten_don_vi: 'Chi bộ Quân sự',
-    the_loai_van_ban: 'Báo cáo',
-    so_van_ban: 'BC số 18-BC/CB',
-    trich_yeu: 'Báo cáo công tác nắm tình hình tháng 10/2026: Tình hình tư tưởng, rà soát nguồn nghĩa vụ quân sự và công tác quản lý vũ khí',
-    nguoi_ky: 'Bí thư Chi bộ Lê Văn Cường',
-    ngay_ban_hanh: '15/10/2026',
-    ten_file: 'Báo cáo công tác nắm tình hình tháng 10-2026 (Chi bộ Quân sự).docx',
-    loai_file: 'docx',
-    dung_luong: 345000,
-    loai_tai_lieu: '3. Báo cáo định kỳ (tháng, quý, năm)',
-    mo_ta: 'Báo cáo định kỳ tháng 10/2026: Tình hình tư tưởng, rà soát nguồn nghĩa vụ quân sự và công tác quản lý vũ khí',
-    ngay_tao: '15/10/2026',
-    nguoi_tao: 'Đ/c Nguyễn Văn An',
-  },
-  {
-    id: 'f-02',
-    don_vi_id: '01918a00-0000-7000-8000-000000000017',
-    ten_don_vi: 'Chi bộ Quân sự',
-    the_loai_van_ban: 'Quyết định',
-    so_van_ban: '08-QĐ/UBKT',
-    trich_yeu: 'Quyết định phân công cán bộ Ủy ban Kiểm tra theo dõi địa bàn phụ trách năm 2026',
-    nguoi_ky: 'Chủ nhiệm UBKT Đảng ủy',
-    ngay_ban_hanh: '10/01/2026',
-    ten_file: '08-QD-UBKT_Phan_cong_can_bo_phu_trach_dia_ban_2026.pdf',
-    loai_file: 'pdf',
-    dung_luong: 450000,
-    loai_tai_lieu: '1. Hồ sơ pháp lý & Quyết định phân công',
-    mo_ta: 'Quyết định phân công cán bộ Ủy ban Kiểm tra theo dõi địa bàn năm 2026',
-    ngay_tao: '10/01/2026',
-    nguoi_tao: 'UBKT Đảng ủy',
-  },
-  {
-    id: 'f-03',
-    don_vi_id: '01918a00-0000-7000-8000-000000000017',
-    ten_don_vi: 'Chi bộ Quân sự',
-    the_loai_van_ban: 'Quy chế',
-    so_van_ban: 'QC số 01-QC/CB',
-    trich_yeu: 'Quy chế làm việc và phân công nhiệm vụ đảng viên trong Chi bộ Quân sự nhiệm kỳ 2025 - 2027',
-    nguoi_ky: 'Bí thư Chi bộ',
-    ngay_ban_hanh: '05/02/2025',
-    ten_file: 'Quy_che_lam_viec_Chi_bo_Quan_su_nhiem_ky_2025_2027.docx',
-    loai_file: 'docx',
-    dung_luong: 280000,
-    loai_tai_lieu: '2. Quy chế làm việc & Danh sách cấp ủy',
-    mo_ta: 'Quy chế làm việc và phân công nhiệm vụ đảng viên trong Chi bộ Quân sự',
-    ngay_tao: '05/02/2025',
-    nguoi_tao: 'Đ/c Nguyễn Văn An',
-  },
-  {
-    id: 'f-04',
-    don_vi_id: '01918a00-0000-7000-8000-000000000018',
-    ten_don_vi: 'Chi bộ Công an',
-    the_loai_van_ban: 'Báo cáo',
-    so_van_ban: 'BC số 22-BC/CA',
-    trich_yeu: 'Báo cáo tháng 10/2026 nắm tình hình an ninh trật tự, phòng chống tệ nạn xã hội và công tác cán bộ cơ sở',
-    nguoi_ky: 'Bí thư Chi bộ Công an',
-    ngay_ban_hanh: '14/10/2026',
-    ten_file: 'Bao_cao_tinh_hinh_an_ninh_trat_tu_va_xay_dung_dang_T10_2026.docx',
-    loai_file: 'docx',
-    dung_luong: 310000,
-    loai_tai_lieu: '3. Báo cáo định kỳ (tháng, quý, năm)',
-    mo_ta: 'Báo cáo tháng 10/2026 nắm tình hình an ninh trật tự và công tác cán bộ cơ sở',
-    ngay_tao: '14/10/2026',
-    nguoi_tao: 'Đ/c Trần Thị Bình',
-  },
-  {
-    id: 'f-05',
-    don_vi_id: '01918a00-0000-7000-8000-000000000018',
-    ten_don_vi: 'Chi bộ Công an',
-    the_loai_van_ban: 'Quyết định',
-    so_van_ban: '08-QĐ/UBKT',
-    trich_yeu: 'Quyết định phân công đ/c Trần Thị Bình phụ trách địa bàn Chi bộ Công an năm 2026',
-    nguoi_ky: 'Chủ nhiệm UBKT Đảng ủy',
-    ngay_ban_hanh: '10/01/2026',
-    ten_file: '08-QD-UBKT_Phan_cong_can_bo_phu_trach_dia_ban_2026.pdf',
-    loai_file: 'pdf',
-    dung_luong: 450000,
-    loai_tai_lieu: '1. Hồ sơ pháp lý & Quyết định phân công',
-    mo_ta: 'Quyết định phân công đ/c Trần Thị Bình phụ trách địa bàn Chi bộ Công an',
-    ngay_tao: '10/01/2026',
-    nguoi_tao: 'UBKT Đảng ủy',
-  },
-  {
-    id: 'f-06',
-    don_vi_id: '01918a00-0000-7000-8000-000000000010',
-    ten_don_vi: 'Chi bộ Tiền Trung',
-    the_loai_van_ban: 'Quyết định',
-    so_van_ban: '08-QĐ/UBKT',
-    trich_yeu: 'Quyết định phân công đ/c Nguyễn Văn An phụ trách địa bàn Chi bộ Tiền Trung',
-    nguoi_ky: 'Chủ nhiệm UBKT Đảng ủy',
-    ngay_ban_hanh: '10/01/2026',
-    ten_file: '08-QD-UBKT_Phan_cong_can_bo_phu_trach_dia_ban_2026.pdf',
-    loai_file: 'pdf',
-    dung_luong: 450000,
-    loai_tai_lieu: '1. Hồ sơ pháp lý & Quyết định phân công',
-    mo_ta: 'Quyết định phân công đ/c Nguyễn Văn An phụ trách địa bàn Chi bộ Tiền Trung',
-    ngay_tao: '10/01/2026',
-    nguoi_tao: 'UBKT Đảng ủy',
-  },
-  {
-    id: 'f-07',
-    don_vi_id: '01918a00-0000-7000-8000-000000000008',
-    ten_don_vi: 'Chi bộ Hiệp Hòa',
-    the_loai_van_ban: 'Báo cáo',
-    so_van_ban: '14-BC/CB',
-    trich_yeu: 'Báo cáo tháng 10/2026: Tình hình xây dựng nông thôn mới nâng cao tại khu dân cư Hiệp Hòa',
-    nguoi_ky: 'Bí thư Chi bộ',
-    ngay_ban_hanh: '15/10/2026',
-    ten_file: 'Bao_cao_cong_tac_thang_10_2026_Chi_bo_Hiep_Hoa.docx',
-    loai_file: 'docx',
-    dung_luong: 290000,
-    loai_tai_lieu: '3. Báo cáo định kỳ (tháng, quý, năm)',
-    mo_ta: 'Báo cáo tháng 10: Tình hình xây dựng nông thôn mới nâng cao tại khu dân cư',
-    ngay_tao: '15/10/2026',
-    nguoi_tao: 'Đ/c Nguyễn Văn An',
-  },
-  {
-    id: 'f-08',
-    don_vi_id: '01918a00-0000-7000-8000-000000000006',
-    ten_don_vi: 'Đảng bộ Trường THCS Ái Quốc',
-    the_loai_van_ban: 'Báo cáo',
-    so_van_ban: '19-BC/ĐU',
-    trich_yeu: 'Báo cáo định kỳ tháng 10/2026 công tác giáo dục chính trị tư tưởng và phát triển đảng viên giáo viên trẻ',
-    nguoi_ky: 'Bí thư Đảng bộ',
-    ngay_ban_hanh: '16/10/2026',
-    ten_file: 'Bao_cao_thang_10_2026_Dang_bo_THCS_Ai_Quoc.docx',
-    loai_file: 'docx',
-    dung_luong: 360000,
-    loai_tai_lieu: '3. Báo cáo định kỳ (tháng, quý, năm)',
-    mo_ta: 'Báo cáo định kỳ tháng 10/2026 công tác giáo dục và phát triển đảng viên',
-    ngay_tao: '16/10/2026',
-    nguoi_tao: 'Đ/c Lê Văn Cường',
-  },
-  {
-    id: 'f-09',
-    don_vi_id: '01918a00-0000-7000-8000-000000000016',
-    ten_don_vi: 'Chi bộ Y tế',
-    the_loai_van_ban: 'Báo cáo',
-    so_van_ban: '09-BC/CB',
-    trich_yeu: 'Báo cáo tháng 10/2026 công tác y tế dự phòng, khám chữa bệnh BHYT và sinh hoạt chi bộ',
-    nguoi_ky: 'Bí thư Chi bộ',
-    ngay_ban_hanh: '18/10/2026',
-    ten_file: 'Bao_cao_thang_10_2026_Chi_bo_Y_te.docx',
-    loai_file: 'docx',
-    dung_luong: 275000,
-    loai_tai_lieu: '3. Báo cáo định kỳ (tháng, quý, năm)',
-    mo_ta: 'Báo cáo tháng 10 công tác y tế dự phòng và sinh hoạt chi bộ',
-    ngay_tao: '18/10/2026',
-    nguoi_tao: 'Đ/c Trần Thị Bình',
-  },
-];
-
-// Dữ liệu mẫu báo cáo tháng tích hợp nhiều địa bàn
-const DEFAULT_BAO_CAO_THANG_DATA: BaoCaoThangItem[] = [
-  {
-    id: 'bc-01',
-    tieu_de: 'Báo cáo tổng hợp tình hình các địa bàn phụ trách tháng 10/2026 (Quân sự, Hiệp Hòa)',
-    thang: 10,
-    nam: 2026,
-    ngay_nop: '15/10/2026',
-    can_bo_id: 'mock-user-01',
-    can_bo_ten: 'Đ/c Nguyễn Văn An',
-    danh_sach_don_vi_ids: [
-      '01918a00-0000-7000-8000-000000000017',
-      '01918a00-0000-7000-8000-000000000008',
-    ],
-    danh_sach_ten_don_vi: ['Chi bộ Quân sự', 'Chi bộ Hiệp Hòa'],
-    tinh_trang: 'DA_NOP_DUNG_HAN',
-    file_ten: 'Bao_cao_tong_hop_dia_ban_T10_2026_Nguyen_Van_An.docx',
-    file_loai: 'docx',
-    file_dung_luong: 345000,
-    noi_dung_tom_tat: 'Tình hình chính trị, tư tưởng các chi bộ ổn định; chi bộ Quân sự chuẩn bị tuyển quân; chi bộ Hiệp Hòa triển khai NTM nâng cao.',
-    ghi_chu: 'Nộp đúng thời hạn quy định ngày 15 hàng tháng',
-    created_at: '2026-10-15T09:30:00Z',
-  },
-  {
-    id: 'bc-02',
-    tieu_de: 'Báo cáo công tác nắm tình hình liên chi bộ Công an - Y tế tháng 10/2026',
-    thang: 10,
-    nam: 2026,
-    ngay_nop: '14/10/2026',
-    can_bo_id: 'mock-user-02',
-    can_bo_ten: 'Đ/c Trần Thị Bình',
-    danh_sach_don_vi_ids: [
-      '01918a00-0000-7000-8000-000000000018',
-      '01918a00-0000-7000-8000-000000000016',
-    ],
-    danh_sach_ten_don_vi: ['Chi bộ Công an', 'Chi bộ Y tế'],
-    tinh_trang: 'DA_NOP_DUNG_HAN',
-    file_ten: 'Bao_cao_lien_chi_bo_Cong_an_Y_te_T10_2026.docx',
-    file_loai: 'docx',
-    file_dung_luong: 310000,
-    noi_dung_tom_tat: 'Nắm tình hình an ninh trật tự địa bàn; theo dõi giải quyết đơn thư tố giác; chi bộ Y tế thực hiện tốt công tác phòng dịch.',
-    ghi_chu: 'Chất lượng báo cáo tốt, số liệu rõ ràng',
-    created_at: '2026-10-14T14:15:00Z',
-  },
-  {
-    id: 'bc-03',
-    tieu_de: 'Báo cáo công tác kiểm tra, giám sát thường xuyên Đảng bộ Trường THCS Ái Quốc tháng 10/2026',
-    thang: 10,
-    nam: 2026,
-    ngay_nop: '16/10/2026',
-    can_bo_id: 'mock-user-03',
-    can_bo_ten: 'Đ/c Lê Văn Cường',
-    danh_sach_don_vi_ids: ['01918a00-0000-7000-8000-000000000006'],
-    danh_sach_ten_don_vi: ['Đảng bộ Trường THCS Ái Quốc'],
-    tinh_trang: 'DA_NOP_MUON',
-    file_ten: 'Bao_cao_Dang_bo_THCS_Ai_Quoc_T10_2026.docx',
-    file_loai: 'docx',
-    file_dung_luong: 360000,
-    noi_dung_tom_tat: 'Đảng bộ nhà trường rà soát quy chế phối hợp Ban Giám hiệu; công tác bồi dưỡng kết nạp đảng viên mới cho giáo viên trẻ.',
-    ghi_chu: 'Nộp muộn 01 ngày do bận công tác tập huấn',
-    created_at: '2026-10-16T11:20:00Z',
-  },
 ];
 
 export function HoSoDiaBanManager({ user }: Props) {
@@ -556,43 +87,25 @@ export function HoSoDiaBanManager({ user }: Props) {
 
   // Dữ liệu địa bàn
   const [records, setRecords] = useState<DiaBanRecord[]>(() => {
-    let list: DiaBanRecord[] = DEFAULT_DIA_BAN_DATA;
     try {
+      const deletedIds = getDeletedDiaBanIds();
       const saved = localStorage.getItem(STORAGE_DIA_BAN_RECORDS);
       if (saved) {
-        list = JSON.parse(saved);
+        const list: DiaBanRecord[] = JSON.parse(saved);
+        if (Array.isArray(list)) {
+          // Nếu phát hiện dữ liệu mẫu cũ, dọn sạch ngay
+          const isMock = list.some((r) => r.ten_dia_ban?.includes('Quân sự') || r.ten_dia_ban?.includes('Công an') || r.can_bo_phu_trach_id?.includes('mock-'));
+          if (isMock) {
+            localStorage.removeItem(STORAGE_DIA_BAN_RECORDS);
+            return [];
+          }
+          return list.filter((r) => !deletedIds.has(r.id));
+        }
       }
     } catch {
-      list = DEFAULT_DIA_BAN_DATA;
+      // ignore
     }
-    // Đảm bảo dữ liệu tương thích, khởi tạo lịch sử phụ trách và trạng thái hồ sơ
-    return list.map((r) => {
-      const lichSu: LichSuPhuTrachDiaBan[] =
-        Array.isArray(r.lich_su_phu_trach) && r.lich_su_phu_trach.length > 0
-          ? r.lich_su_phu_trach
-          : r.can_bo_phu_trach_id
-          ? [
-              {
-                id: `ls-${r.id}-init`,
-                can_bo_id: r.can_bo_phu_trach_id,
-                can_bo_ten: r.can_bo_phu_trach_ten || 'Cán bộ phụ trách',
-                can_bo_chuc_vu: r.can_bo_chuc_vu || 'Ủy viên UBKT Đảng ủy',
-                tu_ngay: r.thoi_gian_phan_cong || '15/01/2026',
-                den_ngay: undefined,
-                van_ban_phan_cong: r.van_ban_phan_cong || 'QĐ số 08-QĐ/UBKT',
-                ly_do_thay_doi: 'Phân công phụ trách ban đầu',
-                nguoi_thuc_hien: 'Thường trực Đảng ủy',
-                created_at: new Date().toISOString(),
-              },
-            ]
-          : [];
-
-      return {
-        ...r,
-        trang_thai_ho_so: r.trang_thai_ho_so || 'DANG_THEO_DOI',
-        lich_su_phu_trach: lichSu,
-      };
-    });
+    return [];
   });
 
   // Dữ liệu tài liệu hồ sơ địa bàn
@@ -601,32 +114,19 @@ export function HoSoDiaBanManager({ user }: Props) {
       const saved = localStorage.getItem(STORAGE_HO_SO_FILES);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((f: any) => ({
-            ...f,
-            the_loai_van_ban:
-              f.the_loai_van_ban ||
-              (f.ten_file?.toLowerCase().includes('qd') || f.ten_file?.toLowerCase().includes('quyet_dinh')
-                ? 'Quyết định'
-                : f.ten_file?.toLowerCase().includes('bao_cao')
-                ? 'Báo cáo'
-                : f.ten_file?.toLowerCase().includes('quy_che')
-                ? 'Quy chế'
-                : f.ten_file?.toLowerCase().includes('ke_hoach')
-                ? 'Kế hoạch'
-                : f.ten_file?.toLowerCase().includes('ket_luan')
-                ? 'Kết luận'
-                : 'Văn bản'),
-            trich_yeu: f.trich_yeu || f.mo_ta || f.ten_file,
-            nguoi_ky: f.nguoi_ky || (f.nguoi_tao ? f.nguoi_tao : 'UBKT Đảng ủy'),
-            ngay_ban_hanh: f.ngay_ban_hanh || f.ngay_tao || '15/10/2026',
-          }));
+        if (Array.isArray(parsed)) {
+          const isMock = parsed.some((f: any) => f.id === 'f-01' || f.id === 'f-02' || f.ten_don_vi?.includes('Quân sự'));
+          if (isMock) {
+            localStorage.removeItem(STORAGE_HO_SO_FILES);
+            return [];
+          }
+          return parsed;
         }
       }
-      return DEFAULT_HO_SO_FILES;
     } catch {
-      return DEFAULT_HO_SO_FILES;
+      // ignore
     }
+    return [];
   });
 
   // Danh sách các báo cáo tháng đã tiếp nhận (tích hợp nhiều địa bàn)
@@ -635,12 +135,19 @@ export function HoSoDiaBanManager({ user }: Props) {
       const saved = localStorage.getItem(STORAGE_BAO_CAO_THANG);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) {
+          const isMock = parsed.some((b: any) => b.id === 'bc-01' || b.id === 'bc-02' || b.can_bo_id?.includes('mock-'));
+          if (isMock) {
+            localStorage.removeItem(STORAGE_BAO_CAO_THANG);
+            return [];
+          }
+          return parsed;
+        }
       }
-      return DEFAULT_BAO_CAO_THANG_DATA;
     } catch {
-      return DEFAULT_BAO_CAO_THANG_DATA;
+      // ignore
     }
+    return [];
   });
 
   // Danh sách người dùng
@@ -775,6 +282,55 @@ export function HoSoDiaBanManager({ user }: Props) {
 
   const canEdit = user.vai_tro === 'ADMIN' || user.vai_tro === 'BIEN_TAP';
 
+  // Modal xác nhận xóa hồ sơ địa bàn
+  const [deleteTargetRecord, setDeleteTargetRecord] = useState<DiaBanRecord | null>(null);
+  const [isDeletingRecord, setIsDeletingRecord] = useState(false);
+
+  const handleConfirmDeleteRecord = (target: DiaBanRecord) => {
+    setIsDeletingRecord(true);
+    try {
+      // 1. Lưu ID vào danh sách đã xóa để ngăn tự động nạp lại
+      const deletedIds = getDeletedDiaBanIds();
+      deletedIds.add(target.id);
+      localStorage.setItem(STORAGE_DELETED_DIA_BAN_IDS, JSON.stringify(Array.from(deletedIds)));
+
+      // 2. Xóa khỏi records
+      setRecords((prev) => {
+        const updated = prev.filter((r) => r.id !== target.id);
+        localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(updated));
+        return updated;
+      });
+
+      // 3. Xóa các tài liệu liên quan trong kho tài liệu địa bàn
+      setFiles((prev) => {
+        const updated = prev.filter((f) => f.don_vi_id !== target.id);
+        localStorage.setItem(STORAGE_HO_SO_FILES, JSON.stringify(updated));
+        return updated;
+      });
+
+      // 4. Cập nhật các báo cáo tháng
+      setBaoCaoThangList((prev) => {
+        const updated = prev.filter(
+          (b) => !b.danh_sach_don_vi_ids?.includes(target.id)
+        );
+        localStorage.setItem(STORAGE_BAO_CAO_THANG, JSON.stringify(updated));
+        return updated;
+      });
+
+      // 5. Nếu đang mở modal chi tiết hồ sơ này thì đóng lại
+      if (selectedRecord?.id === target.id) {
+        setSelectedRecord(null);
+      }
+
+      setDeleteTargetRecord(null);
+      window.dispatchEvent(new Event('ubkt_diaban_records_updated'));
+    } catch (err) {
+      console.error('Lỗi khi xóa hồ sơ địa bàn:', err);
+    } finally {
+      setIsDeletingRecord(false);
+    }
+  };
+
   // Nạp danh sách đơn vị và người dùng (Tự động đồng bộ với các tài khoản được phân công quản trị)
   const syncUsersAndRecords = (usrs: User[]) => {
     setUsersList(usrs);
@@ -808,13 +364,17 @@ export function HoSoDiaBanManager({ user }: Props) {
       .then(([dvs, usrs]) => {
         syncUsersAndRecords(usrs);
 
-        // Đồng bộ các đơn vị chưa có trong hồ sơ địa bàn
+        // Đồng bộ các đơn vị chưa có trong hồ sơ địa bàn (không nạp lại các địa bàn đã bị xóa)
         setRecords((prev) => {
-          const existingIds = new Set(prev.map((r) => r.id));
+          const deletedIds = getDeletedDiaBanIds();
+          const dvIdSet = new Set(dvs.map((d) => d.id));
+          // Lọc bỏ các bản ghi đã xóa hoặc đơn vị không còn tồn tại
+          const validPrev = prev.filter((r) => !deletedIds.has(r.id) && (dvs.length === 0 || dvIdSet.has(r.id)));
+          const existingIds = new Set(validPrev.map((r) => r.id));
           const newRecords: DiaBanRecord[] = [];
 
           dvs.forEach((dv) => {
-            if (!existingIds.has(dv.id)) {
+            if (!existingIds.has(dv.id) && !deletedIds.has(dv.id)) {
               newRecords.push({
                 id: dv.id,
                 ten_dia_ban: dv.ten,
@@ -837,8 +397,8 @@ export function HoSoDiaBanManager({ user }: Props) {
             }
           });
 
-          if (newRecords.length > 0) {
-            const combined = [...prev, ...newRecords];
+          if (newRecords.length > 0 || validPrev.length !== prev.length) {
+            const combined = [...validPrev, ...newRecords];
             localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(combined));
             return combined;
           }
@@ -2773,6 +2333,17 @@ export function HoSoDiaBanManager({ user }: Props) {
                                       <Eye className="w-3.5 h-3.5" />
                                       <span>Hồ sơ</span>
                                     </button>
+                                    {canEdit && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setDeleteTargetRecord(item)}
+                                        className="px-2 py-1 text-rose-600 bg-rose-50 hover:bg-rose-100 hover:text-rose-800 rounded text-xs font-semibold flex items-center space-x-1 transition cursor-pointer border border-rose-200"
+                                        title="Xóa hồ sơ địa bàn này"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        <span className="hidden sm:inline">Xóa</span>
+                                      </button>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -2949,6 +2520,17 @@ export function HoSoDiaBanManager({ user }: Props) {
                               <Eye className="w-3.5 h-3.5" />
                               <span>Hồ sơ</span>
                             </button>
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTargetRecord(item)}
+                                className="px-2 py-1 text-rose-600 bg-rose-50 hover:bg-rose-100 hover:text-rose-800 rounded text-xs font-semibold flex items-center space-x-1 transition cursor-pointer border border-rose-200"
+                                title="Xóa hồ sơ địa bàn này"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Xóa</span>
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -3587,12 +3169,25 @@ export function HoSoDiaBanManager({ user }: Props) {
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setSelectedRecord(null)}
-                className="text-white/70 hover:text-white p-1 rounded-md"
-              >
-                <X className="w-6 h-6" />
-              </button>
+              <div className="flex items-center space-x-2">
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTargetRecord(selectedRecord)}
+                    className="text-rose-200 hover:text-white hover:bg-rose-600/40 px-2.5 py-1 rounded-md transition flex items-center space-x-1.5 text-xs font-semibold cursor-pointer border border-rose-400/30"
+                    title="Xóa hồ sơ địa bàn này"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-300" />
+                    <span className="hidden sm:inline">Xóa hồ sơ</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setSelectedRecord(null)}
+                  className="text-white/70 hover:text-white p-1 rounded-md cursor-pointer"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
             </div>
 
             {/* Sub-tabs trong modal */}
@@ -4757,10 +4352,23 @@ export function HoSoDiaBanManager({ user }: Props) {
             </div>
 
             {/* Footer Modal */}
-            <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-end flex-shrink-0">
+            <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between flex-shrink-0">
+              <div>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTargetRecord(selectedRecord)}
+                    className="px-3 py-1.5 text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 rounded-lg hover:bg-rose-100 hover:text-rose-900 flex items-center space-x-1.5 transition cursor-pointer"
+                    title="Xóa hồ sơ địa bàn này khỏi hệ thống"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Xóa hồ sơ này</span>
+                  </button>
+                )}
+              </div>
               <button
                 onClick={() => setSelectedRecord(null)}
-                className="px-4 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded-lg hover:bg-slate-100 text-slate-700"
+                className="px-4 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded-lg hover:bg-slate-100 text-slate-700 cursor-pointer"
               >
                 Đóng
               </button>
@@ -6133,6 +5741,104 @@ export function HoSoDiaBanManager({ user }: Props) {
                   className="px-4 py-1.5 bg-[#133863] text-white rounded-lg font-bold hover:bg-blue-900 transition cursor-pointer shadow-xs"
                 >
                   Lưu căn cứ văn bản
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ──────────────────────────────────────────────────────────────────────── */}
+      {/* MODAL XÁC NHẬN XÓA HỒ SƠ ĐỊA BÀN                                         */}
+      {/* ──────────────────────────────────────────────────────────────────────── */}
+      {deleteTargetRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="bg-rose-700 px-5 py-4 text-white flex items-center justify-between border-b-2 border-rose-900">
+              <div className="flex items-center space-x-2.5">
+                <AlertTriangle className="w-5 h-5 text-amber-300 flex-shrink-0" />
+                <h3 className="text-base font-bold uppercase tracking-tight">XÓA HỒ SƠ ĐỊA BÀN</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteTargetRecord(null)}
+                className="text-white/80 hover:text-white p-1 rounded-md transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Nội dung */}
+            <div className="p-5 space-y-4">
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 text-xs text-rose-800 space-y-1">
+                <p className="font-bold text-sm text-rose-900 flex items-center space-x-1.5">
+                  <span>Cảnh báo: Hành động này không thể hoàn tác!</span>
+                </p>
+                <p>
+                  Bạn có chắc chắn muốn xóa toàn bộ hồ sơ theo dõi của địa bàn này khỏi hệ thống?
+                </p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs space-y-2">
+                <div className="flex items-start justify-between">
+                  <span className="text-slate-500 font-medium">Địa bàn / Tổ chức:</span>
+                  <span className="font-bold text-slate-900 text-right">{deleteTargetRecord.ten_dia_ban}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-medium">Loại hình tổ chức:</span>
+                  <span className="font-semibold text-slate-700">
+                    {deleteTargetRecord.loai_to_chuc === 'DANG_BO' ? 'Đảng bộ cơ sở' : 'Chi bộ cơ sở'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-medium">Cán bộ phụ trách:</span>
+                  <span className="font-semibold text-slate-700">
+                    {deleteTargetRecord.can_bo_phu_trach_ten || 'Chưa phân công'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-medium">Tài liệu hồ sơ đính kèm:</span>
+                  <span className="font-semibold text-slate-700">
+                    {files.filter((f) => f.don_vi_id === deleteTargetRecord.id).length} tài liệu
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-medium">Vấn đề đang theo dõi:</span>
+                  <span className="font-semibold text-slate-700">
+                    {deleteTargetRecord.so_van_de_theo_doi || 0} vấn đề
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-medium">Chỉ đạo chưa hoàn thành:</span>
+                  <span className="font-semibold text-slate-700">
+                    {deleteTargetRecord.so_chi_dao_chua_hoan_thanh || 0} chỉ đạo
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-500 italic">
+                * Thao tác này sẽ gỡ bỏ địa bàn khỏi danh mục theo dõi của UBKT, đồng thời dọn sạch các vấn đề, chỉ đạo và tài liệu gắn với hồ sơ địa bàn này.
+              </p>
+
+              {/* Nút thao tác */}
+              <div className="pt-2 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  disabled={isDeletingRecord}
+                  onClick={() => setDeleteTargetRecord(null)}
+                  className="px-4 py-2 text-xs font-semibold bg-white border border-slate-300 rounded-lg hover:bg-slate-100 text-slate-700 cursor-pointer"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingRecord}
+                  onClick={() => handleConfirmDeleteRecord(deleteTargetRecord)}
+                  className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition shadow-xs flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>{isDeletingRecord ? 'Đang xóa...' : 'Xác nhận xóa hồ sơ'}</span>
                 </button>
               </div>
             </div>

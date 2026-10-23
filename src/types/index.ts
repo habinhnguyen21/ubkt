@@ -251,6 +251,9 @@ export interface PdfKhoItem {
   loai_hinh?: LoaiHinhKtGs | null;
   ngay_ban_hanh?: string | null;
   ghi_chu?: string | null;
+  google_drive_id?: string | null;
+  google_drive_preview_url?: string | null;
+  is_google_drive?: boolean | null;
   created_at: string;
 }
 
@@ -268,6 +271,9 @@ export interface HoSoDiaBanFile {
   dung_luong: number;
   url?: string | null;
   file_url?: string | null;
+  google_drive_id?: string | null;
+  google_drive_preview_url?: string | null;
+  is_google_drive?: boolean | null;
   loai_tai_lieu?: string; // Thuộc 6 nhóm hồ sơ nghiệp vụ địa bàn
   mo_ta?: string;
   ngay_tao: string;

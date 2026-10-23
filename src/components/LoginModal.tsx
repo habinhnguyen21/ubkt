@@ -17,8 +17,8 @@ interface LoginModalProps {
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('Admin@123456');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPw, setShowPw] = useState(false);
@@ -211,7 +211,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
           </div>
 
           {/* Mật khẩu */}
-          <div style={{ marginBottom: 6 }}>
+          <div style={{ marginBottom: 20 }}>
             <label
               style={{
                 display: 'block',
@@ -288,43 +288,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
             </div>
           </div>
 
-          {/* Đổi mật khẩu / Quên mật khẩu */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              marginBottom: 22,
-              marginTop: 8,
-            }}
-          >
-            <button
-              type="button"
-              style={{
-                background: 'none',
-                border: 'none',
-                fontSize: 13,
-                color: '#555',
-                cursor: 'pointer',
-                padding: 0,
-              }}
-            >
-              Đổi mật khẩu
-            </button>
-            <button
-              type="button"
-              style={{
-                background: 'none',
-                border: 'none',
-                fontSize: 13,
-                color: '#555',
-                cursor: 'pointer',
-                padding: 0,
-              }}
-            >
-              Quên mật khẩu
-            </button>
-          </div>
-
           {/* Nút đăng nhập */}
           <button
             id="btn-login"
@@ -365,22 +328,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
             )}
           </button>
         </form>
-
-        {/* Gợi ý tài khoản */}
-        <div
-          style={{
-            marginTop: 18,
-            padding: '9px 14px',
-            background: '#fefce8',
-            border: '1px solid #fef08a',
-            borderRadius: 8,
-            fontSize: 12,
-            color: '#854d0e',
-            textAlign: 'center',
-          }}
-        >
-          🔑 Mặc định: <strong>admin</strong> / <strong>Admin@123456</strong>
-        </div>
       </div>
 
       {/* ── SÓng trang trí phía dưới ────────────────────────────────── */}

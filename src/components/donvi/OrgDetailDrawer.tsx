@@ -15,6 +15,7 @@ import {
   Layers,
   ChevronRight,
   LogOut,
+  Trash2,
 } from 'lucide-react';
 
 interface OrgDetailDrawerProps {
@@ -28,6 +29,7 @@ interface OrgDetailDrawerProps {
   onToggleStatus: (unit: DonVi) => void;
   onViewHistory: (unit: DonVi) => void;
   onSelectUnit: (unit: DonVi) => void;
+  onDelete?: (unit: DonVi) => void;
 }
 
 export const OrgDetailDrawer: React.FC<OrgDetailDrawerProps> = ({
@@ -41,6 +43,7 @@ export const OrgDetailDrawer: React.FC<OrgDetailDrawerProps> = ({
   onToggleStatus,
   onViewHistory,
   onSelectUnit,
+  onDelete,
 }) => {
   const [relations, setRelations] = useState<{
     chuongTrinhCount: number;
@@ -193,6 +196,17 @@ export const OrgDetailDrawer: React.FC<OrgDetailDrawerProps> = ({
           >
             <History className="w-3.5 h-3.5" />
           </button>
+
+          {onDelete && (
+            <button
+              onClick={() => onDelete(unit)}
+              className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-md font-semibold bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 shadow-2xs transition cursor-pointer"
+              title="Xóa tổ chức này"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Xóa</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -374,9 +388,20 @@ export const OrgDetailDrawer: React.FC<OrgDetailDrawerProps> = ({
 
       {/* FOOTER: NÚT THOÁT / ĐÓNG RÕ RÀNG */}
       <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-        <span className="text-xs text-slate-500">
-          Phím tắt: nhấn <strong>ESC</strong> để đóng
-        </span>
+        {canEdit && onDelete ? (
+          <button
+            type="button"
+            onClick={() => onDelete(unit)}
+            className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 shadow-2xs"
+          >
+            <Trash2 className="w-4 h-4 text-rose-600" />
+            <span>Xóa tổ chức</span>
+          </button>
+        ) : (
+          <span className="text-xs text-slate-500">
+            Phím tắt: nhấn <strong>ESC</strong> để đóng
+          </span>
+        )}
         <button
           type="button"
           onClick={onClose}

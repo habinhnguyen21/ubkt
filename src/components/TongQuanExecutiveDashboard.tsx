@@ -117,15 +117,6 @@ export function TongQuanExecutiveDashboard({
     }
   };
 
-  const handleNavigateToUnit = (donViId: string) => {
-    // Điều hướng sang phân hệ Hồ sơ địa bàn với đơn vị tương ứng
-    window.dispatchEvent(
-      new CustomEvent('ubkt_navigate', {
-        detail: { tab: 'ho_so_dia_ban', donViId },
-      }),
-    );
-  };
-
   const handleResetFilters = () => {
     setFilters({
       year: new Date().getFullYear(),
@@ -179,7 +170,7 @@ export function TongQuanExecutiveDashboard({
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-3.5 items-stretch">
         {/* KHỐI TRÁI: 4 Thẻ chỉ tiêu + 3 Biểu đồ trực quan (Chiếm 3/4 chiều ngang) */}
         <div className="xl:col-span-3 flex flex-col gap-3.5">
-          {/* 4 Thẻ chỉ tiêu tổng quan */}
+          {/* 4 Thẻ chỉ tiêu tổng quan - Chỉ hiển thị số liệu thuần túy (Không tương tác) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
             {/* Card 1: Tổng số cơ quan, tổ chức đảng */}
             <StatCard
@@ -189,7 +180,6 @@ export function TongQuanExecutiveDashboard({
               title="Tổng số cơ quan, tổ chức đảng"
               value={stats.tongCoQuan}
               subtitle="Đơn vị cần theo dõi"
-              onClick={() => handleNavigateTab('don_vi')}
             />
 
             {/* Card 2: Số cuộc kiểm tra */}
@@ -200,7 +190,6 @@ export function TongQuanExecutiveDashboard({
               title="Số cuộc kiểm tra"
               value={stats.soCuocKiemTra}
               subtitle={filters.year === 'ALL' ? 'Toàn bộ thời gian' : `Trong năm ${filters.year}`}
-              onClick={() => handleNavigateTab('chuong_trinh')}
             />
 
             {/* Card 3: Số cuộc giám sát */}
@@ -211,7 +200,6 @@ export function TongQuanExecutiveDashboard({
               title="Số cuộc giám sát"
               value={stats.soCuocGiamSat}
               subtitle={filters.year === 'ALL' ? 'Toàn bộ thời gian' : `Trong năm ${filters.year}`}
-              onClick={() => handleNavigateTab('chuong_trinh')}
             />
 
             {/* Card 4: Tổng số nhiệm vụ được giao */}
@@ -222,23 +210,15 @@ export function TongQuanExecutiveDashboard({
               title="Tổng số nhiệm vụ được giao"
               value={stats.tongNhiemVu}
               subtitle={filters.year === 'ALL' ? 'Toàn bộ thời gian' : `Trong năm ${filters.year}`}
-              onClick={() => handleNavigateTab('chuong_trinh')}
             />
           </div>
 
-          {/* 3 Biểu đồ tiến độ & độ bao phủ */}
+          {/* 3 Biểu đồ tiến độ & độ bao phủ - Chỉ hiển thị trực quan */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 flex-1 items-stretch">
             {/* Chart 1: Donut Tình hình thực hiện nhiệm vụ */}
             <TaskStatusDonutChart
               total={stats.tinhHinhNhiemVu.total}
               slices={stats.tinhHinhNhiemVu.slices}
-              onSliceClick={(key) => {
-                if (key === 'QUA_HAN' && stats.diemQuanTam.nhiemVuQuaHan.count > 0) {
-                  setShowOverdueModal(true);
-                } else {
-                  handleNavigateTab('chuong_trinh');
-                }
-              }}
             />
 
             {/* Chart 2: Gauge Độ bao phủ kiểm tra, giám sát */}
@@ -261,7 +241,7 @@ export function TongQuanExecutiveDashboard({
           </div>
         </div>
 
-        {/* KHỐI PHẢI: Điểm cần quan tâm (Cảnh báo quá hạn, đơn thư, kiến nghị) */}
+        {/* KHỐI PHẢI: Điểm cần quan tâm (Cảnh báo quá hạn, đơn thư, kiến nghị) - GIỮ NGUYÊN TƯƠNG TÁC ĐỂ XỬ LÝ ĐIỂM NÓNG */}
         <div className="xl:col-span-1">
           <AttentionAlerts
             diemQuanTam={stats.diemQuanTam}
@@ -275,11 +255,10 @@ export function TongQuanExecutiveDashboard({
         </div>
       </div>
 
-      {/* ── BẢNG CHI TIẾT TIẾN ĐỘ THEO ĐƠN VỊ CƠ SỞ (TỰ ĐỘNG THEO SỐ LƯỢNG ĐƠN VỊ THỰC TẾ) ── */}
+      {/* ── BẢNG CHI TIẾT TIẾN ĐỘ THEO ĐƠN VỊ CƠ SỞ (CHỈ THỂ HIỆN SỐ LIỆU THỐNG KÊ, KHÔNG TƯƠNG TÁC) ── */}
       <OrgProgressTable
         data={stats.tienDoTheoDonVi}
         currentYear={filters.year}
-        onNavigateToUnit={handleNavigateToUnit}
       />
 
       {/* ── POPUP XEM CHI TIẾT NHIỆM VỤ QUÁ HẠN NẾU CÓ ───────────────────── */}

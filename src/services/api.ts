@@ -4,7 +4,6 @@ import type {
   CreateChuongTrinhInput,
   CreateDonViInput,
   DonVi,
-  DonViLoai,
   DonViTreeItem,
   NhatKy,
   UpdateChuongTrinhInput,
@@ -63,1048 +62,9 @@ interface MockDb {
   donThuList?: DonThu[];
 }
 
-const DEFAULT_DON_THU_LIST: DonThu[] = [
-  {
-    id: 'dt-2026-001',
-    ma_don: 'ĐT-2026-001',
-    ngay_tiep_nhan: '2026-07-15',
-    loai_don: 'Khiếu nại',
-    linh_vuc: 'Công tác đảng',
-    doi_tuong_lien_quan: 'Tổ chức đảng',
-    phan_loai_xu_ly: 'Thuộc thẩm quyền',
-    huong_xu_ly: 'Xem xét giải quyết',
-    thoi_han_quy_dinh: 30,
-    can_bo_phu_trach: 'Đ/c Nguyễn Văn A',
-    trang_thai: 'Đang xử lý',
-    ngay_hoan_thanh: null,
-    ghi_chu_nghiep_vu: 'Đã hoàn thiện thẩm tra, đang lập dự thảo kết luận',
-    trong_ky: false,
-    created_at: '2026-07-15T08:30:00.000Z',
-    updated_at: '2026-07-15T08:30:00.000Z',
-  },
-  {
-    id: 'dt-2026-002',
-    ma_don: 'ĐT-2026-002',
-    ngay_tiep_nhan: '2026-08-05',
-    loai_don: 'Khiếu nại',
-    linh_vuc: 'Phẩm chất đạo đức',
-    doi_tuong_lien_quan: 'Đảng viên',
-    phan_loai_xu_ly: 'Thuộc thẩm quyền',
-    huong_xu_ly: 'Xem xét giải quyết',
-    thoi_han_quy_dinh: 30,
-    can_bo_phu_trach: 'Đ/c Nguyễn Văn A',
-    trang_thai: 'Đang xử lý',
-    ngay_hoan_thanh: null,
-    ghi_chu_nghiep_vu: 'Đang xác minh bổ sung tình tiết mới phát sinh',
-    trong_ky: true,
-    created_at: '2026-08-05T09:00:00.000Z',
-    updated_at: '2026-08-05T09:00:00.000Z',
-  },
-  {
-    id: 'dt-2026-003',
-    ma_don: 'ĐT-2026-003',
-    ngay_tiep_nhan: '2026-10-02',
-    loai_don: 'Khiếu nại',
-    linh_vuc: 'Phẩm chất đạo đức',
-    doi_tuong_lien_quan: 'Đảng viên',
-    phan_loai_xu_ly: 'Thuộc thẩm quyền',
-    huong_xu_ly: 'Xem xét giải quyết',
-    thoi_han_quy_dinh: 30,
-    can_bo_phu_trach: 'Đ/c Nguyễn Văn A',
-    trang_thai: 'Đang xử lý',
-    ngay_hoan_thanh: null,
-    ghi_chu_nghiep_vu: 'Đã mời đối tượng lên làm việc lần 1',
-    trong_ky: true,
-    created_at: '2026-10-02T10:15:00.000Z',
-    updated_at: '2026-10-02T10:15:00.000Z',
-  },
-  {
-    id: 'dt-2026-004',
-    ma_don: 'ĐT-2026-004',
-    ngay_tiep_nhan: '2026-09-10',
-    loai_don: 'Khiếu nại',
-    linh_vuc: 'Thực hiện nhiệm vụ',
-    doi_tuong_lien_quan: 'Tổ chức đảng',
-    phan_loai_xu_ly: 'Thuộc thẩm quyền',
-    huong_xu_ly: 'Xem xét giải quyết',
-    thoi_han_quy_dinh: 30,
-    can_bo_phu_trach: 'Đ/c Trần Thị B',
-    trang_thai: 'Đã hoàn thành',
-    ngay_hoan_thanh: '2026-10-05',
-    ghi_chu_nghiep_vu: 'Đã ban hành thông báo kết luận giải quyết khiếu nại',
-    trong_ky: true,
-    created_at: '2026-09-10T08:00:00.000Z',
-    updated_at: '2026-10-05T16:00:00.000Z',
-  },
-  {
-    id: 'dt-2026-005',
-    ma_don: 'ĐT-2026-005',
-    ngay_tiep_nhan: '2026-09-15',
-    loai_don: 'Khiếu nại',
-    linh_vuc: 'Quản lý kinh tế',
-    doi_tuong_lien_quan: 'Đảng viên',
-    phan_loai_xu_ly: 'Không thuộc thẩm quyền',
-    huong_xu_ly: 'Chuyển cơ quan khác',
-    thoi_han_quy_dinh: 15,
-    can_bo_phu_trach: 'Đ/c Trần Thị B',
-    trang_thai: 'Đã hoàn thành',
-    ngay_hoan_thanh: '2026-09-25',
-    ghi_chu_nghiep_vu: 'Đã chuyển hồ sơ sang UBND phường theo đúng thẩm quyền',
-    trong_ky: true,
-    created_at: '2026-09-15T09:20:00.000Z',
-    updated_at: '2026-09-25T14:30:00.000Z',
-  },
-  {
-    id: 'dt-2026-006',
-    ma_don: 'ĐT-2026-006',
-    ngay_tiep_nhan: '2026-09-20',
-    loai_don: 'Tố cáo',
-    linh_vuc: 'Công tác đảng',
-    doi_tuong_lien_quan: 'Tổ chức đảng',
-    phan_loai_xu_ly: 'Thuộc thẩm quyền',
-    huong_xu_ly: 'Xem xét giải quyết',
-    thoi_han_quy_dinh: 60,
-    can_bo_phu_trach: 'Đ/c Nguyễn Văn A',
-    trang_thai: 'Đang xử lý',
-    ngay_hoan_thanh: null,
-    ghi_chu_nghiep_vu: 'Đã thành lập đoàn kiểm tra xem xét dấu hiệu vi phạm theo quy trình',
-    trong_ky: true,
-    created_at: '2026-09-20T14:00:00.000Z',
-    updated_at: '2026-09-20T14:00:00.000Z',
-  },
-  {
-    id: 'dt-2026-007',
-    ma_don: 'ĐT-2026-007',
-    ngay_tiep_nhan: '2026-08-12',
-    loai_don: 'Tố cáo',
-    linh_vuc: 'Phẩm chất đạo đức',
-    doi_tuong_lien_quan: 'Đảng viên',
-    phan_loai_xu_ly: 'Không thuộc thẩm quyền',
-    huong_xu_ly: 'Chuyển cơ quan khác',
-    thoi_han_quy_dinh: 15,
-    can_bo_phu_trach: 'Đ/c Trần Thị B',
-    trang_thai: 'Đã hoàn thành',
-    ngay_hoan_thanh: '2026-08-22',
-    ghi_chu_nghiep_vu: 'Đã chuyển cơ quan Thanh tra giải quyết theo chức năng',
-    trong_ky: true,
-    created_at: '2026-08-12T08:45:00.000Z',
-    updated_at: '2026-08-22T15:20:00.000Z',
-  },
-  {
-    id: 'dt-2026-008',
-    ma_don: 'ĐT-2026-008',
-    ngay_tiep_nhan: '2026-06-18',
-    loai_don: 'Tố cáo',
-    linh_vuc: 'Phẩm chất đạo đức',
-    doi_tuong_lien_quan: 'Đảng viên',
-    phan_loai_xu_ly: 'Thuộc thẩm quyền',
-    huong_xu_ly: 'Lưu đơn',
-    thoi_han_quy_dinh: 10,
-    can_bo_phu_trach: 'Đ/c Lê Văn C',
-    trang_thai: 'Đã hoàn thành',
-    ngay_hoan_thanh: '2026-06-25',
-    ghi_chu_nghiep_vu: 'Đơn nặc danh, không có tài liệu bằng chứng, quyết định lưu đơn',
-    trong_ky: false,
-    created_at: '2026-06-18T10:00:00.000Z',
-    updated_at: '2026-06-25T11:00:00.000Z',
-  },
-  {
-    id: 'dt-2026-009',
-    ma_don: 'ĐT-2026-009',
-    ngay_tiep_nhan: '2026-10-10',
-    loai_don: 'Kiến nghị',
-    linh_vuc: 'Công tác đảng',
-    doi_tuong_lien_quan: 'Tổ chức đảng',
-    phan_loai_xu_ly: 'Thuộc thẩm quyền',
-    huong_xu_ly: 'Xem xét giải quyết',
-    thoi_han_quy_dinh: 30,
-    can_bo_phu_trach: 'Đ/c Nguyễn Văn A',
-    trang_thai: 'Đang xử lý',
-    ngay_hoan_thanh: null,
-    ghi_chu_nghiep_vu: 'Mới tiếp nhận, đã phân công chuyên viên nghiên cứu hồ sơ',
-    trong_ky: true,
-    created_at: '2026-10-10T09:10:00.000Z',
-    updated_at: '2026-10-10T09:10:00.000Z',
-  },
-  {
-    id: 'dt-2026-010',
-    ma_don: 'ĐT-2026-010',
-    ngay_tiep_nhan: '2026-09-01',
-    loai_don: 'Kiến nghị',
-    linh_vuc: 'Công tác đảng',
-    doi_tuong_lien_quan: 'Tổ chức đảng',
-    phan_loai_xu_ly: 'Thuộc thẩm quyền',
-    huong_xu_ly: 'Xem xét giải quyết',
-    thoi_han_quy_dinh: 30,
-    can_bo_phu_trach: 'Đ/c Trần Thị B',
-    trang_thai: 'Đã hoàn thành',
-    ngay_hoan_thanh: '2026-09-28',
-    ghi_chu_nghiep_vu: 'Đã tổ chức đối thoại, giải thích quy chế và thống nhất nhận thức',
-    trong_ky: true,
-    created_at: '2026-09-01T08:30:00.000Z',
-    updated_at: '2026-09-28T16:00:00.000Z',
-  },
-  {
-    id: 'dt-2026-011',
-    ma_don: 'ĐT-2026-011',
-    ngay_tiep_nhan: '2026-09-08',
-    loai_don: 'Kiến nghị',
-    linh_vuc: 'Phẩm chất đạo đức',
-    doi_tuong_lien_quan: 'Đảng viên',
-    phan_loai_xu_ly: 'Không thuộc thẩm quyền',
-    huong_xu_ly: 'Chuyển cơ quan khác',
-    thoi_han_quy_dinh: 15,
-    can_bo_phu_trach: 'Đ/c Lê Văn C',
-    trang_thai: 'Đã hoàn thành',
-    ngay_hoan_thanh: '2026-09-20',
-    ghi_chu_nghiep_vu: 'Đã chuyển cơ quan có thẩm quyền xử lý theo chức năng',
-    trong_ky: true,
-    created_at: '2026-09-08T11:00:00.000Z',
-    updated_at: '2026-09-20T15:30:00.000Z',
-  },
-  {
-    id: 'dt-2026-012',
-    ma_don: 'ĐT-2026-012',
-    ngay_tiep_nhan: '2026-10-05',
-    loai_don: 'Kiến nghị',
-    linh_vuc: 'Thực hiện nhiệm vụ',
-    doi_tuong_lien_quan: 'Đảng viên',
-    phan_loai_xu_ly: 'Thuộc thẩm quyền',
-    huong_xu_ly: 'Xem xét giải quyết',
-    thoi_han_quy_dinh: 30,
-    can_bo_phu_trach: 'Đ/c Lê Văn C',
-    trang_thai: 'Đang xử lý',
-    ngay_hoan_thanh: null,
-    ghi_chu_nghiep_vu: 'Đang xác minh lịch trình và hồ sơ công việc liên quan',
-    trong_ky: true,
-    created_at: '2026-10-05T14:20:00.000Z',
-    updated_at: '2026-10-05T14:20:00.000Z',
-  },
-  {
-    id: 'dt-2026-013',
-    ma_don: 'ĐT-2026-013',
-    ngay_tiep_nhan: '2026-10-12',
-    loai_don: 'Phản ánh',
-    linh_vuc: 'Phẩm chất đạo đức',
-    doi_tuong_lien_quan: 'Đảng viên',
-    phan_loai_xu_ly: 'Thuộc thẩm quyền',
-    huong_xu_ly: 'Xem xét giải quyết',
-    thoi_han_quy_dinh: 20,
-    can_bo_phu_trach: 'Đ/c Nguyễn Văn A',
-    trang_thai: 'Đang xử lý',
-    ngay_hoan_thanh: null,
-    ghi_chu_nghiep_vu: 'Đang đối chiếu chứng từ thu nộp đảng phí',
-    trong_ky: true,
-    created_at: '2026-10-12T09:40:00.000Z',
-    updated_at: '2026-10-12T09:40:00.000Z',
-  },
-  {
-    id: 'dt-2026-014',
-    ma_don: 'ĐT-2026-014',
-    ngay_tiep_nhan: '2026-05-10',
-    loai_don: 'Phản ánh',
-    linh_vuc: 'Thực hiện nhiệm vụ',
-    doi_tuong_lien_quan: 'Tổ chức đảng',
-    phan_loai_xu_ly: 'Không thuộc thẩm quyền',
-    huong_xu_ly: 'Chuyển cơ quan khác',
-    thoi_han_quy_dinh: 10,
-    can_bo_phu_trach: 'Đ/c Trần Thị B',
-    trang_thai: 'Đã hoàn thành',
-    ngay_hoan_thanh: '2026-05-18',
-    ghi_chu_nghiep_vu: 'Chuyển cơ quan chuyên môn theo dõi địa bàn xử lý',
-    trong_ky: false,
-    created_at: '2026-05-10T10:30:00.000Z',
-    updated_at: '2026-05-18T14:15:00.000Z',
-  },
-  {
-    id: 'dt-2026-015',
-    ma_don: 'ĐT-2026-015',
-    ngay_tiep_nhan: '2026-10-18',
-    loai_don: 'Đơn khác',
-    linh_vuc: 'Khác',
-    doi_tuong_lien_quan: 'Khác',
-    phan_loai_xu_ly: 'Thuộc thẩm quyền',
-    huong_xu_ly: 'Lưu đơn',
-    thoi_han_quy_dinh: 10,
-    can_bo_phu_trach: 'Đ/c Lê Văn C',
-    trang_thai: 'Đang xử lý',
-    ngay_hoan_thanh: null,
-    ghi_chu_nghiep_vu: 'Đang làm thủ tục rà soát tính hợp lệ trước khi lưu đơn',
-    trong_ky: true,
-    created_at: '2026-10-18T08:15:00.000Z',
-    updated_at: '2026-10-18T08:15:00.000Z',
-  },
-];
-
-function getMockDb(): MockDb {
-  const raw = localStorage.getItem(MOCK_STORAGE_KEY);
-  if (raw) {
-    try {
-      const parsed: MockDb = JSON.parse(raw);
-      const hasOldData = parsed.donViList?.some((d) => d.ma === 'DUK-01');
-      const hasAiQuoc = parsed.donViList?.some((d) => d.ma === 'DUP-01');
-      if (!hasOldData && hasAiQuoc) {
-        // Đảm bảo tài khoản admin không bị bắt buộc đổi mật khẩu và mật khẩu về chuẩn
-        const adminUser = parsed.users?.find((u) => u.ten_dang_nhap === 'admin');
-        if (adminUser) {
-          adminUser.must_change_password = false;
-          (adminUser as unknown as { mat_khau?: string }).mat_khau = 'Admin@123456';
-        }
-
-        // Đảm bảo có sẵn danh sách cán bộ cơ quan để phân công ngay
-        if (!parsed.users || parsed.users.length <= 1) {
-          const defaultOfficers: User[] = [
-            {
-              id: 'mock-user-01',
-              ten_dang_nhap: 'nguyen_van_a',
-              ho_ten: 'Đ/c Nguyễn Văn A (UBKT)',
-              vai_tro: 'BIEN_TAP',
-              trang_thai: 1,
-              must_change_password: false,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-            {
-              id: 'mock-user-02',
-              ten_dang_nhap: 'tran_thi_b',
-              ho_ten: 'Đ/c Trần Thị B (Chuyên viên)',
-              vai_tro: 'BIEN_TAP',
-              trang_thai: 1,
-              must_change_password: false,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-            {
-              id: 'mock-user-03',
-              ten_dang_nhap: 'le_van_c',
-              ho_ten: 'Đ/c Lê Văn C (Chuyên viên)',
-              vai_tro: 'BIEN_TAP',
-              trang_thai: 1,
-              must_change_password: false,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-          ];
-          parsed.users = [...(parsed.users || []), ...defaultOfficers];
-          saveMockDb(parsed);
-        }
-        if (!parsed.donThuList || !Array.isArray(parsed.donThuList) || parsed.donThuList.length === 0) {
-          parsed.donThuList = DEFAULT_DON_THU_LIST;
-          saveMockDb(parsed);
-        }
-        if (!parsed.chuongTrinhList || parsed.chuongTrinhList.length === 0) {
-          parsed.chuongTrinhList = [
-            {
-              id: 'ct-2026-001',
-              nam: 2026,
-              chu_the: 'BTV Đảng ủy',
-              don_vi_id: '01918a00-0000-7000-8000-000000000017',
-              ten_don_vi: 'Chi bộ Quân sự',
-              loai_hinh: 'GIAM_SAT',
-              doi_tuong: 'Chi bộ Quân sự và đồng chí Bí thư Chi bộ',
-              noi_dung: 'Giám sát việc lãnh đạo, chỉ đạo quán triệt, thực hiện Nghị quyết của Đảng ủy về nhiệm vụ quân sự, quốc phòng địa phương năm 2026; công tác sẵn sàng chiến đấu và tuyển quân.',
-              ngay_bat_dau: '2026-03-10',
-              ngay_ket_thuc: '2026-04-15',
-              so_van_ban: '05-KH/ĐU',
-              trang_thai: 'DANG_THUC_HIEN',
-              file_pdf_ten: '05_KH_DU_GiamSat_ChiBoQuanSu.pdf',
-              file_pdf_url: null,
-              file_pdf_dung_luong: 452000,
-              ghi_chu_pdf: 'Trang 2, mục II, nội dung giám sát số 1',
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-            {
-              id: 'ct-2026-002',
-              nam: 2026,
-              chu_the: 'UBKT Đảng ủy',
-              don_vi_id: '01918a00-0000-7000-8000-000000000010',
-              ten_don_vi: 'Chi bộ Tiền Trung',
-              loai_hinh: 'KIEM_TRA',
-              doi_tuong: 'Chi ủy Chi bộ Tiền Trung',
-              noi_dung: 'Kiểm tra việc thu nộp, quản lý và sử dụng đảng phí; thực hiện nguyên tắc tập trung dân chủ trong sinh hoạt chi bộ.',
-              ngay_bat_dau: '2026-04-01',
-              ngay_ket_thuc: '2026-05-10',
-              so_van_ban: '02-KH/UBKT',
-              trang_thai: 'CHUA_THUC_HIEN',
-              file_pdf_ten: '02_KH_UBKT_KiemTra_TienTrung.pdf',
-              file_pdf_url: null,
-              file_pdf_dung_luong: 328000,
-              ghi_chu_pdf: 'Mục I, phần B kế hoạch kiểm tra',
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-            {
-              id: 'ct-2026-003',
-              nam: 2026,
-              chu_the: 'BCH Đảng bộ',
-              don_vi_id: '01918a00-0000-7000-8000-000000000006',
-              ten_don_vi: 'Đảng bộ Trường THCS Ái Quốc',
-              loai_hinh: 'KIEM_TRA',
-              doi_tuong: 'Đảng ủy và Ban Giám hiệu Trường THCS Ái Quốc',
-              noi_dung: 'Kiểm tra việc thực hiện quy chế dân chủ ở cơ sở; công tác bồi dưỡng, kết nạp đảng viên mới trong đội ngũ giáo viên.',
-              ngay_bat_dau: '2026-05-15',
-              ngay_ket_thuc: '2026-06-20',
-              so_van_ban: '12-KH/BCH',
-              trang_thai: 'CHUA_THUC_HIEN',
-              file_pdf_ten: null,
-              file_pdf_url: null,
-              file_pdf_dung_luong: null,
-              ghi_chu_pdf: null,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-            {
-              id: 'ct-2026-004',
-              nam: 2026,
-              chu_the: 'BTV Đảng ủy',
-              don_vi_id: '01918a00-0000-7000-8000-000000000016',
-              ten_don_vi: 'Chi bộ Y tế',
-              loai_hinh: 'GIAM_SAT',
-              doi_tuong: 'Chi bộ Y tế và cán bộ, đảng viên Trạm Y tế phường',
-              noi_dung: 'Giám sát công tác chăm sóc sức khỏe ban đầu cho nhân dân, phòng chống dịch bệnh và nâng cao y đức của người thầy thuốc.',
-              ngay_bat_dau: '2026-01-15',
-              ngay_ket_thuc: '2026-02-28',
-              so_van_ban: '01-KH/ĐU',
-              trang_thai: 'DA_HOAN_THANH',
-              file_pdf_ten: '01_KH_DU_BaoCaoKetLuan_YTe.pdf',
-              file_pdf_url: null,
-              file_pdf_dung_luong: 610000,
-              ghi_chu_pdf: 'Đã có kết luận giám sát số 03-KL/ĐU ngày 02/03/2026',
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-          ];
-          saveMockDb(parsed);
-        }
-
-        // Bổ sung các chương trình nhiệm kỳ mẫu lưu cho chi đảng bộ nếu chưa có
-        if (parsed.chuongTrinhList && Array.isArray(parsed.chuongTrinhList)) {
-          let updated = false;
-          parsed.chuongTrinhList.forEach((c) => {
-            if (!c.loai_chuong_trinh) {
-              c.loai_chuong_trinh = 'HANG_NAM';
-              updated = true;
-            }
-          });
-
-          const hasNhiemKy = parsed.chuongTrinhList.some((c) => c.loai_chuong_trinh === 'NHIEM_KY');
-          if (!hasNhiemKy) {
-            const defaultNhiemKyList: ChuongTrinhKtGs[] = [
-              {
-                id: 'ct-nk-001',
-                nam: 2025,
-                loai_chuong_trinh: 'NHIEM_KY',
-                nhiem_ky: '2025 - 2030',
-                chu_the: 'BCH Đảng bộ phường Ái Quốc',
-                don_vi_id: '01918a00-0000-7000-8000-000000000002',
-                ten_don_vi: 'Ban Chấp hành Đảng bộ phường',
-                chi_dang_bo_id: null,
-                ten_chi_dang_bo: 'Toàn Đảng bộ (28 Chi, Đảng bộ trực thuộc)',
-                loai_hinh: 'KIEM_TRA',
-                doi_tuong: '28 Chi, Đảng bộ cơ sở và các đồng chí cấp ủy viên, Bí thư chi bộ trực thuộc',
-                noi_dung: 'Chương trình kiểm tra, giám sát toàn khóa nhiệm kỳ 2025 - 2030 của Ban Chấp hành Đảng bộ phường: Kiểm tra việc chấp hành Điều lệ Đảng, Nghị quyết Đại hội Đảng bộ các cấp; việc thực hiện quy chế làm việc, nguyên tắc tập trung dân chủ và giữ gìn kỷ cương kỷ luật Đảng.',
-                noi_dung_van_ban: `ĐẢNG CỘNG SẢN VIỆT NAM
-ĐẢNG BỘ PHƯỜNG ÁI QUỐC
-BAN CHẤP HÀNH
-***
-Số: 01-CTr/ĐU
-Ái Quốc, ngày 10 tháng 8 năm 2025
-
-CHƯƠNG TRÌNH
-Kiểm tra, giám sát toàn khóa của Ban Chấp hành Đảng bộ phường Ái Quốc
-khóa XXIV, nhiệm kỳ 2025 - 2030
------
-
-Thực hiện Điều lệ Đảng Cộng sản Việt Nam; căn cứ Nghị quyết Đại hội đại biểu Đảng bộ phường Ái Quốc lần thứ XXIV, nhiệm kỳ 2025 - 2030 và Quy chế làm việc của Ban Chấp hành Đảng bộ; Ban Chấp hành Đảng bộ phường ban hành Chương trình kiểm tra, giám sát toàn khóa nhiệm kỳ 2025 - 2030 như sau:
-
-I. MỤC ĐÍCH, YÊU CẦU
-1. Mục đích:
-- Nâng cao năng lực lãnh đạo, sức chiến đấu của tổ chức cơ sở đảng và đội ngũ đảng viên trong toàn Đảng bộ; tạo sự chuyển biến tích cực trong việc chấp hành Cương lĩnh chính trị, Điều lệ Đảng, các chỉ thị, nghị quyết của cấp trên.
-- Chủ động phòng ngừa, ngăn chặn từ sớm, từ xa những biểu hiện suy thoái về tư tưởng chính trị, đạo đức, lối sống, "tự diễn biến", "tự chuyển hóa"; kịp thời phát hiện những nhân tố mới để biểu dương, đồng thời phát hiện thiếu sót, khuyết điểm để uốn nắn, khắc phục.
-- Giữ vững kỷ luật, kỷ cương của Đảng, củng cố khối đại đoàn kết nội bộ, củng cố niềm tin của nhân dân đối với sự lãnh đạo của Đảng bộ phường.
-
-2. Yêu cầu:
-- Công tác kiểm tra, giám sát phải bám sát nhiệm vụ chính trị trọng tâm của địa phương và nghị quyết đại hội chi, đảng bộ cơ sở; kết hợp chặt chẽ giữa xây và chống, lấy phòng ngừa là chính.
-- Thực hiện nghiêm túc, đúng nguyên tắc, thẩm quyền, thủ tục và quy trình theo quy định của Ban Bí thư và UBKT Trung ương. Bảo đảm tính dân chủ, khách quan, chính xác và hiệu quả thiết thực.
-
-II. ĐỐI TƯỢNG VÀ NỘI DUNG KIỂM TRA, GIÁM SÁT TOÀN KHÓA
-1. Đối tượng:
-- Áp dụng đối với tất cả 28 chi bộ, đảng bộ trực thuộc Đảng bộ phường Ái Quốc.
-- Cán bộ diện Ban Thường vụ Đảng ủy quản lý, trước hết là đồng chí Bí thư, Phó Bí thư, Chi ủy viên, thủ trưởng các cơ quan, đơn vị.
-
-2. Nội dung trọng tâm toàn khóa:
-a) Công tác lãnh đạo, chỉ đạo học tập, quán triệt và triển khai thực hiện Nghị quyết Đại hội Đảng các cấp; việc cụ thể hóa thành kế hoạch, đề án công tác thực tiễn.
-b) Việc chấp hành nguyên tắc tập trung dân chủ, Quy chế làm việc của cấp ủy, chi bộ; thực hiện chế độ tự phê bình và phê bình trong sinh hoạt chi bộ định kỳ.
-c) Việc tu dưỡng, rèn luyện phẩm chất đạo đức, lối sống, trách nhiệm nêu gương của cán bộ, đảng viên, nhất là người đứng đầu theo Kết luận số 01-KL/TW gắn với Kết luận 21-KL/TW.
-d) Việc lãnh đạo thực hiện nhiệm vụ phát triển kinh tế - xã hội, bảo đảm quốc phòng - an ninh; công tác quản lý tài chính, đất đai, trật tự xây dựng, thu nộp và sử dụng đảng phí.
-
-III. PHÂN KỲ VÀ TIẾN ĐỘ THỰC HIỆN CÁC NĂM (2025 - 2030)
-- Năm 2025: Kiểm tra việc xây dựng, ban hành Quy chế làm việc toàn khóa; phân công cấp ủy viên phụ trách địa bàn; chương trình hành động thực hiện Nghị quyết Đại hội.
-- Năm 2026: Kiểm tra, giám sát chuyên đề công tác quốc phòng địa phương, an ninh trật tự tại Chi bộ Quân sự, Chi bộ Công an và một số chi bộ khu dân cư (Tiền Trung, Hiệp Hòa).
-- Năm 2027: Kiểm tra việc thực hiện nề nếp sinh hoạt, nâng cao chất lượng sinh hoạt chi bộ và công tác bồi dưỡng, kết nạp đảng viên mới (Đảng bộ THCS, Chi bộ Y tế, các chi bộ tổ dân phố).
-- Năm 2028: Giám sát việc thực hiện quy chế dân chủ ở cơ sở, cải cách thủ tục hành chính, giải quyết khiếu nại tố cáo và phòng chống tham nhũng, lãng phí, tiêu cực.
-- Năm 2029: Rà soát, đánh giá kết quả thực hiện các chỉ tiêu KT-GS toàn khóa; chuẩn bị nhân sự đại hội chi, đảng bộ trực thuộc nhiệm kỳ mới.
-- Năm 2030: Tổng kết việc thực hiện Chương trình kiểm tra, giám sát toàn khóa nhiệm kỳ 2025 - 2030.
-
-IV. TỔ CHỨC THỰC HIỆN
-1. Ban Chấp hành Đảng bộ giao Ủy ban Kiểm tra Đảng ủy chủ trì, phối hợp với Văn phòng Đảng ủy và các bộ phận liên quan giúp Ban Chấp hành theo dõi, đôn đốc, định kỳ 6 tháng và hàng năm báo cáo kết quả thực hiện.
-2. Các chi bộ, đảng bộ trực thuộc căn cứ Chương trình này để xây dựng Chương trình kiểm tra, giám sát toàn khóa và kế hoạch hàng năm của đơn vị mình; mở sổ theo dõi, lưu trữ hồ sơ và gửi văn bản về Đảng ủy (qua UBKT Đảng ủy) trước ngày 15/01 hàng năm để theo dõi, chỉ đạo.
-
-Nơi nhận:
-- Thường trực Thị ủy/Thành ủy (báo cáo);
-- UBKT cấp trên (báo cáo);
-- Các đ/c Đảng ủy viên;
-- 28 chi, đảng bộ trực thuộc;
-- Lưu: Văn phòng Đảng ủy, UBKT Đảng ủy.
-
-T/M BAN CHẤP HÀNH
-BÍ THƯ ĐẢNG BỘ
-(Đã ký và đóng dấu)`,
-                ngay_bat_dau: '2025-08-15',
-                ngay_ket_thuc: '2030-05-30',
-                so_van_ban: '01-CTr/ĐU',
-                ngay_ban_hanh: '2025-08-10',
-                nguoi_ky: 'Bí thư Đảng ủy phường',
-                trang_thai: 'DANG_THUC_HIEN',
-                file_pdf_ten: '01_CTr_DU_KTGS_ToanKhoa_2025_2030.pdf',
-                file_pdf_url: null,
-                file_pdf_dung_luong: 845000,
-                ghi_chu_pdf: 'Toàn văn chương trình ban hành ngày 10/08/2025, gồm 4 phần và phụ lục lộ trình 5 năm',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              },
-              {
-                id: 'ct-nk-002',
-                nam: 2025,
-                loai_chuong_trinh: 'NHIEM_KY',
-                nhiem_ky: '2025 - 2027',
-                chu_the: 'Chi bộ Quân sự',
-                don_vi_id: '01918a00-0000-7000-8000-000000000017',
-                ten_don_vi: 'Chi bộ Quân sự',
-                chi_dang_bo_id: '01918a00-0000-7000-8000-000000000017',
-                ten_chi_dang_bo: 'Chi bộ Quân sự',
-                loai_hinh: 'GIAM_SAT',
-                doi_tuong: 'Tập thể Chi ủy và toàn thể đảng viên thuộc Chi bộ Quân sự',
-                noi_dung: 'Chương trình kiểm tra, giám sát của Chi bộ Quân sự nhiệm kỳ 2025 - 2027: Giám sát việc lãnh đạo công tác sẵn sàng chiến đấu, tuyển chọn gọi công dân nhập ngũ, xây dựng lực lượng dân quân tự vệ vững mạnh và quản lý vũ khí trang bị.',
-                noi_dung_van_ban: `ĐẢNG BỘ PHƯỜNG ÁI QUỐC
-CHI BỘ QUÂN SỰ
-***
-Số: 02-CTr/CBQS
-Ái Quốc, ngày 20 tháng 01 năm 2025
-
-CHƯƠNG TRÌNH
-Kiểm tra, giám sát của Chi bộ Quân sự phường nhiệm kỳ 2025 - 2027
------
-
-Căn cứ Điều lệ Đảng Cộng sản Việt Nam; Nghị quyết Đại hội Chi bộ Quân sự nhiệm kỳ 2025 - 2027 và Chương trình kiểm tra, giám sát toàn khóa số 01-CTr/ĐU của Ban Chấp hành Đảng bộ phường; Chi ủy Chi bộ Quân sự xây dựng Chương trình kiểm tra, giám sát nhiệm kỳ 2025 - 2027 như sau:
-
-I. MỤC ĐÍCH, YÊU CẦU
-- Nâng cao ý thức kỷ luật, kỷ cương quân đội và kỷ luật của Đảng trong từng đảng viên, chiến sĩ lực lượng vũ trang phường.
-- Đảm bảo 100% cán bộ, đảng viên hoàn thành tốt nhiệm vụ trực sẵn sàng chiến đấu, huấn luyện dân quân tự vệ và tuyển quân đạt 100% chỉ tiêu giao.
-
-II. NỘI DUNG VÀ TIẾN ĐỘ THỰC HIỆN
-1. Năm 2025: Giám sát đảng viên về việc chấp hành giờ giấc trực chỉ huy, bảo quản vũ khí trang bị kỹ thuật và giữ nghiêm kỷ luật phát ngôn.
-2. Năm 2026: Kiểm tra đảng viên phụ trách công tác rà soát nguồn tuyển quân, bảo đảm công khai, minh bạch, đúng luật; giám sát công tác quản lý đảng phí.
-3. Năm 2027: Kiểm tra việc thực hiện Kết luận 01-KL/TW và đánh giá chất lượng đảng viên cuối nhiệm kỳ.
-
-III. TỔ CHỨC THỰC HIỆN
-- Đồng chí Phó Bí thư Chi bộ trực tiếp theo dõi, định kỳ sinh hoạt chi bộ hằng tháng báo cáo tiến độ kiểm tra, giám sát.
-- Hồ sơ được lưu trữ tại tủ tài liệu Chi bộ Quân sự để phục vụ các đoàn kiểm tra của UBKT Đảng ủy.
-
-T/M CHI ỦY
-BÍ THƯ CHI BỘ
-(Đã ký)`,
-                ngay_bat_dau: '2025-02-01',
-                ngay_ket_thuc: '2027-12-31',
-                so_van_ban: '02-CTr/CBQS',
-                ngay_ban_hanh: '2025-01-20',
-                nguoi_ky: 'Bí thư Chi bộ Quân sự',
-                trang_thai: 'DANG_THUC_HIEN',
-                file_pdf_ten: '02_CTr_CBQS_KTGS_NhiemKy_2025_2027.pdf',
-                file_pdf_url: null,
-                file_pdf_dung_luong: 420000,
-                ghi_chu_pdf: 'Lưu tại tủ hồ sơ chi bộ, nộp UBKT Đảng ủy 01 bản theo dõi',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              },
-              {
-                id: 'ct-nk-003',
-                nam: 2025,
-                loai_chuong_trinh: 'NHIEM_KY',
-                nhiem_ky: '2025 - 2027',
-                chu_the: 'Chi bộ Công an',
-                don_vi_id: '01918a00-0000-7000-8000-000000000018',
-                ten_don_vi: 'Chi bộ Công an',
-                chi_dang_bo_id: '01918a00-0000-7000-8000-000000000018',
-                ten_chi_dang_bo: 'Chi bộ Công an',
-                loai_hinh: 'KIEM_TRA',
-                doi_tuong: 'Cán bộ, chiến sĩ, đảng viên công an phường',
-                noi_dung: 'Chương trình kiểm tra, giám sát nhiệm kỳ 2025 - 2027: Kiểm tra việc thực hiện 6 điều Bác Hồ dạy CAND, lễ tiết tác phong khi tiếp xúc nhân dân; công tác quản lý cư trú, trật tự an toàn xã hội và phòng ngừa tiêu cực.',
-                noi_dung_van_ban: `ĐẢNG BỘ PHƯỜNG ÁI QUỐC
-CHI BỘ CÔNG AN
-***
-Số: 03-CTr/CBCA
-Ái Quốc, ngày 22 tháng 01 năm 2025
-
-CHƯƠNG TRÌNH
-Kiểm tra, giám sát của Chi bộ Công an phường nhiệm kỳ 2025 - 2027
------
-
-I. MỤC TIÊU:
-- Xây dựng lực lượng Công an phường Ái Quốc thật sự trong sạch, vững mạnh, chính quy, tinh nhuệ, hiện đại.
-- 100% cán bộ, đảng viên thực hiện đúng quy trình công tác, không gây phiền hà, sách nhiễu nhân dân trong giải quyết thủ tục cư trú, PCCC và trật tự an toàn giao thông.
-
-II. NỘI DUNG VÀ ĐỐI TƯỢNG KIỂM TRA:
-- Tổ Cảnh sát khu vực: Kiểm tra việc bám nắm địa bàn, quản lý đối tượng và giải quyết mâu thuẫn trong nhân dân ngay từ cơ sở.
-- Tổ Trật tự - Hình sự: Kiểm tra việc xử lý vi phạm hành chính, chấp hành quy trình nghiệp vụ và đạo đức công vụ.
-
-III. TỔ CHỨC THỰC HIỆN:
-- Chi ủy phối hợp chặt chẽ với UBKT Đảng ủy phường trong công tác nắm tình hình và báo cáo định kỳ theo quy chế.
-
-T/M CHI BỘ
-BÍ THƯ
-(Đã ký)`,
-                ngay_bat_dau: '2025-02-01',
-                ngay_ket_thuc: '2027-12-31',
-                so_van_ban: '03-CTr/CBCA',
-                ngay_ban_hanh: '2025-01-22',
-                nguoi_ky: 'Bí thư Chi bộ Công an',
-                trang_thai: 'DANG_THUC_HIEN',
-                file_pdf_ten: '03_CTr_CBCA_KTGS_NhiemKy_2025_2027.pdf',
-                file_pdf_url: null,
-                file_pdf_dung_luong: 390000,
-                ghi_chu_pdf: 'Kèm theo Kế hoạch kiểm tra chuyên đề đạo đức công vụ',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              },
-              {
-                id: 'ct-nk-004',
-                nam: 2025,
-                loai_chuong_trinh: 'NHIEM_KY',
-                nhiem_ky: '2025 - 2030',
-                chu_the: 'UBKT Đảng ủy phường',
-                don_vi_id: '01918a00-0000-7000-8000-000000000004',
-                ten_don_vi: 'Ủy ban Kiểm tra Đảng ủy phường',
-                chi_dang_bo_id: null,
-                ten_chi_dang_bo: 'Toàn thể các Chi bộ cơ sở',
-                loai_hinh: 'KIEM_TRA',
-                doi_tuong: 'Tổ chức đảng và đảng viên khi có dấu hiệu vi phạm; kiểm tra việc thực hiện nhiệm vụ KT-GS và thi hành kỷ luật trong Đảng',
-                noi_dung: 'Chương trình kiểm tra, giám sát toàn khóa nhiệm kỳ 2025 - 2030 của Ủy ban Kiểm tra Đảng ủy: Kiểm tra tổ chức đảng cấp dưới thực hiện nhiệm vụ kiểm tra, giám sát; kiểm tra tài chính đảng; giám sát thường xuyên cán bộ diện Đảng ủy quản lý.',
-                noi_dung_van_ban: `ĐẢNG BỘ PHƯỜNG ÁI QUỐC
-ỦY BAN KIỂM TRA
-***
-Số: 01-CTr/UBKT
-Ái Quốc, ngày 25 tháng 8 năm 2025
-
-CHƯƠNG TRÌNH
-Công tác kiểm tra, giám sát toàn khóa của Ủy ban Kiểm tra Đảng ủy
-nhiệm kỳ 2025 - 2030
------
-
-Căn cứ Điều 32 Điều lệ Đảng; căn cứ Nghị quyết Đại hội Đảng bộ phường Ái Quốc lần thứ XXIV và Quy chế làm việc của UBKT Đảng ủy phường; Ủy ban Kiểm tra Đảng ủy ban hành Chương trình công tác toàn khóa nhiệm kỳ 2025 - 2030:
-
-I. NHIỆM VỤ TRỌNG TÂM:
-1. Chủ động nắm chắc tình hình tổ chức đảng và đảng viên, tập trung phát hiện và kiểm tra khi có dấu hiệu vi phạm ngay từ cơ sở.
-2. Kiểm tra tổ chức đảng cấp dưới thực hiện nhiệm vụ kiểm tra, giám sát và thi hành kỷ luật trong Đảng (hàng năm kiểm tra từ 6 đến 8 chi bộ).
-3. Kiểm tra công tác thu nộp, quản lý và sử dụng đảng phí của 100% các chi bộ trực thuộc trong nhiệm kỳ.
-4. Giải quyết kịp thời, đúng quy định các đơn thư khiếu nại, tố cáo đối với tổ chức đảng và đảng viên.
-
-II. LỘ TRÌNH VÀ PHÂN CÔNG THỰC HIỆN:
-- Các đồng chí thành viên UBKT Đảng ủy phụ trách từng cụm chi bộ (khu dân cư, trường học, lực lượng vũ trang, cơ quan).
-- Hằng quý, 6 tháng và năm tiến hành sơ kết, tổng kết rút kinh nghiệm.
-
-T/M ỦY BAN KIỂM TRA
-CHỦ NHIỆM
-(Đã ký)`,
-                ngay_bat_dau: '2025-09-01',
-                ngay_ket_thuc: '2030-05-30',
-                so_van_ban: '01-CTr/UBKT',
-                ngay_ban_hanh: '2025-08-25',
-                nguoi_ky: 'Chủ nhiệm UBKT Đảng ủy',
-                trang_thai: 'DANG_THUC_HIEN',
-                file_pdf_ten: '01_CTr_UBKT_KTGS_NhiemKy_2025_2030.pdf',
-                file_pdf_url: null,
-                file_pdf_dung_luong: 520000,
-                ghi_chu_pdf: 'Kèm lịch kiểm tra định kỳ 5 năm của cơ quan UBKT',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              },
-              {
-                id: 'ct-nk-005',
-                nam: 2025,
-                loai_chuong_trinh: 'NHIEM_KY',
-                nhiem_ky: '2025 - 2030',
-                chu_the: 'Đảng bộ Trường THCS Ái Quốc',
-                don_vi_id: '01918a00-0000-7000-8000-000000000006',
-                ten_don_vi: 'Đảng bộ Trường THCS Ái Quốc',
-                chi_dang_bo_id: '01918a00-0000-7000-8000-000000000006',
-                ten_chi_dang_bo: 'Đảng bộ Trường THCS Ái Quốc',
-                loai_hinh: 'GIAM_SAT',
-                doi_tuong: 'Các Chi bộ trực thuộc và đội ngũ cán bộ quản lý, giáo viên là đảng viên',
-                noi_dung: 'Chương trình kiểm tra, giám sát toàn khóa nhiệm kỳ 2025 - 2030: Giám sát việc thực hiện quy chế chuyên môn trường học, đạo đức nhà giáo; công tác bồi dưỡng giáo viên trẻ và kết nạp đảng viên mới trong trường học.',
-                noi_dung_van_ban: `ĐẢNG BỘ PHƯỜNG ÁI QUỐC
-ĐẢNG BỘ TRƯỜNG THCS ÁI QUỐC
-***
-Số: 02-CTr/ĐB-THCS
-Ái Quốc, ngày 05 tháng 9 năm 2025
-
-CHƯƠNG TRÌNH
-Kiểm tra, giám sát toàn khóa của Đảng ủy Trường THCS Ái Quốc
-nhiệm kỳ 2025 - 2030
------
-
-I. MỤC TIÊU VÀ NỘI DUNG:
-- Giữ vững danh hiệu Đảng bộ trong sạch vững mạnh tiêu biểu; xây dựng tập thể sư phạm đoàn kết, kỷ cương, trách nhiệm.
-- Giám sát việc đổi mới phương pháp giảng dạy, công tác thu chi các khoản đóng góp tự nguyện đúng quy định của ngành giáo dục.
-- Kiểm tra việc thực hiện nếp sống văn hóa học đường và đạo đức người thầy giáo.
-
-II. TỔ CHỨC THỰC HIỆN:
-- Phân công đồng chí Phó Bí thư Đảng ủy - Phó Hiệu trưởng trực tiếp phụ trách tổ công tác kiểm tra, giám sát của Đảng bộ trường.
-- Báo cáo định kỳ lên Đảng ủy phường theo quy định.
-
-T/M ĐẢNG ỦY
-BÍ THƯ - HIỆU TRƯỞNG
-(Đã ký)`,
-                ngay_bat_dau: '2025-09-15',
-                ngay_ket_thuc: '2030-06-30',
-                so_van_ban: '02-CTr/ĐB-THCS',
-                ngay_ban_hanh: '2025-09-05',
-                nguoi_ky: 'Bí thư Đảng ủy Trường THCS',
-                trang_thai: 'DANG_THUC_HIEN',
-                file_pdf_ten: '02_CTr_DBTHCS_NhiemKy_2025_2030.pdf',
-                file_pdf_url: null,
-                file_pdf_dung_luong: 480000,
-                ghi_chu_pdf: 'Lưu tại hồ sơ Đảng ủy trường THCS',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              },
-              {
-                id: 'ct-nk-006',
-                nam: 2025,
-                loai_chuong_trinh: 'NHIEM_KY',
-                nhiem_ky: '2025 - 2027',
-                chu_the: 'Chi bộ Tiền Trung',
-                don_vi_id: '01918a00-0000-7000-8000-000000000010',
-                ten_don_vi: 'Chi bộ Tiền Trung',
-                chi_dang_bo_id: '01918a00-0000-7000-8000-000000000010',
-                ten_chi_dang_bo: 'Chi bộ Tiền Trung',
-                loai_hinh: 'KIEM_TRA',
-                doi_tuong: 'Chi ủy và toàn thể đảng viên thuộc Chi bộ khu dân cư Tiền Trung',
-                noi_dung: 'Chương trình kiểm tra, giám sát nhiệm kỳ 2025 - 2027: Kiểm tra việc đảng viên giữ mối liên hệ với cấp ủy nơi cư trú (Quy định 213-QĐ/TW), việc tham gia sinh hoạt chi bộ và gương mẫu trong phong trào xây dựng đô thị văn minh.',
-                noi_dung_van_ban: `ĐẢNG BỘ PHƯỜNG ÁI QUỐC
-CHI BỘ TIỀN TRUNG
-***
-Số: 01-CTr/CB-TT
-Ái Quốc, ngày 18 tháng 01 năm 2025
-
-CHƯƠNG TRÌNH
-Kiểm tra, giám sát của Chi bộ Tiền Trung nhiệm kỳ 2025 - 2027
------
-
-I. MỤC TIÊU:
-- Nâng cao chất lượng sinh hoạt chi bộ định kỳ và sinh hoạt chuyên đề.
-- 100% đảng viên gương mẫu chấp hành tốt chủ trương của Đảng, chính sách pháp luật của Nhà nước và quy ước của khu dân cư Tiền Trung.
-
-II. NỘI DUNG VÀ THỜI GIAN THỰC HIỆN:
-- Hằng tháng: Chi ủy kiểm tra nề nếp sinh hoạt và việc đóng đảng phí của đảng viên.
-- Hằng năm: Lấy ý kiến nhận xét của tổ dân phố đối với đảng viên cư trú theo Quy định 213-QĐ/TW.
-
-T/M CHI ỦY
-BÍ THƯ CHI BỘ
-(Đã ký)`,
-                ngay_bat_dau: '2025-02-01',
-                ngay_ket_thuc: '2027-12-31',
-                so_van_ban: '01-CTr/CB-TT',
-                ngay_ban_hanh: '2025-01-18',
-                nguoi_ky: 'Bí thư Chi bộ Tiền Trung',
-                trang_thai: 'DANG_THUC_HIEN',
-                file_pdf_ten: '01_CTr_CB_TienTrung_2025_2027.pdf',
-                file_pdf_url: null,
-                file_pdf_dung_luong: 360000,
-                ghi_chu_pdf: 'Lưu tại hồ sơ Chi bộ Tiền Trung',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              },
-            ];
-            parsed.chuongTrinhList.push(...defaultNhiemKyList);
-            updated = true;
-          }
-
-          // Bổ sung danh sách thay đổi, bổ sung đối chiếu mẫu cho chương trình nhiệm kỳ
-          if (parsed.chuongTrinhList && Array.isArray(parsed.chuongTrinhList)) {
-            parsed.chuongTrinhList.forEach((c) => {
-              if (!c.danh_sach_thay_doi_bo_sung) {
-                c.danh_sach_thay_doi_bo_sung = [];
-              }
-              if (c.id === 'ct-nk-001' && c.danh_sach_thay_doi_bo_sung.length === 0) {
-                c.danh_sach_thay_doi_bo_sung = [
-                  {
-                    id: 'td-01',
-                    chuong_trinh_id: 'ct-nk-001',
-                    lan_dieu_chinh: 1,
-                    so_van_ban: '08-KH/ĐU',
-                    ngay_ban_hanh: '2026-02-15',
-                    nguoi_ky: 'Bí thư Đảng ủy',
-                    don_vi_id: '01918a00-0000-7000-8000-000000000017',
-                    ten_don_vi: 'Chi bộ Quân sự',
-                    noi_dung_dieu_chinh: 'Bổ sung nội dung kiểm tra đột xuất công tác sẵn sàng chiến đấu và tuyển quân đợt 1 năm 2026 tại Chi bộ Quân sự.',
-                    noi_dung_goc: 'Kế hoạch ban đầu chỉ tiến hành kiểm tra công tác quốc phòng thường kỳ vào quý IV/2026.',
-                    file_pdf_ten: '08_KH_DU_DieuChinh_ChiBoQuanSu.pdf',
-                    file_pdf_url: null,
-                    file_pdf_dung_luong: 412000,
-                    ghi_chu: 'Nạp đối chiếu thay đổi bổ sung và liên kết Hồ sơ địa bàn Chi bộ Quân sự',
-                    created_at: '2026-02-15T08:00:00Z',
-                  },
-                  {
-                    id: 'td-02',
-                    chuong_trinh_id: 'ct-nk-001',
-                    lan_dieu_chinh: 2,
-                    so_van_ban: '15-QĐ/ĐU',
-                    ngay_ban_hanh: '2026-05-10',
-                    nguoi_ky: 'Phó Bí thư Thường trực',
-                    don_vi_id: '01918a00-0000-7000-8000-000000000010',
-                    ten_don_vi: 'Chi bộ Tiền Trung',
-                    noi_dung_dieu_chinh: 'Điều chỉnh thời gian giám sát chuyên đề thu nộp đảng phí tại Chi bộ Tiền Trung chuyển từ quý III sang tháng 6/2026.',
-                    noi_dung_goc: 'Thời gian giám sát theo kế hoạch cũ là tháng 9/2026.',
-                    file_pdf_ten: '15_QD_DU_DieuChinh_TienTrung.pdf',
-                    file_pdf_url: null,
-                    file_pdf_dung_luong: 388000,
-                    ghi_chu: 'Điều chỉnh tiến độ phục vụ sơ kết 6 tháng đầu năm của địa bàn',
-                    created_at: '2026-05-10T09:30:00Z',
-                  },
-                ];
-                updated = true;
-              }
-            });
-          }
-
-          // Bổ sung chức danh và đồng bộ tài khoản cán bộ quản trị UBKT
-          if (parsed.users && Array.isArray(parsed.users)) {
-            const defaultOfficers: User[] = [
-              {
-                id: 'mock-user-01',
-                ten_dang_nhap: 'nguyenvanan',
-                ho_ten: 'Đ/c Nguyễn Văn An',
-                vai_tro: 'BIEN_TAP',
-                chuc_danh: 'Uỷ viên UBKT',
-                trang_thai: 1,
-                must_change_password: false,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              },
-              {
-                id: 'mock-user-02',
-                ten_dang_nhap: 'tranthibinh',
-                ho_ten: 'Đ/c Trần Thị Bình',
-                vai_tro: 'BIEN_TAP',
-                chuc_danh: 'Phó Chủ nhiệm UBKT',
-                trang_thai: 1,
-                must_change_password: false,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              },
-              {
-                id: 'mock-user-03',
-                ten_dang_nhap: 'levancuong',
-                ho_ten: 'Đ/c Lê Văn Cường',
-                vai_tro: 'BIEN_TAP',
-                chuc_danh: 'Chuyên viên UBKT',
-                trang_thai: 1,
-                must_change_password: false,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              },
-            ];
-
-            parsed.users.forEach((u: User) => {
-              if (!u.chuc_danh) {
-                if (u.ten_dang_nhap === 'admin' || u.vai_tro === 'ADMIN') {
-                  u.chuc_danh = 'Chủ nhiệm UBKT';
-                } else if (u.ho_ten.includes('Bình')) {
-                  u.chuc_danh = 'Phó Chủ nhiệm UBKT';
-                } else if (u.ho_ten.includes('An')) {
-                  u.chuc_danh = 'Uỷ viên UBKT';
-                } else {
-                  u.chuc_danh = 'Chuyên viên UBKT';
-                }
-                updated = true;
-              }
-            });
-
-            defaultOfficers.forEach((off) => {
-              if (!parsed.users.some((u: User) => u.id === off.id || u.ten_dang_nhap === off.ten_dang_nhap)) {
-                parsed.users.push(off);
-                updated = true;
-              }
-            });
-          }
-
-          if (updated) {
-            saveMockDb(parsed);
-          }
-        }
-        return parsed;
-      }
-    } catch {
-      // fallback
-    }
-  }
-
-  const initialRootId = '01918a00-0000-7000-8000-000000000001';
+function getInitialProductionDb(): MockDb {
   const now = new Date().toISOString();
-
-  const childUnitsConfig: Array<{
-    ten: string;
-    loai: DonViLoai;
-    ma: string;
-    thu_tu: number;
-    ghi_chu: string;
-  }> = [
-    { ten: 'Ban Chấp hành Đảng bộ phường', loai: 'BCH', ma: 'BCH-01', thu_tu: 2, ghi_chu: 'Lãnh đạo, quyết định các vấn đề thuộc thẩm quyền của Ban Chấp hành; thực hiện công tác kiểm tra, giám sát theo quy định.' },
-    { ten: 'Ban Thường vụ Đảng ủy phường', loai: 'BTV', ma: 'BTV-01', thu_tu: 3, ghi_chu: 'Lãnh đạo, chỉ đạo và thực hiện kiểm tra, giám sát theo thẩm quyền.' },
-    { ten: 'Ủy ban Kiểm tra Đảng ủy phường', loai: 'UBKT', ma: 'UBKT-01', thu_tu: 4, ghi_chu: 'Thực hiện nhiệm vụ kiểm tra, giám sát, thi hành kỷ luật Đảng và các nhiệm vụ khác theo quy định.' },
-    { ten: 'Đảng bộ Trường Tiểu học Ái Quốc', loai: 'DANG_BO', ma: 'DBC-01', thu_tu: 5, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị, công tác xây dựng Đảng và quản lý các chi bộ trực thuộc nếu có.' },
-    { ten: 'Đảng bộ Trường THCS Ái Quốc', loai: 'DANG_BO', ma: 'DBC-02', thu_tu: 6, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị, công tác xây dựng Đảng và quản lý các chi bộ trực thuộc nếu có.' },
-    { ten: 'Đảng bộ Trường Cao đẳng nghề Hải Dương', loai: 'DANG_BO', ma: 'DBC-03', thu_tu: 7, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị, công tác xây dựng Đảng và quản lý các chi bộ trực thuộc nếu có.' },
-    { ten: 'Chi bộ Hiệp Hòa', loai: 'CHI_BO', ma: 'CBT-01', thu_tu: 8, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị và công tác xây dựng Đảng tại khu dân cư.' },
-    { ten: 'Chi bộ Ngọc Trì', loai: 'CHI_BO', ma: 'CBT-02', thu_tu: 9, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị và công tác xây dựng Đảng tại khu dân cư.' },
-    { ten: 'Chi bộ Tiền Trung', loai: 'CHI_BO', ma: 'CBT-03', thu_tu: 10, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị và công tác xây dựng Đảng tại khu dân cư.' },
-    { ten: 'Chi bộ Vũ Thượng', loai: 'CHI_BO', ma: 'CBT-04', thu_tu: 11, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị và công tác xây dựng Đảng tại khu dân cư.' },
-    { ten: 'Chi bộ Vũ Xá', loai: 'CHI_BO', ma: 'CBT-05', thu_tu: 12, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị và công tác xây dựng Đảng tại khu dân cư.' },
-    { ten: 'Chi bộ Đông Lĩnh', loai: 'CHI_BO', ma: 'CBT-06', thu_tu: 13, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị và công tác xây dựng Đảng tại khu dân cư.' },
-    { ten: 'Chi bộ Hoàng Xá 2', loai: 'CHI_BO', ma: 'CBT-07', thu_tu: 14, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị và công tác xây dựng Đảng tại khu dân cư.' },
-    { ten: 'Chi bộ Hoàng Xá 3', loai: 'CHI_BO', ma: 'CBT-08', thu_tu: 15, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị và công tác xây dựng Đảng tại khu dân cư.' },
-    { ten: 'Chi bộ Y tế', loai: 'CHI_BO', ma: 'CBT-09', thu_tu: 16, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị và công tác xây dựng Đảng tại đơn vị.' },
-    { ten: 'Chi bộ Quân sự', loai: 'CHI_BO', ma: 'CBC-01', thu_tu: 17, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị, quốc phòng, quân sự địa phương và công tác xây dựng Đảng theo quy định.' },
-    { ten: 'Chi bộ Công an', loai: 'CHI_BO', ma: 'CBC-02', thu_tu: 18, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị, bảo đảm an ninh, trật tự và công tác xây dựng Đảng theo quy định.' },
-    { ten: 'Chi bộ Văn phòng Đảng ủy', loai: 'CHI_BO', ma: 'CBC-03', thu_tu: 19, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị, công tác tham mưu, tổng hợp, phục vụ hoạt động của Đảng ủy và công tác xây dựng Đảng.' },
-    { ten: 'Chi bộ Cơ quan UBKT Đảng ủy', loai: 'CHI_BO', ma: 'CBC-04', thu_tu: 20, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị và công tác xây dựng Đảng trong cơ quan UBKT.' },
-    { ten: 'Chi bộ Ban Xây dựng Đảng', loai: 'CHI_BO', ma: 'CBC-05', thu_tu: 21, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị, công tác tham mưu về xây dựng Đảng và công tác xây dựng Đảng trong cơ quan.' },
-    { ten: 'Chi bộ Cơ quan MTTQ', loai: 'CHI_BO', ma: 'CBC-06', thu_tu: 22, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị, công tác vận động quần chúng và công tác xây dựng Đảng trong cơ quan.' },
-    { ten: 'Chi bộ Văn phòng UBND và HĐND', loai: 'CHI_BO', ma: 'CBC-07', thu_tu: 23, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị, công tác tham mưu, tổng hợp và công tác xây dựng Đảng trong cơ quan.' },
-    { ten: 'Chi bộ Kinh tế', loai: 'CHI_BO', ma: 'CBC-08', thu_tu: 24, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị thuộc lĩnh vực kinh tế và công tác xây dựng Đảng trong cơ quan.' },
-    { ten: 'Chi bộ Hạ tầng và Đô thị', loai: 'CHI_BO', ma: 'CBC-09', thu_tu: 25, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị thuộc lĩnh vực hạ tầng, đô thị và công tác xây dựng Đảng trong cơ quan.' },
-    { ten: 'Chi bộ Văn hóa – Xã hội', loai: 'CHI_BO', ma: 'CBC-10', thu_tu: 26, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị thuộc lĩnh vực văn hóa – xã hội và công tác xây dựng Đảng trong cơ quan.' },
-    { ten: 'Chi bộ Trung tâm Phục vụ hành chính công', loai: 'CHI_BO', ma: 'CBC-11', thu_tu: 27, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị, công tác phục vụ hành chính công và công tác xây dựng Đảng trong đơn vị.' },
-    { ten: 'Chi bộ Trung tâm Sự nghiệp công', loai: 'CHI_BO', ma: 'CBC-12', thu_tu: 28, ghi_chu: 'Lãnh đạo thực hiện nhiệm vụ chính trị và công tác xây dựng Đảng trong đơn vị.' },
-  ];
-
-  const donViList: DonVi[] = [
-    {
-      id: initialRootId,
-      ten: 'Đảng bộ phường Ái Quốc',
-      loai: 'DANG_BO',
-      don_vi_cha_id: null,
-      ma: 'DUP-01',
-      thu_tu: 1,
-      ghi_chu: 'Lãnh đạo toàn diện công tác xây dựng Đảng, thực hiện nhiệm vụ chính trị và công tác kiểm tra, giám sát theo thẩm quyền.',
-      version: 1,
-      sync_status: 'synced',
-      created_at: now,
-      updated_at: now,
-      deleted_at: null,
-    },
-    ...childUnitsConfig.map((item, idx) => ({
-      id: `01918a00-0000-7000-8000-${String(idx + 2).padStart(12, '0')}`,
-      ten: item.ten,
-      loai: item.loai,
-      don_vi_cha_id: initialRootId,
-      ma: item.ma,
-      thu_tu: item.thu_tu,
-      ghi_chu: item.ghi_chu,
-      version: 1,
-      sync_status: 'synced',
-      created_at: now,
-      updated_at: now,
-      deleted_at: null,
-    })),
-  ];
-
-  const initialChuongTrinhList: ChuongTrinhKtGs[] = [
-    {
-      id: 'ct-2026-001',
-      nam: 2026,
-      chu_the: 'BTV Đảng ủy',
-      don_vi_id: '01918a00-0000-7000-8000-000000000017',
-      ten_don_vi: 'Chi bộ Quân sự',
-      loai_hinh: 'GIAM_SAT',
-      doi_tuong: 'Chi bộ Quân sự và đồng chí Bí thư Chi bộ',
-      noi_dung: 'Giám sát việc lãnh đạo, chỉ đạo quán triệt, thực hiện Nghị quyết của Đảng ủy về nhiệm vụ quân sự, quốc phòng địa phương năm 2026; công tác sẵn sàng chiến đấu và tuyển quân.',
-      ngay_bat_dau: '2026-03-10',
-      ngay_ket_thuc: '2026-04-15',
-      so_van_ban: '05-KH/ĐU',
-      trang_thai: 'DANG_THUC_HIEN',
-      file_pdf_ten: '05_KH_DU_GiamSat_ChiBoQuanSu.pdf',
-      file_pdf_url: null,
-      file_pdf_dung_luong: 452000,
-      ghi_chu_pdf: 'Trang 2, mục II, nội dung giám sát số 1',
-      created_at: now,
-      updated_at: now,
-    },
-    {
-      id: 'ct-2026-002',
-      nam: 2026,
-      chu_the: 'UBKT Đảng ủy',
-      don_vi_id: '01918a00-0000-7000-8000-000000000010',
-      ten_don_vi: 'Chi bộ Tiền Trung',
-      loai_hinh: 'KIEM_TRA',
-      doi_tuong: 'Chi ủy Chi bộ Tiền Trung',
-      noi_dung: 'Kiểm tra việc thu nộp, quản lý và sử dụng đảng phí; thực hiện nguyên tắc tập trung dân chủ trong sinh hoạt chi bộ.',
-      ngay_bat_dau: '2026-04-01',
-      ngay_ket_thuc: '2026-05-10',
-      so_van_ban: '02-KH/UBKT',
-      trang_thai: 'CHUA_THUC_HIEN',
-      file_pdf_ten: '02_KH_UBKT_KiemTra_TienTrung.pdf',
-      file_pdf_url: null,
-      file_pdf_dung_luong: 328000,
-      ghi_chu_pdf: 'Mục I, phần B kế hoạch kiểm tra',
-      created_at: now,
-      updated_at: now,
-    },
-    {
-      id: 'ct-2026-003',
-      nam: 2026,
-      chu_the: 'BCH Đảng bộ',
-      don_vi_id: '01918a00-0000-7000-8000-000000000006',
-      ten_don_vi: 'Đảng bộ Trường THCS Ái Quốc',
-      loai_hinh: 'KIEM_TRA',
-      doi_tuong: 'Đảng ủy và Ban Giám hiệu Trường THCS Ái Quốc',
-      noi_dung: 'Kiểm tra việc thực hiện quy chế dân chủ ở cơ sở; công tác bồi dưỡng, kết nạp đảng viên mới trong đội ngũ giáo viên.',
-      ngay_bat_dau: '2026-05-15',
-      ngay_ket_thuc: '2026-06-20',
-      so_van_ban: '12-KH/BCH',
-      trang_thai: 'CHUA_THUC_HIEN',
-      file_pdf_ten: null,
-      file_pdf_url: null,
-      file_pdf_dung_luong: null,
-      ghi_chu_pdf: null,
-      created_at: now,
-      updated_at: now,
-    },
-    {
-      id: 'ct-2026-004',
-      nam: 2026,
-      chu_the: 'BTV Đảng ủy',
-      don_vi_id: '01918a00-0000-7000-8000-000000000016',
-      ten_don_vi: 'Chi bộ Y tế',
-      loai_hinh: 'GIAM_SAT',
-      doi_tuong: 'Chi bộ Y tế và cán bộ, đảng viên Trạm Y tế phường',
-      noi_dung: 'Giám sát công tác chăm sóc sức khỏe ban đầu cho nhân dân, phòng chống dịch bệnh và nâng cao y đức của người thầy thuốc.',
-      ngay_bat_dau: '2026-01-15',
-      ngay_ket_thuc: '2026-02-28',
-      so_van_ban: '01-KH/ĐU',
-      trang_thai: 'DA_HOAN_THANH',
-      file_pdf_ten: '01_KH_DU_BaoCaoKetLuan_YTe.pdf',
-      file_pdf_url: null,
-      file_pdf_dung_luong: 610000,
-      ghi_chu_pdf: 'Đã có kết luận giám sát số 03-KL/ĐU ngày 02/03/2026',
-      created_at: now,
-      updated_at: now,
-    },
-  ];
-
-  const initialDb: MockDb = {
+  return {
     users: [
       {
         id: '01918a00-0000-7000-8000-000000000000',
@@ -1117,48 +77,59 @@ BÍ THƯ CHI BỘ
         created_at: now,
         updated_at: now,
       },
+    ],
+    donViList: [
       {
-        id: 'mock-user-01',
-        ten_dang_nhap: 'nguyenvanan',
-        ho_ten: 'Đ/c Nguyễn Văn An',
-        vai_tro: 'BIEN_TAP',
-        chuc_danh: 'Uỷ viên UBKT',
-        trang_thai: 1,
-        must_change_password: false,
+        id: '01918a00-0000-7000-8000-000000000001',
+        ten: 'Đảng ủy cơ sở',
+        loai: 'DANG_BO',
+        don_vi_cha_id: null,
+        ma: 'DU-01',
+        thu_tu: 1,
+        ghi_chu: 'Cơ quan lãnh đạo cao nhất của Đảng bộ cơ sở (Bấm chỉnh sửa để đổi tên theo đúng cơ quan thực tế)',
+        version: 1,
+        sync_status: 'synced',
         created_at: now,
         updated_at: now,
-      },
-      {
-        id: 'mock-user-02',
-        ten_dang_nhap: 'tranthibinh',
-        ho_ten: 'Đ/c Trần Thị Bình',
-        vai_tro: 'BIEN_TAP',
-        chuc_danh: 'Phó Chủ nhiệm UBKT',
-        trang_thai: 1,
-        must_change_password: false,
-        created_at: now,
-        updated_at: now,
-      },
-      {
-        id: 'mock-user-03',
-        ten_dang_nhap: 'levancuong',
-        ho_ten: 'Đ/c Lê Văn Cường',
-        vai_tro: 'BIEN_TAP',
-        chuc_danh: 'Chuyên viên UBKT',
-        trang_thai: 1,
-        must_change_password: false,
-        created_at: now,
-        updated_at: now,
+        deleted_at: null,
       },
     ],
-    donViList,
-    chuongTrinhList: initialChuongTrinhList,
-    donThuList: DEFAULT_DON_THU_LIST,
-    auditLogs: [],
+    chuongTrinhList: [],
+    donThuList: [],
+    auditLogs: [
+      {
+        id: 'log-init',
+        nguoi_dung_id: '01918a00-0000-7000-8000-000000000000',
+        ten_nguoi_dung: 'Quản trị viên',
+        hanh_dong: 'Khởi tạo hệ thống dữ liệu chính thức',
+        bang_anh_huong: 'system',
+        ban_ghi_id: 'init',
+        du_lieu_cu: null,
+        du_lieu_moi: null,
+        thoi_gian: now,
+      },
+    ],
+    pdfFiles: [],
   };
+}
 
-  localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(initialDb));
-  return initialDb;
+function getMockDb(): MockDb {
+  const raw = localStorage.getItem(MOCK_STORAGE_KEY);
+  if (raw) {
+    try {
+      const parsed: MockDb = JSON.parse(raw);
+      if (!parsed.users || parsed.users.length === 0) {
+        parsed.users = getInitialProductionDb().users;
+      }
+      return parsed;
+    } catch {
+      // fallback
+    }
+  }
+
+  const initial = getInitialProductionDb();
+  localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(initial));
+  return initial;
 }
 
 function saveMockDb(db: MockDb) {
@@ -1880,6 +851,9 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
                   nam: new Date().getFullYear(),
                   ngay_ban_hanh: f.ngay_ban_hanh || (f.ngay_tao ? f.ngay_tao.slice(0, 10) : new Date().toISOString().slice(0, 10)),
                   ghi_chu: f.loai_tai_lieu || f.trich_yeu || 'Tài liệu hồ sơ địa bàn',
+                  google_drive_id: f.google_drive_id || null,
+                  google_drive_preview_url: f.google_drive_preview_url || null,
+                  is_google_drive: Boolean(f.is_google_drive || f.google_drive_id || (f.url && f.url.includes('drive.google.com'))),
                   created_at: f.ngay_tao ? new Date().toISOString() : new Date().toISOString(),
                 });
               }
@@ -1962,12 +936,16 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
           ten_file: string;
           dung_luong: number;
           url?: string | null;
+          file_url?: string | null;
           chuong_trinh_id?: string | null;
           ghi_chu?: string | null;
           nguoi_tai_len?: string | null;
           nguon_goc?: 'CHUONG_TRINH' | 'THAY_DOI_BO_SUNG' | 'HO_SO_DIA_BAN' | 'KHO_PDF';
           don_vi_id?: string | null;
           ten_don_vi?: string | null;
+          google_drive_id?: string | null;
+          google_drive_preview_url?: string | null;
+          is_google_drive?: boolean | null;
         };
       };
 
@@ -1985,6 +963,10 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
             ten_file: input.ten_file,
             dung_luong: input.dung_luong,
             url: input.url || null,
+            file_url: input.file_url || input.url || null,
+            google_drive_id: input.google_drive_id || null,
+            google_drive_preview_url: input.google_drive_preview_url || null,
+            is_google_drive: input.is_google_drive || false,
             chuong_trinh_id: ct.id,
             nguon_goc: 'CHUONG_TRINH',
             chu_the: ct.chu_the,
@@ -2004,6 +986,10 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         ten_file: input.ten_file,
         dung_luong: input.dung_luong,
         url: input.url || null,
+        file_url: input.file_url || input.url || null,
+        google_drive_id: input.google_drive_id || null,
+        google_drive_preview_url: input.google_drive_preview_url || null,
+        is_google_drive: input.is_google_drive || false,
         chuong_trinh_id: null,
         nguon_goc: input.nguon_goc || 'KHO_PDF',
         don_vi_id: input.don_vi_id || null,
@@ -2226,6 +1212,10 @@ export const api = {
     ten_file: string;
     dung_luong: number;
     url?: string | null;
+    file_url?: string | null;
+    google_drive_id?: string | null;
+    google_drive_preview_url?: string | null;
+    is_google_drive?: boolean | null;
     chuong_trinh_id?: string | null;
     ghi_chu?: string | null;
     nguoi_tai_len?: string | null;

@@ -10,6 +10,7 @@ import {
   ArrowRightLeft,
   Power,
   Building2,
+  Trash2,
 } from 'lucide-react';
 import type { DonViTreeItem } from '../../types';
 
@@ -23,6 +24,7 @@ interface OrgTreePanelProps {
   onAddChild: (parentUnit: DonViTreeItem) => void;
   onChangeParent: (unit: DonViTreeItem) => void;
   onToggleStatus: (unit: DonViTreeItem) => void;
+  onDeleteUnit?: (unit: DonViTreeItem) => void;
 }
 
 export const OrgTreePanel: React.FC<OrgTreePanelProps> = ({
@@ -35,6 +37,7 @@ export const OrgTreePanel: React.FC<OrgTreePanelProps> = ({
   onAddChild,
   onChangeParent,
   onToggleStatus,
+  onDeleteUnit,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>(() => {
@@ -227,6 +230,21 @@ export const OrgTreePanel: React.FC<OrgTreePanelProps> = ({
                 >
                   <Power className="w-3 h-3" />
                 </button>
+
+                {/* Xóa tổ chức */}
+                {onDeleteUnit && (
+                  <button
+                    onClick={() => onDeleteUnit(node)}
+                    title="Xóa tổ chức"
+                    className={`p-1 rounded transition ${
+                      isSelected
+                        ? 'hover:bg-white/20 text-rose-200'
+                        : 'hover:bg-rose-100 text-rose-500'
+                    }`}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
               </>
             )}
           </div>

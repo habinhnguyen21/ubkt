@@ -11,6 +11,7 @@ import {
   ArrowRightLeft,
   Power,
   Building2,
+  Trash2,
 } from 'lucide-react';
 import type { DonVi, DonViTreeItem } from '../../types';
 
@@ -24,6 +25,7 @@ interface OrgTablePanelProps {
   onAddChild: (parentUnit: DonVi) => void;
   onChangeParent: (unit: DonVi) => void;
   onToggleStatus: (unit: DonVi) => void;
+  onDeleteUnit?: (unit: DonVi) => void;
   onBatchToggleStatus?: (units: DonVi[], newStatus: string) => void;
   filterPreset?: string;
 }
@@ -41,6 +43,7 @@ export const OrgTablePanel: React.FC<OrgTablePanelProps> = ({
   onAddChild,
   onChangeParent,
   onToggleStatus,
+  onDeleteUnit,
   onBatchToggleStatus,
   filterPreset,
 }) => {
@@ -442,6 +445,17 @@ export const OrgTablePanel: React.FC<OrgTablePanelProps> = ({
                             >
                               <Power className="w-4 h-4" />
                             </button>
+
+                            {/* Xóa tổ chức */}
+                            {onDeleteUnit && (
+                              <button
+                                onClick={() => onDeleteUnit(unit)}
+                                title="Xóa tổ chức"
+                                className="p-1 rounded text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition cursor-pointer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </>
                         )}
                       </div>
