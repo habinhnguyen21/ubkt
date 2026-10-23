@@ -46,7 +46,43 @@ import {
   ShieldAlert,
   ListChecks,
   Settings,
+  Cloud,
+  ExternalLink,
+  Info,
 } from 'lucide-react';
+
+// Chuyển đổi an toàn Base64 Data URL sang Blob URL để xem trực tiếp trong iframe và mở tab mới
+const getBlobUrlFromDataUrl = (dataUrl?: string | null): string | null => {
+  if (!dataUrl) return null;
+  if (dataUrl.startsWith('blob:') || dataUrl.startsWith('http://') || dataUrl.startsWith('https://')) {
+    return dataUrl;
+  }
+  if (dataUrl.startsWith('data:')) {
+    try {
+      const parts = dataUrl.split(',');
+      const mimeMatch = parts[0].match(/:(.*?);/);
+      const mime = mimeMatch ? mimeMatch[1] : 'application/pdf';
+      const byteCharacters = atob(parts[1]);
+      const byteArrays = new Uint8Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteArrays[i] = byteCharacters.charCodeAt(i);
+      }
+      const blob = new Blob([byteArrays], { type: mime });
+      return URL.createObjectURL(blob);
+    } catch (err) {
+      console.warn('Lỗi chuyển data URL sang Blob:', err);
+      return dataUrl;
+    }
+  }
+  return dataUrl;
+};
+
+const formatFileSize = (bytes?: number | null): string => {
+  if (!bytes || bytes <= 0) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 export const DANH_MUC_LINH_VUC = [
   'Công tác xây dựng Đảng',
@@ -187,6 +223,13 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   const [formTrangThai, setFormTrangThai] = useState<TrangThaiKtGs>('CHUA_THUC_HIEN');
   const [isFormSaving, setIsFormSaving] = useState<boolean>(false);
   const [formErrorMsg, setFormErrorMsg] = useState<string | null>(null);
+  const [formNoiDungVanBan, setFormNoiDungVanBan] = useState<string>('');
+  const [formPdfFileName, setFormPdfFileName] = useState<string | null>(null);
+  const [formPdfFileUrl, setFormPdfFileUrl] = useState<string | null>(null);
+  const [formPdfFileSize, setFormPdfFileSize] = useState<number | null>(null);
+  const [formRemovePdf, setFormRemovePdf] = useState<boolean>(false);
+  const [formGhiChuPdf, setFormGhiChuPdf] = useState<string>('');
+  const [formExtractingPdf, setFormExtractingPdf] = useState<boolean>(false);
 
   // Trạng thái mở cửa sổ Chỉnh sửa / Thêm mới & Chi tiết chương trình Nhiệm kỳ (chỉ hiện khi ấn sửa / thêm mới)
   const [isNhiemKyEditorOpen, setIsNhiemKyEditorOpen] = useState<boolean>(false);
@@ -380,7 +423,6 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
   // Modal Xem nội dung văn bản đính kèm theo
   const [viewingDocItem, setViewingDocItem] = useState<ChuongTrinhKtGs | null>(null);
-  const [copiedText, setCopiedText] = useState(false);
 
   // Modal Bảng đối chiếu & Nạp thay đổi, bổ sung chương trình nhiệm kỳ
   const [managingThayDoiItem, setManagingThayDoiItem] = useState<ChuongTrinhKtGs | null>(null);
@@ -506,7 +548,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   };
 
   const isThieuVanBan = (item: ChuongTrinhKtGs): boolean => {
-    return item.trang_thai === 'DA_HOAN_THANH' && (!item.file_pdf_ten || !item.noi_dung_van_ban);
+    return item.trang_thai === 'DA_HOAN_THANH' && !item.file_pdf_ten;
   };
 
   // Helper xác định tháng công tác của một chương trình (1-12)
@@ -866,50 +908,37 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
           `Kế hoạch ${hnLoaiHinh === 'KIEM_TRA' ? 'kiểm tra' : 'giám sát'} năm ${hnNam} theo số ${hnSoVanBan || '.../KH'}: Kiểm tra việc lãnh đạo, chỉ đạo và thực hiện nhiệm vụ được giao đối với ${hnDoiTuong || 'đơn vị'}.`
         );
       }
-      if (!hnNoiDungVanBan.trim()) {
-        setHnNoiDungVanBan(
-          `[NỘI DUNG VĂN BẢN TRÍCH XUẤT TỪ TỆP: ${hnPdfFileName}]\n\nCĂN CỨ VĂN BẢN QUY ĐỊNH CỦA ĐẢNG:\n- Thực hiện Điều lệ Đảng Cộng sản Việt Nam;\n- Kế hoạch kiểm tra, giám sát năm ${hnNam} của ${hnChuThe || 'Đảng ủy'}.\n\nI. MỤC ĐÍCH YÊU CẦU:\nĐánh giá đúng thực trạng công tác lãnh đạo, chỉ đạo, nâng cao năng lực lãnh đạo và sức chiến đấu của tổ chức đảng.\n\nII. NỘI DUNG VÀ THỜI GIAN:\nTriển khai đúng tiến độ theo quy định.`
-        );
-      }
     }, 500);
   };
 
-  const handleHnInsertTemplate = () => {
-    const template = `ĐẢNG CỘNG SẢN VIỆT NAM
-ĐẢNG BỘ PHƯỜNG ÁI QUỐC
-${(hnChuThe || 'ỦY BAN KIỂM TRA').toUpperCase()}
-***
-Số: ${hnSoVanBan || '05-KH/UBKT'}
-Ái Quốc, ngày ${new Date().getDate()} tháng ${new Date().getMonth() + 1} năm ${hnNam}
-
-KẾ HOẠCH
-${hnLoaiHinh === 'KIEM_TRA' ? 'Kiểm tra' : 'Giám sát'} việc chấp hành Điều lệ Đảng năm ${hnNam}
-Đối với: ${hnDoiTuong || 'Chi ủy và tập thể Chi bộ'}
------
-
-Căn cứ Điều lệ Đảng Cộng sản Việt Nam; Kế hoạch công tác năm ${hnNam} của Đảng ủy và Quy chế làm việc của UBKT Đảng ủy phường;
-Ban hành Kế hoạch ${hnLoaiHinh === 'KIEM_TRA' ? 'kiểm tra' : 'giám sát'} như sau:
-
-I. MỤC ĐÍCH, YÊU CẦU:
-- Đánh giá đúng thực trạng công tác lãnh đạo, chỉ đạo và thực hiện nhiệm vụ chính trị của tổ chức đảng.
-- Phát huy ưu điểm, kịp thời phát hiện uốn nắn các thiếu sót, khuyết điểm từ sớm, từ xa.
-
-II. NỘI DUNG VÀ MỐC THỜI GIAN:
-- Kiểm tra việc chấp hành quy chế làm việc, nguyên tắc tập trung dân chủ, sinh hoạt định kỳ.
-- Kiểm tra công tác quản lý đảng viên và thu nộp, sử dụng đảng phí.
-
-III. TỔ CHỨC THỰC HIỆN:
-- Tổ công tác tiến hành làm việc trực tiếp tại đơn vị, thông qua dự thảo kết luận và báo cáo Ban Thường vụ Đảng ủy.
-
-T/M TỔ CÔNG TÁC
-TỔ TRƯỞNG
-(Đã ký)`;
-    setHnNoiDungVanBan(template);
-    if (!hnNoiDung.trim()) {
-      setHnNoiDung(
-        `Kế hoạch ${hnLoaiHinh === 'KIEM_TRA' ? 'kiểm tra' : 'giám sát'} năm ${hnNam} đối với ${hnDoiTuong || 'đơn vị'}: Kiểm tra việc lãnh đạo, chỉ đạo thực hiện nhiệm vụ chính trị, quy chế làm việc và công tác đảng phí.`
-      );
+  const handleFormFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setFormPdfFileName(file.name);
+      setFormPdfFileSize(file.size);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setFormPdfFileUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+      setFormRemovePdf(false);
     }
+  };
+
+  const handleFormExtractPdfText = () => {
+    if (!formPdfFileName) {
+      alert('Vui lòng chọn hoặc đính kèm tệp PDF trước khi trích xuất.');
+      return;
+    }
+    setFormExtractingPdf(true);
+    setTimeout(() => {
+      setFormExtractingPdf(false);
+      if (!formNoiDung.trim()) {
+        setFormNoiDung(
+          `Chương trình kiểm tra, giám sát toàn khóa nhiệm kỳ ${formTermStartYear} – ${formTermEndYear} theo số ${formSoVanBan || '.../CTr-ĐU'}: Kiểm tra việc lãnh đạo, chỉ đạo và tổ chức thực hiện Nghị quyết Đại hội Đảng bộ.`
+        );
+      }
+    }, 500);
   };
 
   const handleSaveHn = async (e: React.FormEvent) => {
@@ -1143,9 +1172,15 @@ TỔ TRƯỞNG
         setFormCoQuanBanHanh(first.co_quan_ban_hanh || first.chu_the || 'BCH Đảng bộ phường Ái Quốc');
         setFormChuTheApDung(first.chu_the_ap_dung || first.ten_chi_dang_bo || 'Toàn Đảng bộ');
         setFormNoiDung(first.noi_dung || '');
+        setFormNoiDungVanBan(first.noi_dung_van_ban || '');
         setFormTuNgay(first.ngay_bat_dau || '');
         setFormDenNgay(first.ngay_ket_thuc || '');
         setFormTrangThai(first.trang_thai || 'DANG_THUC_HIEN');
+        setFormPdfFileName(first.file_pdf_ten || null);
+        setFormPdfFileUrl(first.file_pdf_url || null);
+        setFormPdfFileSize(first.file_pdf_dung_luong || null);
+        setFormRemovePdf(false);
+        setFormGhiChuPdf(first.ghi_chu_pdf || '');
       }
     }
   }, [filteredList]);
@@ -1162,9 +1197,15 @@ TỔ TRƯỞNG
     setFormCoQuanBanHanh(item.co_quan_ban_hanh || item.chu_the || 'BCH Đảng bộ phường Ái Quốc');
     setFormChuTheApDung(item.chu_the_ap_dung || item.ten_chi_dang_bo || 'Toàn Đảng bộ');
     setFormNoiDung(item.noi_dung || '');
+    setFormNoiDungVanBan(item.noi_dung_van_ban || '');
     setFormTuNgay(item.ngay_bat_dau || '');
     setFormDenNgay(item.ngay_ket_thuc || '');
     setFormTrangThai(item.trang_thai || 'DANG_THUC_HIEN');
+    setFormPdfFileName(item.file_pdf_ten || null);
+    setFormPdfFileUrl(item.file_pdf_url || null);
+    setFormPdfFileSize(item.file_pdf_dung_luong || null);
+    setFormRemovePdf(false);
+    setFormGhiChuPdf(item.ghi_chu_pdf || '');
     setFormErrorMsg(null);
     setNhiemKyModalTab('FORM');
     setIsNhiemKyEditorOpen(true);
@@ -1180,9 +1221,15 @@ TỔ TRƯỞNG
     setFormCoQuanBanHanh('BCH Đảng bộ phường Ái Quốc');
     setFormChuTheApDung('Toàn Đảng bộ');
     setFormNoiDung('');
+    setFormNoiDungVanBan('');
     setFormTuNgay('');
     setFormDenNgay('');
     setFormTrangThai('CHUA_THUC_HIEN');
+    setFormPdfFileName(null);
+    setFormPdfFileUrl(null);
+    setFormPdfFileSize(null);
+    setFormRemovePdf(false);
+    setFormGhiChuPdf('');
     setFormErrorMsg(null);
     setNhiemKyModalTab('FORM');
     setIsNhiemKyEditorOpen(true);
@@ -1198,9 +1245,15 @@ TỔ TRƯỞNG
     setFormCoQuanBanHanh(item.co_quan_ban_hanh || item.chu_the);
     setFormChuTheApDung(item.chu_the_ap_dung || item.ten_chi_dang_bo || 'Toàn Đảng bộ');
     setFormNoiDung(item.noi_dung || '');
+    setFormNoiDungVanBan(item.noi_dung_van_ban || '');
     setFormTuNgay(item.ngay_bat_dau || '');
     setFormDenNgay(item.ngay_ket_thuc || '');
     setFormTrangThai('CHUA_THUC_HIEN');
+    setFormPdfFileName(item.file_pdf_ten || null);
+    setFormPdfFileUrl(item.file_pdf_url || null);
+    setFormPdfFileSize(item.file_pdf_dung_luong || null);
+    setFormRemovePdf(false);
+    setFormGhiChuPdf(item.ghi_chu_pdf || '');
     setFormErrorMsg(null);
     setSelectedProgram(item);
     setNhiemKyModalTab('FORM');
@@ -1257,10 +1310,15 @@ TỔ TRƯỞNG
         chu_the: formCoQuanBanHanh.trim(),
         doi_tuong: formChuTheApDung.trim(),
         noi_dung: formNoiDung.trim(),
+        noi_dung_van_ban: formNoiDungVanBan.trim() || null,
         so_van_ban: formSoVanBan.trim() || null,
         ngay_bat_dau: formTuNgay || null,
         ngay_ket_thuc: formDenNgay || null,
         trang_thai: formTrangThai,
+        file_pdf_ten: formRemovePdf ? null : (formPdfFileName || null),
+        file_pdf_url: formRemovePdf ? null : (formPdfFileUrl || null),
+        file_pdf_dung_luong: formRemovePdf ? null : (formPdfFileSize || null),
+        ghi_chu_pdf: formGhiChuPdf.trim() || 'Văn bản chương trình toàn khóa nhiệm kỳ',
       };
 
       let savedItem: ChuongTrinhKtGs;
@@ -1271,6 +1329,21 @@ TỔ TRƯỞNG
         });
       } else {
         savedItem = await api.createChuongTrinh(payload);
+      }
+
+      // Tự động tổng hợp file PDF tải lên vào Kho PDF nếu có file mới
+      if (formPdfFileName && formPdfFileUrl && !formRemovePdf) {
+        try {
+          await api.createOrAttachPdf({
+            ten_file: formPdfFileName,
+            dung_luong: formPdfFileSize || 350000,
+            url: formPdfFileUrl,
+            chuong_trinh_id: savedItem.id,
+            ghi_chu: `Văn bản gốc chương trình nhiệm kỳ ${savedItem.nhiem_ky || ''} (${savedItem.so_van_ban || ''})`,
+          });
+        } catch (pdfErr) {
+          console.warn('Lỗi đồng bộ PDF sang Kho dữ liệu:', pdfErr);
+        }
       }
 
       await loadData();
@@ -1431,20 +1504,16 @@ TỔ TRƯỞNG
     }
   };
 
-  const handleCopyDocText = () => {
-    if (!viewingDocItem) return;
-    const text = viewingDocItem.noi_dung_van_ban || viewingDocItem.noi_dung;
-    navigator.clipboard.writeText(text);
-    setCopiedText(true);
-    setTimeout(() => setCopiedText(false), 2000);
-  };
-
   const handlePrintDoc = () => {
     window.print();
   };
 
   const handleDownloadPdf = (item: ChuongTrinhKtGs) => {
     if (item.file_pdf_url) {
+      if (item.file_pdf_url.includes('drive.google.com')) {
+        window.open(item.file_pdf_url, '_blank');
+        return;
+      }
       const a = document.createElement('a');
       a.href = item.file_pdf_url;
       a.download = item.file_pdf_ten || 'van_ban_chuong_trinh.pdf';
@@ -1463,6 +1532,35 @@ TỔ TRƯỞNG
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }
+  };
+
+  const handlePreviewThayDoi = (td: ThayDoiBoSungKtGs) => {
+    const parent = managingThayDoiItem || selectedProgram;
+    setViewingDocItem({
+      id: td.id,
+      nam: parent?.nam || (td.ngay_ban_hanh ? parseInt(td.ngay_ban_hanh.slice(0, 4), 10) : 2025),
+      so_van_ban: td.so_van_ban,
+      chu_the: td.nguoi_ky || parent?.chu_the || 'Ủy ban Kiểm tra Đảng ủy',
+      co_quan_ban_hanh: td.nguoi_ky || parent?.co_quan_ban_hanh || parent?.chu_the || 'Ủy ban Kiểm tra Đảng ủy',
+      ten_chi_dang_bo: td.ten_don_vi || 'Toàn Đảng bộ',
+      chu_the_ap_dung: td.ten_don_vi || 'Toàn Đảng bộ',
+      don_vi_id: td.don_vi_id || null,
+      ten_don_vi: td.ten_don_vi || 'Toàn Đảng bộ',
+      noi_dung: td.noi_dung_dieu_chinh,
+      noi_dung_van_ban: `[VĂN BẢN ĐIỀU CHỈNH, BỔ SUNG CHƯƠNG TRÌNH]\nSố ký hiệu: ${td.so_van_ban}\nNgày ban hành: ${formatDateVn(td.ngay_ban_hanh)}\nĐơn vị / Địa bàn áp dụng: ${td.ten_don_vi || 'Toàn Đảng bộ'}\nNgười ký / Ban hành: ${td.nguoi_ky || '—'}\n\nNỘI DUNG ĐIỀU CHỈNH:\n${td.noi_dung_dieu_chinh}${td.noi_dung_goc ? `\n\nNỘI DUNG CHƯƠNG TRÌNH GỐC ĐỐI CHIẾU:\n${td.noi_dung_goc}` : ''}`,
+      file_pdf_ten: td.file_pdf_ten || null,
+      file_pdf_url: td.file_pdf_url || null,
+      file_pdf_dung_luong: td.file_pdf_dung_luong || null,
+      ghi_chu_pdf: td.ghi_chu || 'Văn bản điều chỉnh, bổ sung chương trình kiểm tra, giám sát',
+      loai_hinh: 'KIEM_TRA',
+      trang_thai: 'DANG_THUC_HIEN',
+      ngay_bat_dau: td.ngay_ban_hanh,
+      ngay_ket_thuc: td.ngay_ban_hanh,
+      loai_chuong_trinh: 'NHIEM_KY',
+      nhiem_ky: parent?.nhiem_ky || '2025 - 2030',
+      created_at: td.created_at,
+      updated_at: td.updated_at || td.created_at,
+    });
   };
 
 
@@ -1833,24 +1931,26 @@ TỔ TRƯỞNG
                                 setViewingDocItem(item);
                               }}
                               className="inline-flex items-center space-x-1 px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded text-[11px] font-semibold border border-sky-200 transition cursor-pointer shadow-2xs"
-                              title="Xem toàn văn nội dung văn bản"
+                              title="Xem tài liệu văn bản chương trình"
                             >
                               <Eye className="w-3.5 h-3.5 text-sky-600" />
-                              <span>Xem nội dung VB</span>
+                              <span>Xem văn bản</span>
                             </button>
 
-                            {item.file_pdf_ten && (
+                            {item.file_pdf_ten ? (
                               <div
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setViewingDocItem(item);
                                 }}
-                                className="flex items-center space-x-1 text-[11px] text-red-600 hover:text-red-800 cursor-pointer max-w-[135px] truncate"
-                                title={item.file_pdf_ten}
+                                className="flex items-center space-x-1 text-[11px] text-red-600 hover:text-red-800 cursor-pointer max-w-[135px] truncate font-medium"
+                                title={`Xem trực tiếp tệp gốc: ${item.file_pdf_ten}`}
                               >
                                 <FileText className="w-3.5 h-3.5 flex-shrink-0 text-red-500" />
                                 <span className="truncate">{item.file_pdf_ten}</span>
                               </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 italic">Chưa đính kèm PDF gốc</span>
                             )}
                           </div>
                         </td>
@@ -2292,6 +2392,69 @@ TỔ TRƯỞNG
               </div>
             </div>
 
+            {/* ĐÍNH KÈM TỆP VĂN BẢN GỐC (PDF / WORD) CỦA CHƯƠNG TRÌNH NHIỆM KỲ */}
+            <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-1.5">
+                  <FileText className="w-4 h-4 text-blue-700" />
+                  <label className="font-bold text-blue-950 text-xs">
+                    Văn bản gốc đính kèm (Tệp PDF / Word) — Tự động đồng bộ Kho dữ liệu
+                  </label>
+                </div>
+                {formPdfFileName && (
+                  <button
+                    type="button"
+                    onClick={handleFormExtractPdfText}
+                    disabled={formExtractingPdf}
+                    className="inline-flex items-center space-x-1 px-2.5 py-1 bg-white hover:bg-blue-100 text-blue-800 rounded text-xs font-bold border border-blue-300 cursor-pointer shadow-2xs transition"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                    <span>{formExtractingPdf ? 'Đang trích xuất...' : 'Trích xuất nội dung từ PDF'}</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx"
+                  onChange={handleFormFileChange}
+                  className="text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-700 file:text-white hover:file:bg-blue-800 cursor-pointer"
+                />
+                {formPdfFileName && (
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-semibold text-blue-900 flex items-center gap-1">
+                      <FileText className="w-4 h-4 text-red-600" />
+                      <span>{formPdfFileName}</span>
+                      {formPdfFileSize && <span className="text-[10px] text-slate-500">({formatFileSize(formPdfFileSize)})</span>}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormRemovePdf(true);
+                        setFormPdfFileName(null);
+                        setFormPdfFileUrl(null);
+                        setFormPdfFileSize(null);
+                      }}
+                      className="text-rose-600 hover:text-rose-800 text-xs cursor-pointer font-bold"
+                    >
+                      (Xóa tệp)
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <input
+                  type="text"
+                  value={formGhiChuPdf}
+                  onChange={(e) => setFormGhiChuPdf(e.target.value)}
+                  placeholder="Ghi chú tệp văn bản gốc (VD: Văn bản gốc đã ký, ban hành chính thức...)"
+                  className="w-full px-2.5 py-1.5 bg-white border border-blue-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                />
+              </div>
+            </div>
+
             {/* Buttons Hủy & Lưu */}
             <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
               <button
@@ -2433,36 +2596,48 @@ TỔ TRƯỞNG
 
               {/* Tài liệu đính kèm */}
               <div>
-                <h4 className="font-bold text-slate-800 text-[11.5px] mb-1">Tài liệu đính kèm</h4>
-                <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                  <div className="flex items-center space-x-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded bg-red-100 text-red-600 flex items-center justify-center shrink-0">
-                      <FileText className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-semibold text-slate-800 text-xs truncate max-w-[170px]">
-                        {selectedProgram?.file_pdf_ten || 'CT-KTGS của BCH, BTV.pdf'}
+                <h4 className="font-bold text-slate-800 text-[11.5px] mb-1">Tài liệu văn bản gốc</h4>
+                {selectedProgram?.file_pdf_ten ? (
+                  <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="flex items-center space-x-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                        <FileText className="w-4 h-4" />
                       </div>
-                      <div className="text-[10px] text-slate-400">
-                        {selectedProgram?.file_pdf_dung_luong
-                          ? `${(selectedProgram.file_pdf_dung_luong / (1024 * 1024)).toFixed(1)} MB`
-                          : '2.4 MB'}{' '}
-                        — 15/08/2025
+                      <div className="min-w-0">
+                        <div className="font-semibold text-slate-800 text-xs truncate max-w-[170px]" title={selectedProgram.file_pdf_ten}>
+                          {selectedProgram.file_pdf_ten}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          {formatFileSize(selectedProgram.file_pdf_dung_luong)}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (selectedProgram) setViewingDocItem(selectedProgram);
-                    }}
-                    className="px-2.5 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100 text-slate-700 flex items-center space-x-1 shrink-0 font-medium cursor-pointer"
-                  >
-                    <Eye className="w-3 h-3 text-blue-600" />
-                    <span>Xem</span>
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedProgram) setViewingDocItem(selectedProgram);
+                      }}
+                      className="px-2.5 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100 text-slate-700 flex items-center space-x-1 shrink-0 font-medium cursor-pointer transition shadow-2xs"
+                    >
+                      <Eye className="w-3 h-3 text-blue-600" />
+                      <span>Xem</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between p-2.5 bg-amber-50/70 rounded-lg border border-amber-200/80">
+                    <span className="text-amber-900 text-xs italic">Chưa đính kèm tệp văn bản gốc.</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedProgram) handleSelectForEdit(selectedProgram);
+                      }}
+                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold cursor-pointer shadow-2xs transition"
+                    >
+                      + Bổ sung văn bản gốc
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2473,17 +2648,34 @@ TỔ TRƯỞNG
                 <span className="font-bold text-slate-800 block">Tệp đính kèm gốc của chương trình:</span>
                 {selectedProgram?.file_pdf_ten ? (
                   <div className="flex items-center justify-between">
-                    <span className="text-red-700 font-semibold">{selectedProgram.file_pdf_ten}</span>
+                    <div className="flex items-center space-x-2 min-w-0">
+                      <FileText className="w-4 h-4 text-red-600 shrink-0" />
+                      <span className="text-red-700 font-semibold truncate max-w-[200px]" title={selectedProgram.file_pdf_ten}>
+                        {selectedProgram.file_pdf_ten}
+                      </span>
+                      {selectedProgram.file_pdf_dung_luong && (
+                        <span className="text-[10px] text-slate-400">({formatFileSize(selectedProgram.file_pdf_dung_luong)})</span>
+                      )}
+                    </div>
                     <button
                       type="button"
                       onClick={() => selectedProgram && setViewingDocItem(selectedProgram)}
-                      className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded font-medium cursor-pointer"
+                      className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded font-medium cursor-pointer transition shadow-2xs shrink-0"
                     >
-                      Đọc toàn văn
+                      Xem trực tiếp
                     </button>
                   </div>
                 ) : (
-                  <span className="text-slate-400 italic">Chưa tải tệp PDF đính kèm.</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 italic">Chưa tải tệp PDF đính kèm.</span>
+                    <button
+                      type="button"
+                      onClick={() => selectedProgram && handleSelectForEdit(selectedProgram)}
+                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold cursor-pointer shadow-2xs transition"
+                    >
+                      + Bổ sung văn bản gốc
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -2496,7 +2688,16 @@ TỔ TRƯỞNG
                         <span className="font-bold text-amber-950">{td.so_van_ban}</span>
                         <span className="text-[10px] text-slate-500 ml-2">({td.ten_don_vi})</span>
                       </div>
-                      {td.file_pdf_ten && <span className="text-[10px] text-red-700 font-semibold">{td.file_pdf_ten}</span>}
+                      <div className="flex items-center space-x-2">
+                        {td.file_pdf_ten && <span className="text-[10px] text-red-700 font-semibold">{td.file_pdf_ten}</span>}
+                        <button
+                          type="button"
+                          onClick={() => handlePreviewThayDoi(td)}
+                          className="px-2 py-0.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 rounded font-medium cursor-pointer"
+                        >
+                          Xem tệp
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -3365,7 +3566,7 @@ TỔ TRƯỞNG
                                         setViewingDocItem(item);
                                       }}
                                       className="inline-flex items-center space-x-1 px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded text-[11px] font-semibold border border-sky-200 transition cursor-pointer shadow-2xs"
-                                      title="Xem toàn văn nội dung văn bản"
+                                      title="Xem tài liệu văn bản chương trình"
                                     >
                                       <Eye className="w-3.5 h-3.5 text-sky-600" />
                                       <span>Xem văn bản</span>
@@ -3375,10 +3576,10 @@ TỔ TRƯỞNG
                                       <div
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          handleDownloadPdf(item);
+                                          setViewingDocItem(item);
                                         }}
                                         className="flex items-center space-x-1 text-[10.5px] text-red-600 hover:text-red-800 cursor-pointer max-w-[135px] truncate font-medium"
-                                        title={`Tải xuống: ${item.file_pdf_ten}`}
+                                        title={`Xem trực tiếp tệp: ${item.file_pdf_ten}`}
                                       >
                                         <FileText className="w-3.5 h-3.5 flex-shrink-0 text-red-500" />
                                         <span className="truncate">{item.file_pdf_ten}</span>
@@ -3874,157 +4075,369 @@ TỔ TRƯỞNG
         </div>
       )}
 
-      {/* ── MODAL XEM NỘI DUNG VĂN BẢN ĐÍNH KÈM THEO (DOCUMENT VIEWER) ───────── */}
-      {viewingDocItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-xs overflow-y-auto">
-          <div className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-slate-200 my-4 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
-            {/* Modal Header */}
-            <div className="bg-gradient-to-r from-[#1a3a5c] via-[#122d4a] to-slate-900 px-6 py-4 text-white flex items-center justify-between border-b-2 border-amber-500">
-              <div className="flex items-center space-x-3">
-                <div className="w-9 h-9 rounded-full bg-blue-950 border border-amber-400 flex items-center justify-center shadow">
-                  <FileText className="w-5 h-5 text-amber-300" />
+      {/* ── MODAL XEM TRỰC TIẾP TỆP VĂN BẢN VÀ NỘI DUNG CHƯƠNG TRÌNH (DOCUMENT VIEWER) ───────── */}
+      {viewingDocItem && (() => {
+        const fileRawUrl = viewingDocItem.file_pdf_url || (viewingDocItem as any).url || (viewingDocItem as any).file_url;
+        const isDrive = Boolean(
+          (viewingDocItem as any).is_google_drive ||
+          (viewingDocItem as any).google_drive_preview_url ||
+          (viewingDocItem as any).google_drive_id ||
+          fileRawUrl?.includes('drive.google.com')
+        );
+
+        let drivePreviewUrl: string | null = null;
+        let driveOpenUrl: string | null = null;
+        if (isDrive) {
+          if ((viewingDocItem as any).google_drive_preview_url) {
+            drivePreviewUrl = (viewingDocItem as any).google_drive_preview_url;
+          } else if ((viewingDocItem as any).google_drive_id) {
+            drivePreviewUrl = `https://drive.google.com/file/d/${(viewingDocItem as any).google_drive_id}/preview`;
+          } else if (fileRawUrl?.includes('drive.google.com')) {
+            drivePreviewUrl = fileRawUrl.replace(/\/view(\?.*)?$/, '/preview');
+          }
+
+          driveOpenUrl =
+            fileRawUrl ||
+            ((viewingDocItem as any).google_drive_id ? `https://drive.google.com/file/d/${(viewingDocItem as any).google_drive_id}/view` : null) ||
+            drivePreviewUrl;
+        }
+
+        const blobUrl = getBlobUrlFromDataUrl(fileRawUrl);
+        const fileName = viewingDocItem.file_pdf_ten || (viewingDocItem.so_van_ban ? `Văn bản ${viewingDocItem.so_van_ban}` : (viewingDocItem.ten_chuong_trinh || 'Tài liệu chương trình'));
+        const fileNameLower = fileName.toLowerCase();
+        const hasAttachedFile = Boolean(fileRawUrl || viewingDocItem.file_pdf_ten);
+        const isPdf = fileNameLower.endsWith('.pdf') || (fileRawUrl?.startsWith('data:application/pdf') ?? false) || (!fileNameLower.includes('.') && Boolean(fileRawUrl));
+        const isWord = fileNameLower.endsWith('.docx') || fileNameLower.endsWith('.doc');
+        const isExcel = fileNameLower.endsWith('.xlsx') || fileNameLower.endsWith('.xls');
+        const isImage = /\.(png|jpe?g|webp|svg|gif|bmp)$/i.test(fileNameLower) || (fileRawUrl?.startsWith('data:image/') ?? false);
+
+        const handleOpenExternal = () => {
+          if (isDrive && driveOpenUrl) {
+            window.open(driveOpenUrl, '_blank');
+          } else if (blobUrl) {
+            window.open(blobUrl, '_blank');
+          } else {
+            handleDownloadPdf(viewingDocItem);
+          }
+        };
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-slate-900/60 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-5xl w-full shadow-2xl border border-slate-200 flex flex-col max-h-[92vh] overflow-hidden animate-in zoom-in-95 duration-150">
+              {/* Header Modal */}
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 bg-slate-50/80">
+                <div className="flex items-center space-x-2.5 overflow-hidden pr-2">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-xs border bg-white">
+                    {isDrive ? (
+                      <Cloud className="w-4 h-4 text-emerald-600" />
+                    ) : isPdf ? (
+                      <FileText className="w-4 h-4 text-red-600" />
+                    ) : isWord ? (
+                      <FileText className="w-4 h-4 text-blue-600" />
+                    ) : isExcel ? (
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                    ) : (
+                      <FileText className="w-4 h-4 text-slate-600" />
+                    )}
+                  </div>
+                  <div className="overflow-hidden">
+                    <div className="flex items-center space-x-2">
+                      <h3 className="text-sm font-bold text-slate-900 truncate" title={fileName}>
+                        {fileName}
+                      </h3>
+                      {isDrive && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                          Google Drive
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-3 text-[11px] text-slate-500">
+                      <span>{formatFileSize(viewingDocItem.file_pdf_dung_luong)}</span>
+                      <span>•</span>
+                      <span>
+                        {viewingDocItem.loai_chuong_trinh === 'NHIEM_KY'
+                          ? `Nhiệm kỳ ${viewingDocItem.nhiem_ky || '2025 - 2030'}`
+                          : `Năm ${viewingDocItem.nam}`}
+                      </span>
+                      {viewingDocItem.ten_chi_dang_bo && (
+                        <>
+                          <span>•</span>
+                          <span className="truncate max-w-[200px]">{viewingDocItem.ten_chi_dang_bo}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-base font-bold tracking-tight">
-                    NỘI DUNG VĂN BẢN CHƯƠNG TRÌNH KIỂM TRA, GIÁM SÁT
-                  </h3>
-                  <p className="text-xs text-amber-200">
-                    {viewingDocItem.loai_chuong_trinh === 'NHIEM_KY'
-                      ? `Chương trình toàn khóa nhiệm kỳ ${viewingDocItem.nhiem_ky || '2025 - 2030'}`
-                      : `Chương trình công tác năm ${viewingDocItem.nam}`}
-                    {viewingDocItem.ten_chi_dang_bo ? ` — Lưu cho: ${viewingDocItem.ten_chi_dang_bo}` : ''}
-                  </p>
+
+                <div className="flex items-center space-x-2 shrink-0">
+                  {/* Nút mở tab mới */}
+                  {(isDrive || blobUrl) && (
+                    <button
+                      type="button"
+                      onClick={handleOpenExternal}
+                      title={isDrive ? 'Mở trực tiếp trên Google Drive trong tab mới' : 'Mở toàn màn hình tab mới'}
+                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">{isDrive ? 'Mở Google Drive' : 'Mở toàn màn hình'}</span>
+                    </button>
+                  )}
+
+                  {/* Nút tải về */}
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadPdf(viewingDocItem)}
+                    title={`Tải tệp về máy: ${fileName}`}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-xs transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Tải về máy</span>
+                  </button>
+
+                  {/* Nút đóng */}
+                  <button
+                    type="button"
+                    onClick={() => setViewingDocItem(null)}
+                    title="Đóng bản xem trước"
+                    className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg cursor-pointer transition"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
-              <button
-                onClick={() => setViewingDocItem(null)}
-                className="text-slate-300 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
 
-            {/* Modal Body */}
-            <div className="p-6 overflow-y-auto space-y-5 bg-slate-50/50 flex-1">
-              {/* Thẻ tóm tắt thông tin hành chính */}
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                <div>
-                  <span className="text-slate-500 block font-medium">Cơ quan ban hành:</span>
-                  <strong className="text-slate-900 text-[13px]">{viewingDocItem.chu_the}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-500 block font-medium">Lưu cho Chi, Đảng bộ:</span>
-                  <strong className="text-indigo-900 text-[13px]">
-                    {viewingDocItem.ten_chi_dang_bo || 'Toàn Đảng bộ'}
-                  </strong>
-                </div>
-                <div>
-                  <span className="text-slate-500 block font-medium">Số ký hiệu văn bản:</span>
-                  <strong className="text-slate-900 text-[13px]">{viewingDocItem.so_van_ban || '--'}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-500 block font-medium">Thời gian thực hiện:</span>
-                  <strong className="text-slate-900 text-[13px]">
-                    {viewingDocItem.nhiem_ky
-                      ? `Nhiệm kỳ ${viewingDocItem.nhiem_ky}`
-                      : `${viewingDocItem.ngay_bat_dau || '--'} đến ${viewingDocItem.ngay_ket_thuc || '--'}`}
-                  </strong>
-                </div>
-              </div>
+              {/* Vùng xem trước tệp chính */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-slate-100/50">
+                {/* 1. Nếu là Google Drive */}
+                {isDrive && drivePreviewUrl ? (
+                  <div className="space-y-2">
+                    <div className="w-full h-[540px] rounded-xl overflow-hidden border border-slate-300 bg-white shadow-xs relative">
+                      <iframe
+                        src={drivePreviewUrl}
+                        className="w-full h-full border-0"
+                        allow="autoplay"
+                        title={fileName}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 bg-emerald-50/60 border border-emerald-200/60 rounded-lg px-3 py-2">
+                      <div className="flex items-center space-x-1.5 text-emerald-800">
+                        <Cloud className="w-3.5 h-3.5 shrink-0" />
+                        <span>Tệp được đồng bộ trên Google Drive bảo mật đám mây.</span>
+                      </div>
+                      {driveOpenUrl && (
+                        <a
+                          href={driveOpenUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-semibold text-emerald-700 hover:underline inline-flex items-center space-x-1"
+                        >
+                          <span>Xem trên Google Drive nếu trình duyệt chặn nhúng iframe</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ) : isPdf && blobUrl ? (
+                  /* 2. Nếu là PDF (Data URL Base64 / Blob URL / Cục bộ) */
+                  <div className="space-y-2">
+                    <div className="w-full h-[560px] rounded-xl overflow-hidden border border-slate-300 bg-white shadow-xs">
+                      <iframe
+                        src={`${blobUrl}#toolbar=1`}
+                        className="w-full h-full border-0"
+                        title={fileName}
+                      />
+                    </div>
+                  </div>
+                ) : isImage ? (
+                  /* 3. Nếu là Hình ảnh */
+                  <div className="w-full min-h-[420px] max-h-[560px] flex items-center justify-center rounded-xl overflow-hidden border border-slate-300 bg-slate-900/5 p-4 shadow-xs">
+                    <img
+                      src={blobUrl || fileRawUrl || ''}
+                      alt={fileName}
+                      className="max-h-[520px] max-w-full object-contain rounded-lg shadow-md"
+                    />
+                  </div>
+                ) : (isWord || isExcel) ? (
+                  /* 4. Nếu là Word / Excel */
+                  <div className="bg-white rounded-xl border border-slate-200 p-8 shadow-xs text-center space-y-5">
+                    <div className="w-20 h-20 mx-auto rounded-2xl flex items-center justify-center shadow-sm border border-slate-100 bg-slate-50">
+                      {isWord ? (
+                        <FileText className="w-10 h-10 text-blue-600" />
+                      ) : (
+                        <FileSpreadsheet className="w-10 h-10 text-emerald-600" />
+                      )}
+                    </div>
+                    <div className="max-w-md mx-auto space-y-1">
+                      <h4 className="text-base font-bold text-slate-900">{fileName}</h4>
+                      <p className="text-xs text-slate-500">
+                        Định dạng: <strong className="uppercase">{isWord ? 'Microsoft Word' : 'Microsoft Excel'}</strong> • Dung lượng: {formatFileSize(viewingDocItem.file_pdf_dung_luong)}
+                      </p>
+                    </div>
 
-              {/* Văn bản đính kèm dạng PDF (nếu có) */}
-              {viewingDocItem.file_pdf_ten && (
-                <div className="bg-blue-50/80 border border-blue-200 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center text-red-600 shadow-xs flex-shrink-0">
+                    <div className="bg-blue-50/60 border border-blue-200/70 rounded-xl p-4 max-w-lg mx-auto text-xs text-blue-900 text-left space-y-1.5 leading-relaxed">
+                      <div className="flex items-center space-x-1.5 font-bold text-blue-950">
+                        <Info className="w-4 h-4 text-blue-600 shrink-0" />
+                        <span>Xem và chỉnh sửa tài liệu:</span>
+                      </div>
+                      <p className="text-slate-600">
+                        Tệp văn bản này được lưu trữ ở máy chủ nội bộ. Quý đồng chí vui lòng tải tệp về máy để mở trực tiếp bằng Microsoft Office / WPS hoặc lưu trữ qua Google Drive để đọc trực tuyến trên trình duyệt.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-center space-x-3 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadPdf(viewingDocItem)}
+                        className="inline-flex items-center space-x-2 px-5 py-2.5 bg-[#133863] hover:bg-blue-900 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer transition"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>Tải tệp về máy ({formatFileSize(viewingDocItem.file_pdf_dung_luong)})</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  /* 5. Không có tệp đính kèm hoặc tệp định dạng khác */
+                  <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs text-center space-y-3">
+                    <div className="w-12 h-12 mx-auto rounded-xl bg-slate-100 flex items-center justify-center text-slate-400">
                       <FileText className="w-6 h-6" />
                     </div>
                     <div>
-                      <div className="font-bold text-slate-900 text-xs sm:text-sm">
-                        {viewingDocItem.file_pdf_ten}
-                      </div>
-                      <div className="text-xs text-slate-500 mt-0.5">
-                        {viewingDocItem.ghi_chu_pdf
-                          ? viewingDocItem.ghi_chu_pdf
-                          : 'Tệp PDF văn bản gốc đã ký và ban hành'}
-                      </div>
+                      <h4 className="text-sm font-bold text-slate-800">
+                        {hasAttachedFile ? fileName : 'Chưa đính kèm tệp PDF văn bản gốc'}
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {hasAttachedFile
+                          ? `Dung lượng: ${formatFileSize(viewingDocItem.file_pdf_dung_luong)}`
+                          : 'Chưa có tệp văn bản đính kèm.'}
+                      </p>
                     </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => handleDownloadPdf(viewingDocItem)}
-                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-xs transition"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>Tải tệp đính kèm</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Khung nội dung toàn văn văn bản */}
-              <div className="bg-white rounded-xl border border-slate-300 shadow-xs p-6 sm:p-8 space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                  <div className="flex items-center space-x-2 text-slate-700">
-                    <BookOpen className="w-4 h-4 text-indigo-700" />
-                    <span className="font-bold text-xs uppercase tracking-wide">
-                      Toàn văn nội dung văn bản chương trình
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      type="button"
-                      onClick={handleCopyDocText}
-                      className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs border border-slate-300 rounded-md text-slate-700 hover:bg-slate-50 cursor-pointer"
-                    >
-                      {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedText ? 'Đã sao chép' : 'Sao chép văn bản'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handlePrintDoc}
-                      className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs border border-slate-300 rounded-md text-slate-700 hover:bg-slate-50 cursor-pointer"
-                    >
-                      <Printer className="w-3.5 h-3.5 text-slate-600" />
-                      <span>In văn bản</span>
-                    </button>
-                  </div>
-                </div>
-
-                {viewingDocItem.noi_dung_van_ban ? (
-                  <div className="prose prose-sm max-w-none text-slate-800 whitespace-pre-line font-serif leading-relaxed text-[13.5px] p-4 bg-slate-50/40 rounded-lg border border-slate-100">
-                    {viewingDocItem.noi_dung_van_ban}
-                  </div>
-                ) : (
-                  <div className="space-y-4 text-xs">
-                    <div className="p-4 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 leading-relaxed">
-                      <strong>Nội dung tóm tắt:</strong> {viewingDocItem.noi_dung}
-                    </div>
-                    <p className="text-slate-500 italic">
-                      Hồ sơ này chưa cập nhật toàn văn văn bản trực tiếp. Bạn có thể xem tệp PDF đính kèm bên trên hoặc bấm &quot;Chỉnh sửa&quot; để bổ sung toàn văn văn bản.
-                    </p>
+                    {hasAttachedFile && (
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadPdf(viewingDocItem)}
+                        className="inline-flex items-center space-x-2 px-4 py-2 bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-xs"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Tải tệp về máy</span>
+                      </button>
+                    )}
                   </div>
                 )}
+
+                {/* Khung chi tiết Metadata của văn bản */}
+                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-3">
+                  <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-800 border-b border-slate-100 pb-2">
+                    <Info className="w-3.5 h-3.5 text-[#133863]" />
+                    <span>Thông tin hồ sơ / Thuộc tính văn bản chương trình</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500">Cơ quan ban hành:</span>
+                        <span className="font-semibold text-slate-900 text-right">
+                          {viewingDocItem.chu_the || viewingDocItem.co_quan_ban_hanh || 'Ủy ban Kiểm tra Đảng ủy'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500">Áp dụng cho Chi, Đảng bộ:</span>
+                        <span className="font-semibold text-slate-900">
+                          {viewingDocItem.ten_chi_dang_bo || viewingDocItem.chu_the_ap_dung || 'Toàn Đảng bộ'}
+                        </span>
+                      </div>
+                      {viewingDocItem.so_van_ban && (
+                        <div className="flex justify-between py-1 border-b border-slate-100">
+                          <span className="text-slate-500">Số ký hiệu văn bản:</span>
+                          <span className="font-mono font-bold text-slate-900">{viewingDocItem.so_van_ban}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500">Người ký / Ban hành:</span>
+                        <span className="font-medium text-slate-900">
+                          {viewingDocItem.nguoi_ky || viewingDocItem.chu_the || 'Ủy ban Kiểm tra Đảng ủy'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500">Thời gian thực hiện:</span>
+                        <span className="font-semibold text-slate-900">
+                          {viewingDocItem.nhiem_ky
+                            ? `Nhiệm kỳ ${viewingDocItem.nhiem_ky}`
+                            : `${viewingDocItem.ngay_bat_dau || '--'} đến ${viewingDocItem.ngay_ket_thuc || '--'}`}
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500">Loại hình & Trạng thái:</span>
+                        <span className="font-semibold text-slate-900">
+                          {viewingDocItem.loai_hinh === 'KIEM_TRA' ? 'Kiểm tra' : 'Giám sát'} •{' '}
+                          {viewingDocItem.trang_thai === 'DA_HOAN_THANH'
+                            ? 'Đã hoàn thành'
+                            : viewingDocItem.trang_thai === 'DANG_THUC_HIEN'
+                            ? 'Đang thực hiện'
+                            : viewingDocItem.trang_thai === 'QUA_HAN'
+                            ? 'Quá hạn'
+                            : 'Chưa thực hiện'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500">Dung lượng tệp:</span>
+                        <span className="font-semibold text-slate-900">{formatFileSize(viewingDocItem.file_pdf_dung_luong)}</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-100">
+                        <span className="text-slate-500">Trạng thái lưu trữ:</span>
+                        <span className="font-semibold text-emerald-700">
+                          {isDrive ? 'Đám mây Google Drive' : 'Bộ nhớ máy chủ nội bộ'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {viewingDocItem.noi_dung && (
+                    <div className="pt-2 border-t border-slate-100 text-xs">
+                      <span className="text-slate-500 block mb-1 font-medium">Nội dung tóm tắt:</span>
+                      <p className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 text-slate-800 leading-relaxed italic">
+                        "{viewingDocItem.noi_dung}"
+                      </p>
+                    </div>
+                  )}
+
+                  {viewingDocItem.ghi_chu_pdf && (
+                    <div className="text-xs text-slate-500 pt-1">
+                      <span className="font-medium">Ghi chú tệp:</span> {viewingDocItem.ghi_chu_pdf}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 bg-slate-50/80">
+                <span className="text-xs text-slate-500 font-mono">
+                  Mã tài liệu: {viewingDocItem.id}
+                </span>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadPdf(viewingDocItem)}
+                    className="inline-flex items-center space-x-1.5 px-4 py-2 bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-xs transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Tải tệp về</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewingDocItem(null)}
+                    className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-lg text-xs font-medium cursor-pointer transition"
+                  >
+                    Đóng cửa sổ
+                  </button>
+                </div>
               </div>
             </div>
-
-            {/* Modal Footer */}
-            <div className="px-6 py-3.5 bg-slate-100 border-t border-slate-200 flex items-center justify-between">
-              <span className="text-xs text-slate-500">
-                Hồ sơ lưu trữ điện tử — Hệ thống Quản lý Kiểm tra, Giám sát của Đảng
-              </span>
-              <button
-                type="button"
-                onClick={() => setViewingDocItem(null)}
-                className="px-4 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold cursor-pointer transition"
-              >
-                Đóng cửa sổ
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── MODAL BẢNG ĐỐI CHIẾU THAY ĐỔI, BỔ SUNG CHƯƠNG TRÌNH NHIỆM KỲ ─────── */}
       {managingThayDoiItem && (
@@ -4364,8 +4777,21 @@ TỔ TRƯỞNG
                             {/* Tệp PDF & Kho PDF */}
                             <td className="py-3 px-3 text-center">
                               {td.file_pdf_ten ? (
-                                <div className="flex flex-col items-center gap-1">
-                                  <div className="flex items-center space-x-1 text-[11px] text-red-700 font-semibold truncate max-w-[130px]" title={td.file_pdf_ten}>
+                                <div className="flex flex-col items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePreviewThayDoi(td)}
+                                    className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-bold bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-200 transition cursor-pointer shadow-2xs"
+                                    title="Xem trực tiếp tệp văn bản điều chỉnh này"
+                                  >
+                                    <Eye className="w-3 h-3 text-sky-600" />
+                                    <span>Xem tệp</span>
+                                  </button>
+                                  <div
+                                    onClick={() => handlePreviewThayDoi(td)}
+                                    className="flex items-center space-x-1 text-[11px] text-red-700 hover:text-red-900 font-semibold truncate max-w-[130px] cursor-pointer"
+                                    title={`Xem trực tiếp: ${td.file_pdf_ten}`}
+                                  >
                                     <FileText className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
                                     <span className="truncate">{td.file_pdf_ten}</span>
                                   </div>
@@ -4661,29 +5087,6 @@ TỔ TRƯỞNG
                 />
               </div>
 
-              {/* Toàn văn văn bản */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="font-semibold text-slate-700">
-                    Toàn văn văn bản kế hoạch (hoặc trích dẫn đầy đủ)
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleHnInsertTemplate}
-                    className="inline-flex items-center space-x-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded text-xs font-semibold border border-amber-300 cursor-pointer"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-                    <span>Chèn mẫu chuẩn</span>
-                  </button>
-                </div>
-                <textarea
-                  rows={5}
-                  value={hnNoiDungVanBan}
-                  onChange={(e) => setHnNoiDungVanBan(e.target.value)}
-                  placeholder="Nhập toàn văn văn bản hoặc nhấn 'Chèn mẫu chuẩn' để tự động tạo khung văn bản..."
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono focus:outline-none focus:ring-2 focus:ring-emerald-600 resize-y"
-                />
-              </div>
 
               {/* Đính kèm tệp PDF */}
               <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2.5">
