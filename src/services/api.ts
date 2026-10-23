@@ -15,6 +15,8 @@ import type {
   DonThu,
   TrangThaiDonVi,
 } from '../types';
+import { db as firestoreDb } from './firebase';
+import { collection, getDocs } from 'firebase/firestore';
 
 
 // Giao thức giao tiếp Trực tuyến (Full Online API Client)
@@ -1163,7 +1165,48 @@ function saveMockDb(db: MockDb) {
   localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(db));
 }
 
+let firestoreSyncPromise: Promise<void> | null = null;
+export async function ensureFirestoreSynced(): Promise<void> {
+  if (firestoreSyncPromise) return firestoreSyncPromise;
+  firestoreSyncPromise = (async () => {
+    try {
+      const [usersSnap, donViSnap, ctSnap, dtSnap, logsSnap] = await Promise.all([
+        getDocs(collection(firestoreDb, 'users')),
+        getDocs(collection(firestoreDb, 'don_vi')),
+        getDocs(collection(firestoreDb, 'chuong_trinh')),
+        getDocs(collection(firestoreDb, 'don_thu')),
+        getDocs(collection(firestoreDb, 'audit_logs')),
+      ]);
+
+      if (!donViSnap.empty || !ctSnap.empty) {
+        const currentDb = getMockDb();
+        if (!usersSnap.empty) {
+          currentDb.users = usersSnap.docs.map((d) => d.data() as User);
+        }
+        if (!donViSnap.empty) {
+          currentDb.donViList = donViSnap.docs.map((d) => d.data() as DonVi);
+        }
+        if (!ctSnap.empty) {
+          currentDb.chuongTrinhList = ctSnap.docs.map((d) => d.data() as ChuongTrinhKtGs);
+        }
+        if (!dtSnap.empty) {
+          currentDb.donThuList = dtSnap.docs.map((d) => d.data() as DonThu);
+        }
+        if (!logsSnap.empty) {
+          currentDb.auditLogs = logsSnap.docs.map((d) => d.data() as NhatKy);
+        }
+        saveMockDb(currentDb);
+        window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
+      }
+    } catch (err) {
+      console.warn('Lỗi đồng bộ từ Firestore (dùng dữ liệu bộ nhớ đệm):', err);
+    }
+  })();
+  return firestoreSyncPromise;
+}
+
 async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  await ensureFirestoreSynced();
   const db = getMockDb();
 
   switch (cmd) {

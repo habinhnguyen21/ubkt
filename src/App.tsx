@@ -54,6 +54,11 @@ export function App() {
 
   useEffect(() => {
     fetchAppInfo();
+    const handleDataSynced = () => {
+      fetchAppInfo();
+    };
+    window.addEventListener('ubkt_data_synced', handleDataSynced);
+    return () => window.removeEventListener('ubkt_data_synced', handleDataSynced);
   }, [fetchAppInfo]);
 
   // Lắng nghe sự kiện điều hướng tab giữa các phân hệ (vd: link từ Chương trình nhiệm kỳ sang Hồ sơ địa bàn)
