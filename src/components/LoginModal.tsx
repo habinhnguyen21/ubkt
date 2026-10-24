@@ -327,6 +327,23 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
               'Đăng nhập'
             )}
           </button>
+
+          <div
+            style={{
+              marginTop: 18,
+              padding: '10px 12px',
+              backgroundColor: '#f8fafc',
+              borderRadius: 6,
+              border: '1px dashed #cbd5e1',
+              fontSize: 12,
+              color: '#64748b',
+              lineHeight: 1.5,
+              textAlign: 'center',
+            }}
+          >
+            💡 Quản trị viên hệ thống mặc định: <b>admin</b> | Mật khẩu: <b>Admin@123456</b><br/>
+            (Nếu chưa đăng nhập được với tài khoản mới, hãy đăng nhập bằng <b>admin</b> để kiểm tra hoặc đặt lại mật khẩu)
+          </div>
         </form>
       </div>
 

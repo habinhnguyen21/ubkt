@@ -15,6 +15,7 @@ interface LayoutProps {
   onOpenUserManager: () => void;
   isSyncing: boolean;
   onRefresh: () => void;
+  onOpenCloudSync?: () => void;
   children: React.ReactNode;
 }
 
@@ -47,6 +48,7 @@ export function AppLayout({
   onOpenUserManager,
   isSyncing,
   onRefresh,
+  onOpenCloudSync,
   children,
 }: LayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -214,6 +216,20 @@ export function AppLayout({
               {MENU_ITEMS.find(m => m.key === activeTab)?.label ?? 'Tổng quan'}
             </span>
           </div>
+
+          {/* Nút Đồng bộ Cloud Firebase */}
+          <button
+            onClick={onOpenCloudSync}
+            title="Đồng bộ Đám mây Firebase Firestore (Click để chia sẻ & đồng bộ đa thiết bị)"
+            style={{
+              background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6,
+              padding: '4px 10px', cursor: 'pointer', color: '#1d4ed8', fontSize: 12,
+              display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600,
+            }}
+          >
+            <span style={{ fontSize: 14 }}>☁️</span>
+            <span>Đồng bộ Cloud</span>
+          </button>
 
           {/* Trạng thái Trực tuyến */}
           <button

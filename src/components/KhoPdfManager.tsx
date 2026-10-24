@@ -20,11 +20,15 @@ import {
   ExternalLink,
   FileSpreadsheet,
   Info,
+  CloudUpload,
+  HardDrive,
+  Zap,
 } from 'lucide-react';
 import { GoogleDriveConfigModal } from './GoogleDriveConfigModal';
 import {
   getGoogleDriveConfig,
   uploadFileToGoogleDrive,
+  uploadBase64OrUrlToGoogleDrive,
   deleteFileFromGoogleDrive,
   extractGoogleDriveFileId,
   isGoogleDriveConfigured,
@@ -71,6 +75,34 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
   const [isGdriveModalOpen, setIsGdriveModalOpen] = useState(false);
   const [isGdriveActive, setIsGdriveActive] = useState(() => isGoogleDriveConfigured());
   const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
+
+  // Tiến trình đồng bộ tệp lên Google Drive
+  const [isMigratingAll, setIsMigratingAll] = useState(false);
+  const [migratingFileId, setMigratingFileId] = useState<string | null>(null);
+  const [migrationProgress, setMigrationProgress] = useState<{
+    current: number;
+    total: number;
+    currentFileName: string;
+    successCount: number;
+    errorCount: number;
+  }>({ current: 0, total: 0, currentFileName: '', successCount: 0, errorCount: 0 });
+
+  // Tiến trình tự động quét & tổng hợp tệp chưa gom từ KT-GS / Địa bàn / Báo cáo sang Kho & Drive
+  const [isAutoScanning, setIsAutoScanning] = useState(false);
+  const [isAutoScanModalOpen, setIsAutoScanModalOpen] = useState(false);
+  const [autoScanProgress, setAutoScanProgress] = useState<{
+    current: number;
+    total: number;
+    filename: string;
+    source: string;
+    status: string;
+  } | null>(null);
+  const [autoScanResult, setAutoScanResult] = useState<{
+    scannedCount: number;
+    aggregatedCount: number;
+    syncedDriveCount: number;
+    errors: string[];
+  } | null>(null);
 
   // Bộ lọc
   const [searchQuery, setSearchQuery] = useState('');
@@ -200,7 +232,21 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
     };
     window.addEventListener('ubkt_gdrive_config_updated', handleGdriveUpdate);
 
+    // Tự động kiểm tra và quét đồng bộ ngầm khi mở kho dữ liệu nếu Google Drive đã bật tự động tải lên
+    const timer = setTimeout(() => {
+      const cfg = getGoogleDriveConfig();
+      if (cfg.scriptUrl && cfg.autoUpload) {
+        api.autoScanAndSyncUnaggregatedFiles().then((res) => {
+          if (res.aggregatedCount > 0 || res.syncedDriveCount > 0) {
+            console.log(`[Kho dữ liệu] Tự động quét & đồng bộ ngầm: gom ${res.aggregatedCount} tệp, đẩy Drive ${res.syncedDriveCount} tệp.`);
+            loadData();
+          }
+        }).catch((e) => console.warn('[Kho dữ liệu] Lỗi quét đồng bộ ngầm:', e));
+      }
+    }, 2000);
+
     return () => {
+      clearTimeout(timer);
       window.removeEventListener('ubkt_diaban_records_updated', handleSync);
       window.removeEventListener('ubkt_kho_du_lieu_updated', handleSync);
       window.removeEventListener('ubkt_assignments_updated', handleSync);
@@ -290,6 +336,9 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
           }
         } catch (gdriveErr: any) {
           console.warn('Lỗi tải tệp lên Google Drive, chuyển sang lưu Base64 dự phòng:', gdriveErr);
+          alert(
+            `⚠️ Không thể lưu tệp lên Google Drive (${gdriveErr.message || 'Lỗi kết nối Web App'}).\n\nHệ thống đã lưu tạm dưới dạng tệp cục bộ. Bạn có thể kiểm tra URL Apps Script hoặc bấm nút "Chuyển sang Drive" trong danh sách để thử lại bất cứ lúc nào.`
+          );
         } finally {
           setIsUploadingToDrive(false);
         }
@@ -399,19 +448,53 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
       // 2. Xóa khỏi cơ sở dữ liệu nội bộ
       await api.deletePdf(deleteTarget.id);
 
-      // 3. Nếu tệp có nguồn gốc từ Hồ sơ địa bàn: Đồng thời gỡ khỏi ubkt_ho_so_dia_ban_files
+      // 3. Nếu tệp có nguồn gốc từ Hồ sơ địa bàn: Đồng thời gỡ khỏi ubkt_ho_so_dia_ban_files và giảm số lượng tài liệu
       try {
         const rawFiles = localStorage.getItem('ubkt_ho_so_dia_ban_files');
         if (rawFiles) {
           const currentFiles: HoSoDiaBanFile[] = JSON.parse(rawFiles);
-          const filtered = currentFiles.filter((f) => f.ten_file !== deleteTarget.ten_file && ('hsdb-' + f.id) !== deleteTarget.id);
+          const targetFile = currentFiles.find(
+            (f) => f.ten_file === deleteTarget.ten_file || ('hsdb-' + f.id) === deleteTarget.id || f.id === deleteTarget.id.replace('hsdb-', '')
+          );
+          const filtered = currentFiles.filter(
+            (f) => f.ten_file !== deleteTarget.ten_file && ('hsdb-' + f.id) !== deleteTarget.id && f.id !== deleteTarget.id.replace('hsdb-', '')
+          );
           localStorage.setItem('ubkt_ho_so_dia_ban_files', JSON.stringify(filtered));
-          window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+
+          const targetDonViId = targetFile?.don_vi_id || deleteTarget.don_vi_id;
+          if (targetDonViId) {
+            const rawRecs = localStorage.getItem('ubkt_ho_so_dia_ban_records');
+            if (rawRecs) {
+              const recs = JSON.parse(rawRecs);
+              const updatedRecs = recs.map((r: any) =>
+                r.id === targetDonViId
+                  ? { ...r, so_luong_tai_lieu: Math.max(0, (r.so_luong_tai_lieu || 1) - 1) }
+                  : r
+              );
+              localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(updatedRecs));
+            }
+          }
         }
       } catch (err) {
         console.error('Lỗi xóa tệp liên thông hồ sơ địa bàn:', err);
       }
 
+      // 4. Nếu tệp có nguồn gốc từ Báo cáo tháng: Đồng thời gỡ khỏi ubkt_bao_cao_thang
+      try {
+        const rawBc = localStorage.getItem('ubkt_bao_cao_thang');
+        if (rawBc) {
+          const bcList = JSON.parse(rawBc);
+          const filteredBc = bcList.filter(
+            (b: any) => b.file_ten !== deleteTarget.ten_file && ('bc-' + b.id) !== deleteTarget.id && b.id !== deleteTarget.id.replace('bc-', '')
+          );
+          localStorage.setItem('ubkt_bao_cao_thang', JSON.stringify(filteredBc));
+        }
+      } catch (err) {
+        console.error('Lỗi xóa tệp liên thông báo cáo tháng:', err);
+      }
+
+      window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
       window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
       setDeleteTarget(null);
       await loadData();
@@ -421,6 +504,269 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
     } finally {
       setIsDeletingFile(false);
     }
+  };
+
+  // ── Đồng bộ 1 tệp sang Google Drive ───────────────────────────────────────
+  const handleMigrateSingleFile = async (item: PdfKhoItem) => {
+    if (!isGoogleDriveConfigured()) {
+      alert(
+        'Google Drive chưa được cấu hình! Vui lòng bấm vào nút "Cấu hình Google Drive" để nhập URL Google Apps Script Web App trước.'
+      );
+      setIsGdriveModalOpen(true);
+      return;
+    }
+
+    const fileSource = item.file_url || item.url;
+    if (!fileSource) {
+      alert('Tệp này không có dữ liệu nội dung để chuyển lên Google Drive.');
+      return;
+    }
+
+    setMigratingFileId(item.id);
+    try {
+      const gdriveCfg = getGoogleDriveConfig();
+      const driveRes = await uploadBase64OrUrlToGoogleDrive(
+        item.ten_file,
+        fileSource,
+        undefined,
+        gdriveCfg.folderId
+      );
+
+      if (!driveRes.success || !driveRes.fileUrl) {
+        throw new Error(driveRes.error || 'Google Drive không trả về liên kết tệp.');
+      }
+
+      // 1. Cập nhật cơ sở dữ liệu
+      if (item.id.startsWith('hsdb-')) {
+        const rawHsdbId = item.id.replace('hsdb-', '');
+        try {
+          const rawFiles = localStorage.getItem('ubkt_ho_so_dia_ban_files');
+          if (rawFiles) {
+            const files: HoSoDiaBanFile[] = JSON.parse(rawFiles);
+            const updated = files.map((f) =>
+              f.id === rawHsdbId
+                ? {
+                    ...f,
+                    url: driveRes.fileUrl,
+                    file_url: driveRes.fileUrl,
+                    google_drive_id: driveRes.fileId,
+                    google_drive_preview_url: driveRes.previewUrl,
+                    is_google_drive: true,
+                  }
+                : f
+            );
+            localStorage.setItem('ubkt_ho_so_dia_ban_files', JSON.stringify(updated));
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      if (item.id.startsWith('bc-')) {
+        const bcId = item.id.replace('bc-', '');
+        try {
+          const rawBc = localStorage.getItem('ubkt_bao_cao_thang');
+          if (rawBc) {
+            const bcList = JSON.parse(rawBc);
+            const updatedBc = bcList.map((b: any) =>
+              b.id === bcId
+                ? {
+                    ...b,
+                    file_url: driveRes.fileUrl,
+                    google_drive_id: driveRes.fileId,
+                    google_drive_preview_url: driveRes.previewUrl,
+                    is_google_drive: true,
+                  }
+                : b
+            );
+            localStorage.setItem('ubkt_bao_cao_thang', JSON.stringify(updatedBc));
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      await api.updatePdf(item.id, {
+        url: driveRes.fileUrl,
+        file_url: driveRes.fileUrl,
+        google_drive_id: driveRes.fileId,
+        google_drive_preview_url: driveRes.previewUrl,
+        is_google_drive: true,
+      });
+
+      window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_assignments_updated'));
+      await loadData();
+      alert(`✅ Đã chuyển thành công tệp "${item.ten_file}" lên Google Drive!`);
+    } catch (err: any) {
+      alert(`❌ Lỗi khi chuyển tệp lên Google Drive:\n${err.message || String(err)}`);
+    } finally {
+      setMigratingFileId(null);
+    }
+  };
+
+  // ── Tự động quét và đồng bộ các tệp chưa tổng hợp từ mọi module sang Kho & Drive ──
+  const handleTriggerAutoScanAndSync = async (silent: boolean = false) => {
+    if (isAutoScanning) return;
+    setIsAutoScanning(true);
+    setAutoScanResult(null);
+    if (!silent) {
+      setIsAutoScanModalOpen(true);
+    }
+    try {
+      const result = await api.autoScanAndSyncUnaggregatedFiles((progress) => {
+        setAutoScanProgress(progress);
+      });
+      setAutoScanResult(result);
+      await loadData();
+      onDataChanged?.();
+    } catch (err: any) {
+      console.error('Lỗi tự động quét và đồng bộ:', err);
+      setAutoScanResult({
+        scannedCount: 0,
+        aggregatedCount: 0,
+        syncedDriveCount: 0,
+        errors: [err.message || String(err)],
+      });
+    } finally {
+      setIsAutoScanning(false);
+    }
+  };
+
+  // ── Đồng bộ toàn bộ các tệp nội bộ lên Google Drive ─────────────────────────
+  const handleMigrateAllToDrive = async () => {
+    if (!isGoogleDriveConfigured()) {
+      alert(
+        'Google Drive chưa được cấu hình! Vui lòng bấm vào nút "Cấu hình Google Drive" để nhập URL Web App trước.'
+      );
+      setIsGdriveModalOpen(true);
+      return;
+    }
+
+    const unmigrated = dataList.filter(
+      (item) => !item.is_google_drive && !item.google_drive_id && (item.file_url || item.url)
+    );
+
+    if (unmigrated.length === 0) {
+      alert('Tất cả các tệp hiện tại đều đã được lưu trữ trên Google Drive!');
+      return;
+    }
+
+    if (
+      !confirm(
+        `Hệ thống sẽ chuyển ${unmigrated.length} tệp trong Kho dữ liệu lên Google Drive. Quá trình có thể mất từ vài giây đến 1-2 phút tùy số lượng tệp.\n\nBạn có muốn tiếp tục?`
+      )
+    ) {
+      return;
+    }
+
+    setIsMigratingAll(true);
+    const gdriveCfg = getGoogleDriveConfig();
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (let i = 0; i < unmigrated.length; i++) {
+      const item = unmigrated[i];
+      setMigrationProgress({
+        current: i + 1,
+        total: unmigrated.length,
+        currentFileName: item.ten_file,
+        successCount,
+        errorCount,
+      });
+
+      try {
+        const fileSource = item.file_url || item.url;
+        if (!fileSource) {
+          errorCount++;
+          continue;
+        }
+
+        const driveRes = await uploadBase64OrUrlToGoogleDrive(
+          item.ten_file,
+          fileSource,
+          undefined,
+          gdriveCfg.folderId
+        );
+
+        if (driveRes.success && driveRes.fileUrl) {
+          successCount++;
+          if (item.id.startsWith('hsdb-')) {
+            const rawHsdbId = item.id.replace('hsdb-', '');
+            try {
+              const rawFiles = localStorage.getItem('ubkt_ho_so_dia_ban_files');
+              if (rawFiles) {
+                const files: HoSoDiaBanFile[] = JSON.parse(rawFiles);
+                const updated = files.map((f) =>
+                  f.id === rawHsdbId
+                    ? {
+                        ...f,
+                        url: driveRes.fileUrl,
+                        file_url: driveRes.fileUrl,
+                        google_drive_id: driveRes.fileId,
+                        google_drive_preview_url: driveRes.previewUrl,
+                        is_google_drive: true,
+                      }
+                    : f
+                );
+                localStorage.setItem('ubkt_ho_so_dia_ban_files', JSON.stringify(updated));
+              }
+            } catch (e) {
+              console.error(e);
+            }
+          }
+
+          if (item.id.startsWith('bc-')) {
+            const bcId = item.id.replace('bc-', '');
+            try {
+              const rawBc = localStorage.getItem('ubkt_bao_cao_thang');
+              if (rawBc) {
+                const bcList = JSON.parse(rawBc);
+                const updatedBc = bcList.map((b: any) =>
+                  b.id === bcId
+                    ? {
+                        ...b,
+                        file_url: driveRes.fileUrl,
+                        google_drive_id: driveRes.fileId,
+                        google_drive_preview_url: driveRes.previewUrl,
+                        is_google_drive: true,
+                      }
+                    : b
+                );
+                localStorage.setItem('ubkt_bao_cao_thang', JSON.stringify(updatedBc));
+              }
+            } catch (e) {
+              console.error(e);
+            }
+          }
+
+          await api.updatePdf(item.id, {
+            url: driveRes.fileUrl,
+            file_url: driveRes.fileUrl,
+            google_drive_id: driveRes.fileId,
+            google_drive_preview_url: driveRes.previewUrl,
+            is_google_drive: true,
+          });
+        } else {
+          errorCount++;
+        }
+      } catch (err) {
+        console.error(`Lỗi chuyển tệp ${item.ten_file} lên Drive:`, err);
+        errorCount++;
+      }
+    }
+
+    window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
+    window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+    window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+    window.dispatchEvent(new CustomEvent('ubkt_assignments_updated'));
+    await loadData();
+    setIsMigratingAll(false);
+    alert(
+      `Hoàn tất đồng bộ lên Google Drive!\n- Thành công: ${successCount} tệp\n- Thất bại hoặc lỗi mạng: ${errorCount} tệp`
+    );
   };
 
   const handleDownload = (item: PdfKhoItem) => {
@@ -504,6 +850,66 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
     });
   }, [dataList, searchQuery, filterDonVi, filterTheLoai, filterLoaiFile, filterNguonGoc, sortOrder]);
 
+  const unmigratedList = useMemo(() => {
+    return dataList.filter(
+      (item) => !item.is_google_drive && !item.google_drive_id && (item.file_url || item.url)
+    );
+  }, [dataList]);
+  const unmigratedCount = unmigratedList.length;
+
+  // Đếm số tệp trong toàn hệ thống chưa được tổng hợp vào kho dữ liệu
+  const unaggregatedCount = useMemo(() => {
+    let count = 0;
+    const existingNames = new Set(dataList.map((d) => d.ten_file));
+
+    // 1. Chương trình KT-GS & Thay đổi bổ sung
+    allPrograms.forEach((c) => {
+      if (c.file_pdf_ten && !existingNames.has(c.file_pdf_ten)) count++;
+      if (c.danh_sach_thay_doi_bo_sung) {
+        c.danh_sach_thay_doi_bo_sung.forEach((td) => {
+          if (td.file_pdf_ten && !existingNames.has(td.file_pdf_ten)) count++;
+        });
+      }
+    });
+
+    // 2. Báo cáo tháng
+    try {
+      const rawBc = localStorage.getItem('ubkt_bao_cao_thang');
+      if (rawBc) {
+        const bcList = JSON.parse(rawBc);
+        if (Array.isArray(bcList)) {
+          bcList.forEach((b: any) => {
+            if (b.file_ten && !existingNames.has(b.file_ten)) count++;
+          });
+        }
+      }
+    } catch {}
+
+    // 3. Vấn đề theo dõi & Chỉ đạo trong Hồ sơ địa bàn
+    try {
+      const rawRecs = localStorage.getItem('ubkt_ho_so_dia_ban_records');
+      if (rawRecs) {
+        const recs = JSON.parse(rawRecs);
+        if (Array.isArray(recs)) {
+          recs.forEach((r: any) => {
+            if (Array.isArray(r.danh_sach_van_de)) {
+              r.danh_sach_van_de.forEach((vd: any) => {
+                if (vd.file_ten && !existingNames.has(vd.file_ten)) count++;
+              });
+            }
+            if (Array.isArray(r.danh_sach_chi_dao)) {
+              r.danh_sach_chi_dao.forEach((cd: any) => {
+                if (cd.file_ten && !existingNames.has(cd.file_ten)) count++;
+              });
+            }
+          });
+        }
+      }
+    } catch {}
+
+    return count;
+  }, [dataList, allPrograms]);
+
   return (
     <div className="space-y-5 pb-12 font-sans">
       {/* ── HEADER ───────────────────────────────────────────────────────── */}
@@ -523,6 +929,42 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
         </div>
 
         <div className="flex items-center space-x-2">
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => handleTriggerAutoScanAndSync(false)}
+              disabled={isAutoScanning || isMigratingAll}
+              className={`inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-bold shadow-xs transition cursor-pointer ${
+                unaggregatedCount > 0
+                  ? 'bg-indigo-600 hover:bg-indigo-700 text-white animate-pulse'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+              }`}
+              title="Tự động quét toàn bộ hệ thống (KT-GS, Hồ sơ địa bàn, Báo cáo tháng) để gom vào Kho dữ liệu và đẩy lên Google Drive"
+            >
+              <Zap className={`w-4 h-4 ${isAutoScanning ? 'animate-spin' : 'text-amber-300'}`} />
+              <span>
+                {isAutoScanning
+                  ? 'Đang quét & đẩy...'
+                  : unaggregatedCount > 0
+                  ? `⚡ Quét & đẩy file (${unaggregatedCount})`
+                  : '⚡ Quét & đẩy tự động'}
+              </span>
+            </button>
+          )}
+
+          {canEdit && isGdriveActive && unmigratedCount > 0 && (
+            <button
+              type="button"
+              onClick={handleMigrateAllToDrive}
+              disabled={isMigratingAll}
+              className="inline-flex items-center space-x-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition cursor-pointer"
+              title="Chuyển toàn bộ các tệp nội bộ hiện có lên Google Drive"
+            >
+              <CloudUpload className={`w-4 h-4 ${isMigratingAll ? 'animate-bounce' : ''}`} />
+              <span>Chuyển {unmigratedCount} tệp lên Drive</span>
+            </button>
+          )}
+
           {canEdit && (
             <button
               type="button"
@@ -563,6 +1005,87 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
 
       {/* ── KHUNG CHÍNH ───────────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-6 space-y-5">
+        {/* Cảnh báo phát hiện tệp chưa tổng hợp */}
+        {unaggregatedCount > 0 && (
+          <div className="border border-indigo-200 bg-indigo-50/90 px-4 py-3 rounded-lg text-xs text-indigo-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+            <div className="flex items-center space-x-2.5">
+              <Zap className="w-4 h-4 text-indigo-600 shrink-0" />
+              <div>
+                <span className="font-bold">Phát hiện {unaggregatedCount} tệp văn bản từ KT-GS & Địa bàn chưa tổng hợp vào Kho: </span>
+                <span>Hệ thống có thể tự động gom các tệp này vào Kho dữ liệu và đồng thời đẩy lên lưu trữ trên Google Drive.</span>
+              </div>
+            </div>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => handleTriggerAutoScanAndSync(false)}
+                disabled={isAutoScanning}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-bold text-[11px] whitespace-nowrap shadow-2xs cursor-pointer flex items-center space-x-1.5 shrink-0"
+              >
+                <Zap className={`w-3.5 h-3.5 text-amber-300 ${isAutoScanning ? 'animate-spin' : ''}`} />
+                <span>Quét & Tổng hợp tự động ngay</span>
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Hộp cảnh báo / trạng thái Google Drive */}
+        {!isGdriveActive ? (
+          <div className="border border-amber-300 bg-amber-50/80 px-4 py-3 rounded-lg text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+            <div className="flex items-center space-x-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <div>
+                <span className="font-bold">Google Drive chưa được kết nối: </span>
+                <span>Các tệp tài liệu trong kho hiện tại đang lưu tạm bộ nhớ trình duyệt/máy chủ. Hãy thiết lập kết nối để lưu trữ vĩnh viễn trên Google Drive và chia sẻ xem trực tiếp.</span>
+              </div>
+            </div>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => setIsGdriveModalOpen(true)}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-md font-bold text-[11px] whitespace-nowrap shadow-2xs cursor-pointer self-start sm:self-auto shrink-0"
+              >
+                Cấu hình Google Drive ngay
+              </button>
+            )}
+          </div>
+        ) : unmigratedCount > 0 ? (
+          <div className="border border-blue-200 bg-blue-50/80 px-4 py-3 rounded-lg text-xs text-blue-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+            <div className="flex items-center space-x-2.5">
+              <CloudUpload className="w-4 h-4 text-blue-600 shrink-0" />
+              <div>
+                <span className="font-bold">Có {unmigratedCount} tệp chưa được chuyển sang Google Drive: </span>
+                <span>Các tệp này được lưu trữ nội bộ trước đây. Bạn có thể nhấn nút bên cạnh để chuyển toàn bộ sang lưu trữ trên Google Drive.</span>
+              </div>
+            </div>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={handleMigrateAllToDrive}
+                disabled={isMigratingAll}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md font-bold text-[11px] whitespace-nowrap shadow-2xs cursor-pointer flex items-center space-x-1.5 self-start sm:self-auto shrink-0"
+              >
+                <CloudUpload className={`w-3.5 h-3.5 ${isMigratingAll ? 'animate-bounce' : ''}`} />
+                <span>Chuyển {unmigratedCount} tệp lên Drive ngay</span>
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="border border-emerald-200 bg-emerald-50/60 px-4 py-2.5 rounded-lg text-xs text-emerald-800 flex items-center justify-between shadow-2xs">
+            <div className="flex items-center space-x-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span><strong>Google Drive đang hoạt động:</strong> Toàn bộ {dataList.length} tệp trong kho đều đã được đồng bộ an toàn trên Google Drive.</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsGdriveModalOpen(true)}
+              className="text-[11px] font-bold text-emerald-700 hover:underline cursor-pointer ml-2 shrink-0"
+            >
+              Cài đặt Drive
+            </button>
+          </div>
+        )}
+
         {/* Hộp thông báo đồng bộ 2 chiều */}
         <div className="border-l-[3px] border-[#133863] bg-blue-50/50 px-4 py-3 rounded-r-lg text-xs text-blue-950 leading-relaxed flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -773,13 +1296,25 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                           >
                             {isPdf ? 'PDF' : isWord ? 'DOCX' : isExcel ? 'XLSX' : 'FILE'}
                           </span>
-                          {(item.is_google_drive || item.google_drive_id || item.file_url?.includes('drive.google.com')) && (
-                            <span
-                              className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-0.5"
-                              title="Tệp được lưu trữ trên Google Drive"
+                          {(item.is_google_drive || item.google_drive_id || item.file_url?.includes('drive.google.com')) ? (
+                            <a
+                              href={item.google_drive_preview_url || item.file_url || item.url || '#'}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-1 hover:bg-emerald-100 transition"
+                              title="Tệp đã lưu trên Google Drive - Bấm để mở xem trên Drive"
                             >
                               <Cloud className="w-2.5 h-2.5 text-emerald-600" />
                               <span>Drive</span>
+                              <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                            </a>
+                          ) : (
+                            <span
+                              className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 flex items-center space-x-0.5"
+                              title="Tệp lưu cục bộ / nội bộ (Chưa chuyển sang Google Drive)"
+                            >
+                              <HardDrive className="w-2.5 h-2.5 text-slate-400" />
+                              <span>Cục bộ</span>
                             </span>
                           )}
                           <span className="text-slate-500 text-[11px]">
@@ -791,6 +1326,18 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                       {/* 8. Thao tác */}
                       <td className="py-3 px-3 text-center whitespace-nowrap">
                         <div className="inline-flex items-center space-x-1">
+                          {/* Nút chuyển tệp đơn lẻ lên Google Drive */}
+                          {canEdit && !item.is_google_drive && !item.google_drive_id && (item.file_url || item.url) && (
+                            <button
+                              type="button"
+                              onClick={() => handleMigrateSingleFile(item)}
+                              disabled={migratingFileId === item.id}
+                              title="Chuyển tệp này lên Google Drive"
+                              className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded cursor-pointer transition border border-emerald-200"
+                            >
+                              <CloudUpload className={`w-3.5 h-3.5 ${migratingFileId === item.id ? 'animate-bounce text-emerald-700' : ''}`} />
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleViewPdf(item)}
@@ -1043,6 +1590,31 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                   className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs"
                 />
               </div>
+
+              {/* Thông báo trạng thái Google Drive */}
+              {isGdriveActive ? (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 flex items-center space-x-2 text-xs text-emerald-800">
+                  <Cloud className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span><strong>Google Drive: ĐANG BẬT</strong> — Tệp sẽ được tự động đồng bộ và lưu trữ vĩnh viễn trên Google Drive.</span>
+                </div>
+              ) : (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 flex items-center justify-between text-xs text-amber-900">
+                  <div className="flex items-center space-x-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span><strong>Google Drive: CHƯA KẾT NỐI</strong> — Tệp sẽ lưu tạm bộ nhớ máy.</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddModalOpen(false);
+                      setIsGdriveModalOpen(true);
+                    }}
+                    className="text-[11px] font-bold text-blue-700 hover:underline shrink-0 ml-2 cursor-pointer"
+                  >
+                    Cấu hình ngay
+                  </button>
+                </div>
+              )}
 
               <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-200">
                 <button
@@ -1473,6 +2045,210 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
           </div>
         );
       })()}
+
+      {/* ── MODAL TỰ ĐỘNG QUÉT & ĐỒNG BỘ TỆP VÀO KHO & GOOGLE DRIVE ──────── */}
+      {isAutoScanModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="flex items-start justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600">
+                  <Zap className={`w-5 h-5 ${isAutoScanning ? 'animate-bounce text-amber-500' : 'text-indigo-600'}`} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 uppercase">
+                    Tự động Quét & Đồng bộ Tệp
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Rà soát toàn bộ KT-GS, Hồ sơ địa bàn & Báo cáo tháng để gom vào Kho dữ liệu và đẩy lên Google Drive
+                  </p>
+                </div>
+              </div>
+              {!isAutoScanning && (
+                <button
+                  type="button"
+                  onClick={() => setIsAutoScanModalOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
+            </div>
+
+            {/* Content during scanning */}
+            {isAutoScanning && autoScanProgress && (
+              <div className="space-y-3">
+                <div className="flex justify-between text-xs font-semibold text-slate-700">
+                  <span>
+                    Đang xử lý: {autoScanProgress.current} / {autoScanProgress.total} tệp
+                  </span>
+                  <span>
+                    {Math.round(
+                      autoScanProgress.total > 0
+                        ? (autoScanProgress.current / autoScanProgress.total) * 100
+                        : 0
+                    )}
+                    %
+                  </span>
+                </div>
+                <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
+                  <div
+                    className="bg-indigo-600 h-full transition-all duration-300 rounded-full"
+                    style={{
+                      width: `${
+                        autoScanProgress.total > 0
+                          ? (autoScanProgress.current / autoScanProgress.total) * 100
+                          : 0
+                      }%`,
+                    }}
+                  />
+                </div>
+
+                <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Tệp đang rà soát:</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                      Nguồn: {autoScanProgress.source}
+                    </span>
+                  </div>
+                  <div className="font-semibold text-slate-800 truncate font-mono text-[11px]">
+                    {autoScanProgress.filename}
+                  </div>
+                  <div className="text-[11px] text-amber-700 font-medium">
+                    Trạng thái: {autoScanProgress.status}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Results when completed */}
+            {!isAutoScanning && autoScanResult && (
+              <div className="space-y-4">
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center space-x-2.5 text-emerald-800 text-xs font-semibold">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <span>Hoàn tất quá trình quét và tự động đồng bộ liên thông!</span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2.5 text-center">
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div className="text-lg font-bold text-slate-800 font-mono">
+                      {autoScanResult.scannedCount}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Tệp đã quét</div>
+                  </div>
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                    <div className="text-lg font-bold text-blue-700 font-mono">
+                      {autoScanResult.aggregatedCount}
+                    </div>
+                    <div className="text-[11px] text-blue-600 mt-0.5">Gom mới vào Kho</div>
+                  </div>
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                    <div className="text-lg font-bold text-emerald-700 font-mono">
+                      {autoScanResult.syncedDriveCount}
+                    </div>
+                    <div className="text-[11px] text-emerald-600 mt-0.5">Đẩy lên Drive</div>
+                  </div>
+                </div>
+
+                {autoScanResult.errors.length > 0 && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs space-y-1 text-rose-800 max-h-32 overflow-y-auto">
+                    <div className="font-bold flex items-center space-x-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                      <span>Các thông báo lỗi phát sinh ({autoScanResult.errors.length}):</span>
+                    </div>
+                    {autoScanResult.errors.map((e, idx) => (
+                      <div key={idx} className="text-[11px] text-rose-700">
+                        • {e}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+              {!isAutoScanning && (
+                <button
+                  type="button"
+                  onClick={() => setIsAutoScanModalOpen(false)}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+                >
+                  Xác nhận & Đóng
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL TIẾN TRÌNH ĐỒNG BỘ TỆP LÊN GOOGLE DRIVE ────────────────────── */}
+      {isMigratingAll && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600">
+                <CloudUpload className="w-5 h-5 animate-bounce" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 uppercase">
+                  Đang chuyển tệp lên Google Drive
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Vui lòng không tắt hoặc tải lại trang web...
+                </p>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs font-semibold text-slate-700">
+                <span>
+                  Đang xử lý: {migrationProgress.current} / {migrationProgress.total} tệp
+                </span>
+                <span>
+                  {Math.round(
+                    migrationProgress.total > 0
+                      ? (migrationProgress.current / migrationProgress.total) * 100
+                      : 0
+                  )}
+                  %
+                </span>
+              </div>
+              <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
+                <div
+                  className="bg-emerald-500 h-full transition-all duration-300 rounded-full"
+                  style={{
+                    width: `${
+                      migrationProgress.total > 0
+                        ? (migrationProgress.current / migrationProgress.total) * 100
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs space-y-1">
+              <div className="text-slate-500">Tệp hiện tại:</div>
+              <div className="font-semibold text-slate-800 truncate font-mono">
+                {migrationProgress.currentFileName || 'Đang khởi tạo...'}
+              </div>
+              <div className="flex items-center space-x-3 pt-1 text-[11px] text-slate-600">
+                <span className="text-emerald-600 font-semibold">
+                  ✓ Thành công: {migrationProgress.successCount}
+                </span>
+                {migrationProgress.errorCount > 0 && (
+                  <span className="text-rose-600 font-semibold">
+                    ✕ Thất bại: {migrationProgress.errorCount}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── MODAL CẤU HÌNH GOOGLE DRIVE ────────────────────────────────────── */}
       <GoogleDriveConfigModal

@@ -164,6 +164,10 @@ export const getGoogleDriveConfig = (): GoogleDriveConfig => {
 export const saveGoogleDriveConfig = (config: GoogleDriveConfig) => {
   localStorage.setItem(STORAGE_GDRIVE_CONFIG, JSON.stringify(config));
   window.dispatchEvent(new CustomEvent('ubkt_gdrive_config_updated', { detail: config }));
+  // Đồng bộ lên Cloud để thiết bị khác cũng nhận được cấu hình Drive
+  import('./cloudSyncService').then(({ cloudSyncService }) => {
+    cloudSyncService.saveItemToCloud('system_config', 'google_drive', config);
+  }).catch(() => {});
 };
 
 export const isGoogleDriveConfigured = (): boolean => {
@@ -220,6 +224,109 @@ export const uploadFileToGoogleDrive = async (
 };
 
 /**
+ * Tải tệp từ Base64 hoặc URL đã có lên Google Drive qua Apps Script Web App
+ */
+export const uploadBase64OrUrlToGoogleDrive = async (
+  filename: string,
+  urlOrBase64: string,
+  mimeType?: string,
+  folderIdOverride?: string
+): Promise<GoogleDriveUploadResponse> => {
+  try {
+    const config = getGoogleDriveConfig();
+    if (!config.scriptUrl) {
+      throw new Error('Chưa cấu hình URL Google Apps Script Web App');
+    }
+
+  let cleanBase64 = urlOrBase64;
+
+  // Nếu là URL trực tuyến hoặc blob URL thì fetch về và chuyển sang Base64
+  if (
+    urlOrBase64.startsWith('http://') ||
+    urlOrBase64.startsWith('https://') ||
+    urlOrBase64.startsWith('blob:')
+  ) {
+    if (urlOrBase64.includes('drive.google.com')) {
+      const fileId = extractGoogleDriveFileId(urlOrBase64);
+      return {
+        success: true,
+        fileId: fileId || undefined,
+        fileUrl: urlOrBase64,
+        previewUrl: `https://drive.google.com/file/d/${fileId}/preview`,
+      };
+    }
+    const res = await fetch(urlOrBase64);
+    const blob = await res.blob();
+    const reader = new FileReader();
+    const readPromise = new Promise<string>((resolve, reject) => {
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+    });
+    reader.readAsDataURL(blob);
+    cleanBase64 = await readPromise;
+  }
+
+  // Xác định mimeType tương ứng với đuôi file nếu chưa có
+  if (!mimeType) {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    if (ext === 'pdf') mimeType = 'application/pdf';
+    else if (ext === 'docx') mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    else if (ext === 'doc') mimeType = 'application/msword';
+    else if (ext === 'xlsx') mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    else if (ext === 'xls') mimeType = 'application/vnd.ms-excel';
+    else mimeType = 'application/octet-stream';
+  }
+
+  const payload = {
+    filename,
+    mimeType,
+    base64Data: cleanBase64,
+    folderId: folderIdOverride || config.folderId || '',
+  };
+
+    let response: Response;
+    try {
+      response = await fetch(config.scriptUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (networkErr: any) {
+      throw new Error(`Không thể kết nối đến Google Apps Script Web App: ${networkErr.message || String(networkErr)}`);
+    }
+
+    if (!response.ok) {
+      throw new Error(`Google Apps Script trả về mã lỗi HTTP: ${response.status}`);
+    }
+
+    const rawText = await response.text();
+    let result: GoogleDriveUploadResponse;
+    try {
+      result = JSON.parse(rawText);
+    } catch {
+      if (rawText.includes('<!DOCTYPE') || rawText.includes('<html') || rawText.includes('accounts.google.com')) {
+        throw new Error(
+          'Google Apps Script trả về trang đăng nhập Google. Nguyên nhân: Khi triển khai Web App (Deploy as Web App), mục "Who has access (Người có quyền truy cập)" bắt buộc phải chọn "Anyone (Bất kỳ ai)" thay vì "Only myself".'
+        );
+      }
+      throw new Error('Phản hồi từ Google Apps Script không hợp lệ: ' + rawText.slice(0, 150));
+    }
+
+    if (!result.success) {
+      throw new Error(result.error || 'Có lỗi xảy ra khi lưu tệp vào Google Drive');
+    }
+
+    return result;
+  } catch (err: any) {
+    console.error('Lỗi uploadBase64OrUrlToGoogleDrive:', err);
+    throw err;
+  }
+};
+
+
+/**
  * Kiểm tra kết nối tới URL Google Apps Script
  */
 export const testGoogleDriveConnection = async (url: string): Promise<boolean> => {
@@ -238,7 +345,19 @@ export const testGoogleDriveConnection = async (url: string): Promise<boolean> =
     throw new Error(`HTTP ${response.status}: Không thể kết nối tới Google Apps Script Web App`);
   }
 
-  const data = await response.json();
+  const rawText = await response.text();
+  let data: any;
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    if (rawText.includes('<!DOCTYPE') || rawText.includes('<html')) {
+      throw new Error(
+        'Google Apps Script trả về trang đăng nhập Google. Vui lòng triển khai Web App với quyền "Who has access" là "Anyone" (Bất kỳ ai).'
+      );
+    }
+    throw new Error('Phản hồi từ Google Apps Script không đúng định dạng JSON.');
+  }
+
   return Boolean(data.success || data.status === 'connected');
 };
 
@@ -308,7 +427,20 @@ export const deleteFileFromGoogleDrive = async (
       };
     }
 
-    const result = await response.json();
+    const rawText = await response.text();
+    let result: any;
+    try {
+      result = JSON.parse(rawText);
+    } catch {
+      if (rawText.includes('<!DOCTYPE') || rawText.includes('<html')) {
+        return {
+          success: false,
+          error: 'Web App chưa mở quyền truy cập "Anyone" nên không thể gửi lệnh xóa tệp.',
+        };
+      }
+      return { success: false, error: 'Phản hồi từ Google Apps Script không hợp lệ: ' + rawText.slice(0, 100) };
+    }
+
     return {
       success: Boolean(result.success),
       message: result.message || 'Đã đưa tệp vào thùng rác Google Drive',

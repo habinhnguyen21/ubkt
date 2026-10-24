@@ -14,6 +14,14 @@ import type {
   TrangThaiHoSoDiaBan,
 } from '../types';
 import {
+  isGoogleDriveConfigured,
+  getGoogleDriveConfig,
+  uploadBase64OrUrlToGoogleDrive,
+  extractGoogleDriveFileId,
+  deleteFileFromGoogleDrive,
+} from '../services/googleDriveService';
+import { cloudSyncService } from '../services/cloudSyncService';
+import {
   MapPin,
   Building2,
   Users,
@@ -264,6 +272,8 @@ export function HoSoDiaBanManager({ user }: Props) {
   const [docNgayBanHanh, setDocNgayBanHanh] = useState<string>(new Date().toLocaleDateString('vi-VN'));
   const [docTenFile, setDocTenFile] = useState('');
   const [docLoaiFile, setDocLoaiFile] = useState<'docx' | 'doc' | 'pdf'>('docx');
+  const [docFileUrl, setDocFileUrl] = useState<string | null>(null);
+  const [docFileSize, setDocFileSize] = useState<number>(320000);
   const [docMoTa, setDocMoTa] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const baoCaoFileInputRef = useRef<HTMLInputElement>(null);
@@ -286,29 +296,58 @@ export function HoSoDiaBanManager({ user }: Props) {
   const [deleteTargetRecord, setDeleteTargetRecord] = useState<DiaBanRecord | null>(null);
   const [isDeletingRecord, setIsDeletingRecord] = useState(false);
 
-  const handleConfirmDeleteRecord = (target: DiaBanRecord) => {
+  const handleConfirmDeleteRecord = async (target: DiaBanRecord) => {
     setIsDeletingRecord(true);
     try {
-      // 1. Lưu ID vào danh sách đã xóa để ngăn tự động nạp lại
+      // 1. Tự động xóa các tệp tài liệu của địa bàn trên Google Drive và Kho PDF
+      const filesToDelete = files.filter((f) => f.don_vi_id === target.id);
+      for (const f of filesToDelete) {
+        const driveId = f.google_drive_id || extractGoogleDriveFileId(f.file_url || f.url);
+        if (driveId) {
+          try {
+            await deleteFileFromGoogleDrive(driveId);
+          } catch (e) {
+            console.warn('Lỗi xóa tệp địa bàn trên Google Drive:', e);
+          }
+        }
+        await api.deletePdf('hsdb-' + f.id).catch(() => {});
+        await api.deletePdf(f.id).catch(() => {});
+      }
+
+      // Xóa các báo cáo tháng liên quan trên Google Drive và Kho PDF
+      const bcsToDelete = baoCaoThangList.filter((b) => b.danh_sach_don_vi_ids?.includes(target.id));
+      for (const b of bcsToDelete) {
+        const bDriveId = (b as any).google_drive_id || extractGoogleDriveFileId(b.file_url);
+        if (bDriveId) {
+          try {
+            await deleteFileFromGoogleDrive(bDriveId);
+          } catch (e) {
+            console.warn('Lỗi xóa tệp báo cáo trên Google Drive:', e);
+          }
+        }
+        await api.deletePdf('bc-' + b.id).catch(() => {});
+      }
+
+      // 2. Lưu ID vào danh sách đã xóa để ngăn tự động nạp lại
       const deletedIds = getDeletedDiaBanIds();
       deletedIds.add(target.id);
       localStorage.setItem(STORAGE_DELETED_DIA_BAN_IDS, JSON.stringify(Array.from(deletedIds)));
 
-      // 2. Xóa khỏi records
+      // 3. Xóa khỏi records
       setRecords((prev) => {
         const updated = prev.filter((r) => r.id !== target.id);
         localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(updated));
         return updated;
       });
 
-      // 3. Xóa các tài liệu liên quan trong kho tài liệu địa bàn
+      // 4. Xóa các tài liệu liên quan trong kho tài liệu địa bàn
       setFiles((prev) => {
         const updated = prev.filter((f) => f.don_vi_id !== target.id);
         localStorage.setItem(STORAGE_HO_SO_FILES, JSON.stringify(updated));
         return updated;
       });
 
-      // 4. Cập nhật các báo cáo tháng
+      // 5. Cập nhật các báo cáo tháng
       setBaoCaoThangList((prev) => {
         const updated = prev.filter(
           (b) => !b.danh_sach_don_vi_ids?.includes(target.id)
@@ -317,13 +356,14 @@ export function HoSoDiaBanManager({ user }: Props) {
         return updated;
       });
 
-      // 5. Nếu đang mở modal chi tiết hồ sơ này thì đóng lại
+      // 6. Nếu đang mở modal chi tiết hồ sơ này thì đóng lại
       if (selectedRecord?.id === target.id) {
         setSelectedRecord(null);
       }
 
       setDeleteTargetRecord(null);
-      window.dispatchEvent(new Event('ubkt_diaban_records_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
     } catch (err) {
       console.error('Lỗi khi xóa hồ sơ địa bàn:', err);
     } finally {
@@ -482,6 +522,20 @@ export function HoSoDiaBanManager({ user }: Props) {
             });
           }
         }
+
+        const rawFiles = localStorage.getItem(STORAGE_HO_SO_FILES);
+        if (rawFiles) {
+          try {
+            setFiles(JSON.parse(rawFiles));
+          } catch {}
+        }
+
+        const rawBc = localStorage.getItem(STORAGE_BAO_CAO_THANG);
+        if (rawBc) {
+          try {
+            setBaoCaoThangList(JSON.parse(rawBc));
+          } catch {}
+        }
       } catch (err) {
         console.error('Lỗi đồng bộ hồ sơ địa bàn:', err);
       }
@@ -489,9 +543,11 @@ export function HoSoDiaBanManager({ user }: Props) {
 
     window.addEventListener('ubkt_assignments_updated', handleSyncAssignments);
     window.addEventListener('ubkt_diaban_records_updated', handleSyncAssignments);
+    window.addEventListener('ubkt_kho_du_lieu_updated', handleSyncAssignments);
     return () => {
       window.removeEventListener('ubkt_assignments_updated', handleSyncAssignments);
       window.removeEventListener('ubkt_diaban_records_updated', handleSyncAssignments);
+      window.removeEventListener('ubkt_kho_du_lieu_updated', handleSyncAssignments);
     };
   }, []);
 
@@ -537,16 +593,22 @@ export function HoSoDiaBanManager({ user }: Props) {
     };
   }, []);
 
-  // Lưu dữ liệu hồ sơ vào storage
+  // Lưu dữ liệu hồ sơ vào storage và đồng bộ Cloud
   const saveRecords = (newRecords: DiaBanRecord[]) => {
     setRecords(newRecords);
     localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(newRecords));
+    newRecords.forEach((r) => {
+      cloudSyncService.saveItemToCloud('ho_so_dia_ban_records', r.id, r);
+    });
   };
 
-  // Lưu tài liệu vào storage
+  // Lưu tài liệu vào storage và đồng bộ Cloud
   const saveFiles = (newFiles: HoSoDiaBanFile[]) => {
     setFiles(newFiles);
     localStorage.setItem(STORAGE_HO_SO_FILES, JSON.stringify(newFiles));
+    newFiles.forEach((f) => {
+      cloudSyncService.saveItemToCloud('ho_so_dia_ban_files', f.id, f);
+    });
   };
 
   // Badge tình trạng nộp báo cáo tháng
@@ -1457,14 +1519,17 @@ export function HoSoDiaBanManager({ user }: Props) {
     }
   };
 
-  // Lưu danh sách báo cáo tháng tích hợp
+  // Lưu danh sách báo cáo tháng tích hợp và đồng bộ Cloud
   const saveBaoCaoThangList = (newList: BaoCaoThangItem[]) => {
     setBaoCaoThangList(newList);
     localStorage.setItem(STORAGE_BAO_CAO_THANG, JSON.stringify(newList));
+    newList.forEach((b) => {
+      cloudSyncService.saveItemToCloud('bao_cao_thang', b.id, b);
+    });
   };
 
   // Nộp / Tiếp nhận báo cáo tháng (tích hợp 1 lần nhiều địa bàn)
-  const handleSaveNopBaoCao = () => {
+  const handleSaveNopBaoCao = async () => {
     if (baoCaoSelectedDiaBanIds.length === 0) {
       alert('Vui lòng chọn ít nhất một địa bàn áp dụng cho báo cáo tháng này.');
       return;
@@ -1494,6 +1559,33 @@ export function HoSoDiaBanManager({ user }: Props) {
       baoCaoFileTen.trim() ||
       `BC_Thang_${baoCaoThangNum}_${baoCaoNam}_${selectedNames[0]?.replace(/\s+/g, '_') || 'dia_ban'}.${baoCaoFileLoai}`;
 
+    let finalBcUrl = baoCaoFileUrl;
+    let bcDriveId: string | undefined = undefined;
+    let bcPreviewUrl: string | undefined = undefined;
+    let isBcDrive = false;
+
+    if (baoCaoFileUrl && isGoogleDriveConfigured()) {
+      try {
+        const cfg = getGoogleDriveConfig();
+        if (cfg.autoUpload) {
+          const driveRes = await uploadBase64OrUrlToGoogleDrive(
+            reportFileFinalName,
+            baoCaoFileUrl,
+            undefined,
+            cfg.folderId
+          );
+          if (driveRes.success && driveRes.fileUrl) {
+            finalBcUrl = driveRes.fileUrl;
+            bcDriveId = driveRes.fileId;
+            bcPreviewUrl = driveRes.previewUrl;
+            isBcDrive = true;
+          }
+        }
+      } catch (err) {
+        console.warn('Lỗi tải tệp báo cáo tháng lên Google Drive:', err);
+      }
+    }
+
     const newReportItem: BaoCaoThangItem = {
       id: 'bc-' + Date.now(),
       tieu_de: reportTitleFinal,
@@ -1508,11 +1600,14 @@ export function HoSoDiaBanManager({ user }: Props) {
       file_ten: reportFileFinalName,
       file_loai: baoCaoFileLoai,
       file_dung_luong: 320000,
-      file_url: baoCaoFileUrl,
+      file_url: finalBcUrl,
       noi_dung_tom_tat: baoCaoNoiDung.trim() || 'Báo cáo định kỳ công tác kiểm tra, giám sát và nắm tình hình địa bàn.',
       ghi_chu: baoCaoGhiChu.trim() || undefined,
       created_at: new Date().toISOString(),
     };
+    (newReportItem as any).google_drive_id = bcDriveId;
+    (newReportItem as any).google_drive_preview_url = bcPreviewUrl;
+    (newReportItem as any).is_google_drive = isBcDrive;
 
     // 1. Cập nhật danh sách Báo cáo tháng
     const updatedBaoCaoList = [newReportItem, ...baoCaoThangList];
@@ -1530,7 +1625,11 @@ export function HoSoDiaBanManager({ user }: Props) {
           ten_file: reportFileFinalName,
           loai_file: baoCaoFileLoai,
           dung_luong: 320000,
-          url: baoCaoFileUrl,
+          url: finalBcUrl,
+          file_url: finalBcUrl,
+          google_drive_id: bcDriveId,
+          google_drive_preview_url: bcPreviewUrl,
+          is_google_drive: isBcDrive,
           loai_tai_lieu: '3. Báo cáo định kỳ (tháng, quý, năm)',
           mo_ta: `Báo cáo tháng ${baoCaoThangNum}/${baoCaoNam} tích hợp (${selectedNames.join(', ')}) do đ/c ${canBoFinalTen} nộp`,
           ngay_tao: new Date().toLocaleDateString('vi-VN'),
@@ -1558,20 +1657,23 @@ export function HoSoDiaBanManager({ user }: Props) {
     const updatedFiles = [...newDocFilesToAdd, ...files];
     saveFiles(updatedFiles);
 
-    // Nếu là tệp PDF, đồng bộ sang kho PDF
-    if (baoCaoFileLoai === 'pdf') {
-      api
-        .createOrAttachPdf({
-          ten_file: reportFileFinalName,
-          dung_luong: 320000,
-          nguoi_tai_len: canBoFinalTen,
-          ghi_chu: `Báo cáo tháng ${baoCaoThangNum}/${baoCaoNam} tích hợp địa bàn: ${selectedNames.join(', ')}`,
-          nguon_goc: 'HO_SO_DIA_BAN',
-          don_vi_id: baoCaoSelectedDiaBanIds[0],
-          ten_don_vi: selectedNames.join(', '),
-        })
-        .catch((err) => console.error('Lỗi đồng bộ PDF báo cáo tháng sang kho PDF:', err));
-    }
+    // Đồng bộ sang kho PDF
+    api
+      .createOrAttachPdf({
+        ten_file: reportFileFinalName,
+        dung_luong: 320000,
+        url: finalBcUrl,
+        file_url: finalBcUrl,
+        google_drive_id: bcDriveId,
+        google_drive_preview_url: bcPreviewUrl,
+        is_google_drive: isBcDrive,
+        nguoi_tai_len: canBoFinalTen,
+        ghi_chu: `Báo cáo tháng ${baoCaoThangNum}/${baoCaoNam} tích hợp địa bàn: ${selectedNames.join(', ')}`,
+        nguon_goc: 'HO_SO_DIA_BAN',
+        don_vi_id: baoCaoSelectedDiaBanIds[0],
+        ten_don_vi: selectedNames.join(', '),
+      })
+      .catch((err) => console.error('Lỗi đồng bộ PDF báo cáo tháng sang kho PDF:', err));
 
     // Cập nhật selectedRecord nếu đang mở modal
     if (selectedRecord) {
@@ -1580,6 +1682,100 @@ export function HoSoDiaBanManager({ user }: Props) {
     }
 
     setIsNopBaoCaoOpen(false);
+  };
+
+  // Xóa tài liệu khỏi hồ sơ địa bàn, Kho PDF và Google Drive (Xóa 2 chiều)
+  const handleDeleteDocument = async (fileItem: HoSoDiaBanFile) => {
+    if (
+      !confirm(
+        `Bạn có chắc chắn muốn xóa tài liệu "${fileItem.ten_file}"?\nThao tác này sẽ đồng thời xóa tệp trên Kho dữ liệu và đưa tệp vào Thùng rác Google Drive (nếu có).`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const driveId =
+        fileItem.google_drive_id ||
+        extractGoogleDriveFileId(fileItem.file_url || fileItem.url);
+      if (driveId) {
+        try {
+          await deleteFileFromGoogleDrive(driveId);
+        } catch (err) {
+          console.warn('Lỗi xóa tệp địa bàn trên Google Drive:', err);
+        }
+      }
+
+      await api.deletePdf('hsdb-' + fileItem.id).catch(() => {});
+      await api.deletePdf(fileItem.id).catch(() => {});
+
+      const nextFiles = files.filter(
+        (f) => f.id !== fileItem.id && f.ten_file !== fileItem.ten_file
+      );
+      saveFiles(nextFiles);
+      cloudSyncService.deleteItemFromCloud('ho_so_dia_ban_files', fileItem.id);
+
+      if (fileItem.don_vi_id) {
+        const updatedRecords = records.map((r) =>
+          r.id === fileItem.don_vi_id
+            ? { ...r, so_luong_tai_lieu: Math.max(0, (r.so_luong_tai_lieu || 1) - 1) }
+            : r
+        );
+        saveRecords(updatedRecords);
+        if (selectedRecord && selectedRecord.id === fileItem.don_vi_id) {
+          setSelectedRecord((prev) =>
+            prev ? { ...prev, so_luong_tai_lieu: Math.max(0, (prev.so_luong_tai_lieu || 1) - 1) } : null
+          );
+        }
+      }
+
+      window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+    } catch (err: any) {
+      alert('Lỗi khi xóa tài liệu: ' + (err.message || String(err)));
+    }
+  };
+
+  // Xóa báo cáo tháng khỏi hồ sơ địa bàn, Kho PDF và Google Drive (Xóa 2 chiều)
+  const handleDeleteBaoCao = async (bcItem: BaoCaoThangItem) => {
+    if (
+      !confirm(
+        `Bạn có chắc chắn muốn xóa báo cáo "${bcItem.tieu_de}"?\nThao tác này sẽ đồng thời xóa tệp đính kèm trên Kho dữ liệu và đưa tệp vào Thùng rác Google Drive (nếu có).`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const driveId =
+        (bcItem as any).google_drive_id ||
+        extractGoogleDriveFileId(bcItem.file_url);
+      if (driveId) {
+        try {
+          await deleteFileFromGoogleDrive(driveId);
+        } catch (err) {
+          console.warn('Lỗi xóa tệp báo cáo trên Google Drive:', err);
+        }
+      }
+
+      await api.deletePdf('bc-' + bcItem.id).catch(() => {});
+
+      const updatedBc = baoCaoThangList.filter((b) => b.id !== bcItem.id);
+      saveBaoCaoThangList(updatedBc);
+      cloudSyncService.deleteItemFromCloud('bao_cao_thang', bcItem.id);
+
+      if (bcItem.file_ten) {
+        const nextFiles = files.filter(
+          (f) => f.ten_file !== bcItem.file_ten && !f.id.includes(bcItem.id)
+        );
+        saveFiles(nextFiles);
+      }
+
+      window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+    } catch (err: any) {
+      alert('Lỗi khi xóa báo cáo tháng: ' + (err.message || String(err)));
+    }
   };
 
   // Mở modal nộp báo cáo tháng cho 1 địa bàn cụ thể
@@ -1671,16 +1867,22 @@ export function HoSoDiaBanManager({ user }: Props) {
     const file = e.target.files?.[0];
     if (!file) return;
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (ext === 'docx' || ext === 'doc' || ext === 'pdf') {
+    if (ext === 'docx' || ext === 'doc' || ext === 'pdf' || ext === 'xlsx' || ext === 'xls') {
       setDocTenFile(file.name);
       setDocLoaiFile(ext === 'pdf' ? 'pdf' : 'docx');
+      setDocFileSize(file.size);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setDocFileUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     } else {
-      alert('Chỉ hỗ trợ tệp định dạng .docx, .doc hoặc .pdf');
+      alert('Chỉ hỗ trợ tệp định dạng .docx, .doc, .pdf hoặc .xlsx');
     }
   };
 
   // Tải lên tài liệu cho địa bàn đang chọn hoặc từ Kho tài liệu
-  const handleUploadDoc = () => {
+  const handleUploadDoc = async () => {
     const targetId = uploadTargetDonViId || selectedRecord?.id;
     if (!targetId || !docTenFile.trim()) {
       alert('Vui lòng chọn địa bàn và nhập tên tệp tài liệu.');
@@ -1688,6 +1890,33 @@ export function HoSoDiaBanManager({ user }: Props) {
     }
     const targetUnit = records.find((r) => r.id === targetId);
     const tenDonVi = targetUnit ? targetUnit.ten_dia_ban : 'Địa bàn cơ sở';
+
+    let finalDocUrl = docFileUrl;
+    let driveFileId: string | undefined = undefined;
+    let drivePreviewUrl: string | undefined = undefined;
+    let isDrive = false;
+
+    if (docFileUrl && isGoogleDriveConfigured()) {
+      try {
+        const cfg = getGoogleDriveConfig();
+        if (cfg.autoUpload) {
+          const driveRes = await uploadBase64OrUrlToGoogleDrive(
+            docTenFile.trim(),
+            docFileUrl,
+            undefined,
+            cfg.folderId
+          );
+          if (driveRes.success && driveRes.fileUrl) {
+            finalDocUrl = driveRes.fileUrl;
+            driveFileId = driveRes.fileId;
+            drivePreviewUrl = driveRes.previewUrl;
+            isDrive = true;
+          }
+        }
+      } catch (err) {
+        console.warn('Lỗi tải tệp địa bàn lên Google Drive:', err);
+      }
+    }
 
     const newDoc: HoSoDiaBanFile = {
       id: 'doc-' + Date.now(),
@@ -1700,7 +1929,12 @@ export function HoSoDiaBanManager({ user }: Props) {
       ngay_ban_hanh: docNgayBanHanh.trim() || new Date().toLocaleDateString('vi-VN'),
       ten_file: docTenFile.trim(),
       loai_file: docLoaiFile,
-      dung_luong: 320000,
+      dung_luong: docFileSize || 320000,
+      url: finalDocUrl,
+      file_url: finalDocUrl,
+      google_drive_id: driveFileId,
+      google_drive_preview_url: drivePreviewUrl,
+      is_google_drive: isDrive,
       loai_tai_lieu: docNhom,
       mo_ta: docMoTa.trim() || docTrichYeu.trim() || undefined,
       ngay_tao: new Date().toLocaleDateString('vi-VN'),
@@ -1722,19 +1956,24 @@ export function HoSoDiaBanManager({ user }: Props) {
     });
     saveRecords(updated);
 
-    // Tự động tổng hợp vào Kho PDF nếu là tệp PDF
-    if (newDoc.loai_file === 'pdf') {
-      api
-        .createOrAttachPdf({
-          ten_file: newDoc.ten_file,
-          dung_luong: newDoc.dung_luong,
-          nguoi_tai_len: user.ho_ten,
-          ghi_chu: `Tài liệu từ Hồ sơ địa bàn: ${tenDonVi} (${docNhom})`,
-          nguon_goc: 'HO_SO_DIA_BAN',
-          don_vi_id: targetId,
-          ten_don_vi: tenDonVi,
-        })
-        .catch((err) => console.error('Lỗi đồng bộ PDF địa bàn sang kho PDF:', err));
+    // Tự động tổng hợp vào Kho PDF
+    try {
+      await api.createOrAttachPdf({
+        ten_file: newDoc.ten_file,
+        dung_luong: newDoc.dung_luong,
+        url: finalDocUrl,
+        file_url: finalDocUrl,
+        google_drive_id: driveFileId,
+        google_drive_preview_url: drivePreviewUrl,
+        is_google_drive: isDrive,
+        nguoi_tai_len: user.ho_ten,
+        ghi_chu: `Tài liệu từ Hồ sơ địa bàn: ${tenDonVi} (${docNhom})`,
+        nguon_goc: 'HO_SO_DIA_BAN',
+        don_vi_id: targetId,
+        ten_don_vi: tenDonVi,
+      });
+    } catch (err) {
+      console.error('Lỗi đồng bộ PDF địa bàn sang kho PDF:', err);
     }
 
     setIsUploadDocOpen(false);
@@ -1744,6 +1983,7 @@ export function HoSoDiaBanManager({ user }: Props) {
     setDocNguoiKy('');
     setDocNgayBanHanh(new Date().toLocaleDateString('vi-VN'));
     setDocTenFile('');
+    setDocFileUrl(null);
     setDocMoTa('');
     setUploadTargetDonViId('');
   };
@@ -2797,9 +3037,9 @@ export function HoSoDiaBanManager({ user }: Props) {
                             )}
                           </td>
 
-                          {/* Thao tác */}
+                          {/* Thao tác (Tải về / Xem trên Drive / Xóa 2 chiều) */}
                           <td className="py-3 px-3.5 text-right whitespace-nowrap">
-                            <div className="flex items-center justify-end space-x-1">
+                            <div className="flex items-center justify-end space-x-1.5">
                               {bc.file_ten && (
                                 <button
                                   type="button"
@@ -2811,6 +3051,27 @@ export function HoSoDiaBanManager({ user }: Props) {
                                   <span>Tải về</span>
                                 </button>
                               )}
+                              {((bc as any).google_drive_preview_url || (bc as any).is_google_drive || (bc as any).file_url?.includes('drive.google.com')) && (
+                                <a
+                                  href={(bc as any).google_drive_preview_url || (bc as any).file_url || '#'}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="p-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition cursor-pointer font-bold flex items-center space-x-1"
+                                  title="Mở xem trên Google Drive"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>Drive</span>
+                                </a>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteBaoCao(bc)}
+                                className="p-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-md transition cursor-pointer font-bold flex items-center space-x-1"
+                                title="Xóa báo cáo tháng (đồng thời xóa tệp trên Kho dữ liệu và Google Drive)"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                <span>Xóa</span>
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -4020,7 +4281,8 @@ export function HoSoDiaBanManager({ user }: Props) {
                           <th className="py-2.5 px-3 min-w-[280px]">Trích yếu nội dung</th>
                           <th className="py-2.5 px-3 min-w-[150px]">Người ký</th>
                           <th className="py-2.5 px-3 min-w-[120px] text-center">Ngày ban hành</th>
-                          <th className="py-2.5 px-3 min-w-[170px] text-right">File văn bản</th>
+                          <th className="py-2.5 px-3 min-w-[170px] text-left">File văn bản</th>
+                          <th className="py-2.5 px-3 w-28 text-center">Thao tác</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -4036,7 +4298,7 @@ export function HoSoDiaBanManager({ user }: Props) {
                           if (recordFiles.length === 0) {
                             return (
                               <tr>
-                                <td colSpan={6} className="py-8 text-center text-slate-400 italic">
+                                <td colSpan={7} className="py-8 text-center text-slate-400 italic">
                                   Chưa có tài liệu tải lên cho địa bàn này. Bấm "+ Tải lên tài liệu mới" để thêm tài liệu.
                                 </td>
                               </tr>
@@ -4102,17 +4364,44 @@ export function HoSoDiaBanManager({ user }: Props) {
                                 </span>
                               </td>
 
-                              {/* 6. File văn bản */}
-                              <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                              {/* 6. File văn bản & xem Drive */}
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                <div className="flex items-center space-x-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDownloadFile(file.ten_file)}
+                                    className="inline-flex items-center space-x-1.5 px-2 py-1 text-xs font-semibold text-[#133863] bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition cursor-pointer"
+                                    title={`Tải về: ${file.ten_file}`}
+                                  >
+                                    <FileText className={`w-3.5 h-3.5 ${file.loai_file === 'pdf' ? 'text-red-600' : 'text-blue-600'}`} />
+                                    <span className="truncate max-w-[130px] text-left">{file.ten_file}</span>
+                                    <Download className="w-3 h-3 text-slate-400" />
+                                  </button>
+                                  {(file.is_google_drive || file.google_drive_preview_url || file.url?.includes('drive.google.com')) && (
+                                    <a
+                                      href={file.google_drive_preview_url || file.file_url || file.url || '#'}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="p-1 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition cursor-pointer flex items-center space-x-1 text-[11px] font-bold"
+                                      title="Mở xem trên Google Drive"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                      <span>Drive</span>
+                                    </a>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* 7. Thao tác xóa 2 chiều */}
+                              <td className="py-2.5 px-3 text-center whitespace-nowrap">
                                 <button
                                   type="button"
-                                  onClick={() => handleDownloadFile(file.ten_file)}
-                                  className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-semibold text-[#133863] bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition cursor-pointer"
-                                  title={`Tải về: ${file.ten_file}`}
+                                  onClick={() => handleDeleteDocument(file)}
+                                  className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition cursor-pointer"
+                                  title="Xóa tài liệu (đồng thời xóa trên Kho dữ liệu và Google Drive)"
                                 >
-                                  <FileText className={`w-3.5 h-3.5 ${file.loai_file === 'pdf' ? 'text-red-600' : 'text-blue-600'}`} />
-                                  <span className="truncate max-w-[140px] text-left">{file.ten_file}</span>
-                                  <Download className="w-3 h-3 text-slate-400" />
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Xóa</span>
                                 </button>
                               </td>
                             </tr>

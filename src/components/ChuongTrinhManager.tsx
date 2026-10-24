@@ -11,6 +11,13 @@ import type {
   LoaiChuongTrinh,
 } from '../types';
 import {
+  isGoogleDriveConfigured,
+  getGoogleDriveConfig,
+  uploadBase64OrUrlToGoogleDrive,
+  extractGoogleDriveFileId,
+  deleteFileFromGoogleDrive,
+} from '../services/googleDriveService';
+import {
   FileText,
   Plus,
   Edit2,
@@ -470,6 +477,15 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
   useEffect(() => {
     loadData();
+    const handleUpdate = () => {
+      loadData();
+    };
+    window.addEventListener('ubkt_chuong_trinh_updated', handleUpdate);
+    window.addEventListener('ubkt_kho_du_lieu_updated', handleUpdate);
+    return () => {
+      window.removeEventListener('ubkt_chuong_trinh_updated', handleUpdate);
+      window.removeEventListener('ubkt_kho_du_lieu_updated', handleUpdate);
+    };
   }, []);
 
   // Danh sách các tổ chức Chi bộ & Đảng bộ trực thuộc
@@ -969,6 +985,33 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       const matchedDonVi = allDonVi.find((d) => d.ten === hnChuThe);
       const finalDonViId = matchedDonVi ? matchedDonVi.id : hnDonViId;
 
+      let finalDriveUrl = finalPdfUrl;
+      let driveFileId: string | undefined = undefined;
+      let drivePreviewUrl: string | undefined = undefined;
+      let isDrive = false;
+
+      if (finalPdfName && finalPdfUrl && isGoogleDriveConfigured()) {
+        try {
+          const cfg = getGoogleDriveConfig();
+          if (cfg.autoUpload) {
+            const driveRes = await uploadBase64OrUrlToGoogleDrive(
+              finalPdfName,
+              finalPdfUrl,
+              undefined,
+              cfg.folderId
+            );
+            if (driveRes.success && driveRes.fileUrl) {
+              finalDriveUrl = driveRes.fileUrl;
+              driveFileId = driveRes.fileId;
+              drivePreviewUrl = driveRes.previewUrl;
+              isDrive = true;
+            }
+          }
+        } catch (err) {
+          console.warn('Lỗi tải tệp kế hoạch năm lên Google Drive:', err);
+        }
+      }
+
       const payload: CreateChuongTrinhInput = {
         nam: Number(hnNam),
         loai_chuong_trinh: 'HANG_NAM',
@@ -992,18 +1035,22 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         nguoi_ky: hnNguoiKy.trim() || null,
         trang_thai: hnTrangThai,
         file_pdf_ten: finalPdfName,
-        file_pdf_url: finalPdfUrl,
+        file_pdf_url: finalDriveUrl,
         file_pdf_dung_luong: finalPdfSize,
         ghi_chu_pdf: hnGhiChuPdf.trim() || null,
       };
+      (payload as any).google_drive_id = driveFileId;
+      (payload as any).google_drive_preview_url = drivePreviewUrl;
+      (payload as any).is_google_drive = isDrive;
 
+      let savedHnItem: ChuongTrinhKtGs;
       if (editingHnItem) {
-        await api.updateChuongTrinh({
+        savedHnItem = await api.updateChuongTrinh({
           ...payload,
           id: editingHnItem.id,
         });
       } else {
-        await api.createChuongTrinh(payload);
+        savedHnItem = await api.createChuongTrinh(payload);
       }
 
       if (finalPdfName) {
@@ -1011,17 +1058,30 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
           await api.createOrAttachPdf({
             ten_file: finalPdfName,
             dung_luong: finalPdfSize || 350000,
-            url: finalPdfUrl,
-            chuong_trinh_id: editingHnItem ? editingHnItem.id : undefined,
+            url: finalDriveUrl,
+            file_url: finalDriveUrl,
+            google_drive_id: driveFileId,
+            google_drive_preview_url: drivePreviewUrl,
+            is_google_drive: isDrive,
+            chuong_trinh_id: savedHnItem.id,
             ghi_chu: `Văn bản kế hoạch năm ${hnNam}: ${payload.so_van_ban || payload.chu_the}`,
+            nguon_goc: 'CHUONG_TRINH',
           });
         } catch {
           // ignore
         }
+      } else if (hnRemovePdf && editingHnItem) {
+        const existingDriveId = (editingHnItem as any)?.google_drive_id || extractGoogleDriveFileId(editingHnItem?.file_pdf_url);
+        if (existingDriveId) {
+          deleteFileFromGoogleDrive(existingDriveId).catch(() => {});
+        }
+        await api.deletePdf('ct-pdf-' + editingHnItem.id).catch(() => {});
+        window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
       }
 
       setIsHnModalOpen(false);
       await loadData();
+      window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
       onDataChanged?.();
     } catch (err: unknown) {
       setHnFormError(err instanceof Error ? err.message : String(err));
@@ -1296,6 +1356,33 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       const nkString = formHasNhiemKy && formTermStartYear && formTermEndYear ? `${formTermStartYear} – ${formTermEndYear}` : null;
       const isCA_NHIEM_KY = !formTuNgay && !formDenNgay;
 
+      let formDriveUrl = formRemovePdf ? null : (formPdfFileUrl || null);
+      let formDriveId: string | undefined = undefined;
+      let formPreviewUrl: string | undefined = undefined;
+      let isFormDrive = false;
+
+      if (formPdfFileName && formPdfFileUrl && !formRemovePdf && isGoogleDriveConfigured()) {
+        try {
+          const cfg = getGoogleDriveConfig();
+          if (cfg.autoUpload) {
+            const driveRes = await uploadBase64OrUrlToGoogleDrive(
+              formPdfFileName,
+              formPdfFileUrl,
+              undefined,
+              cfg.folderId
+            );
+            if (driveRes.success && driveRes.fileUrl) {
+              formDriveUrl = driveRes.fileUrl;
+              formDriveId = driveRes.fileId;
+              formPreviewUrl = driveRes.previewUrl;
+              isFormDrive = true;
+            }
+          }
+        } catch (err) {
+          console.warn('Lỗi tải tệp chương trình toàn khóa lên Google Drive:', err);
+        }
+      }
+
       const payload: CreateChuongTrinhInput = {
         nam: formTermStartYear || new Date().getFullYear(),
         loai_chuong_trinh: formHasNhiemKy ? 'NHIEM_KY' : 'HANG_NAM',
@@ -1316,10 +1403,13 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         ngay_ket_thuc: formDenNgay || null,
         trang_thai: formTrangThai,
         file_pdf_ten: formRemovePdf ? null : (formPdfFileName || null),
-        file_pdf_url: formRemovePdf ? null : (formPdfFileUrl || null),
+        file_pdf_url: formDriveUrl,
         file_pdf_dung_luong: formRemovePdf ? null : (formPdfFileSize || null),
         ghi_chu_pdf: formGhiChuPdf.trim() || 'Văn bản chương trình toàn khóa nhiệm kỳ',
       };
+      (payload as any).google_drive_id = formDriveId;
+      (payload as any).google_drive_preview_url = formPreviewUrl;
+      (payload as any).is_google_drive = isFormDrive;
 
       let savedItem: ChuongTrinhKtGs;
       if (formEditingId) {
@@ -1332,21 +1422,35 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       }
 
       // Tự động tổng hợp file PDF tải lên vào Kho PDF nếu có file mới
-      if (formPdfFileName && formPdfFileUrl && !formRemovePdf) {
+      if (formPdfFileName && formDriveUrl && !formRemovePdf) {
         try {
           await api.createOrAttachPdf({
             ten_file: formPdfFileName,
             dung_luong: formPdfFileSize || 350000,
-            url: formPdfFileUrl,
+            url: formDriveUrl,
+            file_url: formDriveUrl,
+            google_drive_id: formDriveId,
+            google_drive_preview_url: formPreviewUrl,
+            is_google_drive: isFormDrive,
             chuong_trinh_id: savedItem.id,
             ghi_chu: `Văn bản gốc chương trình nhiệm kỳ ${savedItem.nhiem_ky || ''} (${savedItem.so_van_ban || ''})`,
+            nguon_goc: 'CHUONG_TRINH',
           });
         } catch (pdfErr) {
           console.warn('Lỗi đồng bộ PDF sang Kho dữ liệu:', pdfErr);
         }
+      } else if (formRemovePdf && formEditingId) {
+        const existingItem = list.find((c) => c.id === formEditingId);
+        const existingDriveId = (existingItem as any)?.google_drive_id || extractGoogleDriveFileId(existingItem?.file_pdf_url);
+        if (existingDriveId) {
+          deleteFileFromGoogleDrive(existingDriveId).catch(() => {});
+        }
+        await api.deletePdf('ct-pdf-' + formEditingId).catch(() => {});
+        window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
       }
 
       await loadData();
+      window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
       setSelectedProgram(savedItem);
       setFormEditingId(savedItem.id);
       setIsNhiemKyEditorOpen(false);
@@ -1425,6 +1529,33 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       const matchedUnit = allDonVi.find((d) => d.id === tdDonViId);
       const tenDonViFinal = matchedUnit ? matchedUnit.ten : (tdDonViId ? tdTenDonVi : 'Toàn Đảng bộ');
 
+      let tdDriveUrl = tdPdfFileUrl;
+      let tdDriveId: string | undefined = undefined;
+      let tdPreviewUrl: string | undefined = undefined;
+      let isTdDrive = false;
+
+      if (tdPdfFileName && tdPdfFileUrl && isGoogleDriveConfigured()) {
+        try {
+          const cfg = getGoogleDriveConfig();
+          if (cfg.autoUpload) {
+            const driveRes = await uploadBase64OrUrlToGoogleDrive(
+              tdPdfFileName,
+              tdPdfFileUrl,
+              undefined,
+              cfg.folderId
+            );
+            if (driveRes.success && driveRes.fileUrl) {
+              tdDriveUrl = driveRes.fileUrl;
+              tdDriveId = driveRes.fileId;
+              tdPreviewUrl = driveRes.previewUrl;
+              isTdDrive = true;
+            }
+          }
+        } catch (err) {
+          console.warn('Lỗi tải tệp điều chỉnh bổ sung lên Google Drive:', err);
+        }
+      }
+
       const newTd: ThayDoiBoSungKtGs = {
         id: 'td-' + Date.now(),
         chuong_trinh_id: managingThayDoiItem.id,
@@ -1437,11 +1568,14 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         noi_dung_dieu_chinh: tdNoiDungDieuChinh.trim(),
         noi_dung_goc: tdNoiDungGoc.trim() || (managingThayDoiItem.noi_dung ? `Chương trình gốc: ${managingThayDoiItem.noi_dung.slice(0, 100)}...` : null),
         file_pdf_ten: tdPdfFileName,
-        file_pdf_url: tdPdfFileUrl,
+        file_pdf_url: tdDriveUrl,
         file_pdf_dung_luong: tdPdfFileSize,
         ghi_chu: tdGhiChu.trim() || null,
         created_at: new Date().toISOString(),
       };
+      (newTd as any).google_drive_id = tdDriveId;
+      (newTd as any).google_drive_preview_url = tdPreviewUrl;
+      (newTd as any).is_google_drive = isTdDrive;
 
       await api.addThayDoiBoSung(newTd);
 
@@ -1450,9 +1584,14 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         await api.createOrAttachPdf({
           ten_file: tdPdfFileName,
           dung_luong: tdPdfFileSize || 350000,
-          url: tdPdfFileUrl,
+          url: tdDriveUrl,
+          file_url: tdDriveUrl,
+          google_drive_id: tdDriveId,
+          google_drive_preview_url: tdPreviewUrl,
+          is_google_drive: isTdDrive,
           chuong_trinh_id: managingThayDoiItem.id,
           ghi_chu: `Văn bản điều chỉnh ${newTd.so_van_ban} (${tenDonViFinal})`,
+          nguon_goc: 'THAY_DOI_BO_SUNG',
         });
       }
 
@@ -1479,13 +1618,28 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
   const handleDeleteThayDoi = async (thayDoiId: string) => {
     if (!managingThayDoiItem) return;
-    if (!confirm('Bạn có chắc chắn muốn xóa bản ghi thay đổi, bổ sung này?')) return;
+    if (!confirm('Bạn có chắc chắn muốn xóa bản ghi thay đổi, bổ sung này? Thao tác này sẽ gỡ bỏ tệp đính kèm trên cả Google Drive và Kho dữ liệu.')) return;
     try {
+      const targetTd = managingThayDoiItem.danh_sach_thay_doi_bo_sung?.find((t) => t.id === thayDoiId);
+      if (targetTd) {
+        const driveId = (targetTd as any).google_drive_id || extractGoogleDriveFileId(targetTd.file_pdf_url);
+        if (driveId) {
+          try {
+            await deleteFileFromGoogleDrive(driveId);
+          } catch (gdriveErr) {
+            console.warn('Lỗi xóa tệp thay đổi bổ sung trên Google Drive:', gdriveErr);
+          }
+        }
+        await api.deletePdf('td-pdf-' + managingThayDoiItem.id + '-' + thayDoiId).catch(() => {});
+        await api.deletePdf('td-pdf-' + thayDoiId).catch(() => {});
+      }
+
       await api.deleteThayDoiBoSung(managingThayDoiItem.id, thayDoiId);
       await loadData();
       const updatedList = await api.getAllChuongTrinh();
       const refreshed = updatedList.find((c) => c.id === managingThayDoiItem.id);
       if (refreshed) setManagingThayDoiItem(refreshed);
+      window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
       onDataChanged?.();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : String(err));
@@ -1495,9 +1649,41 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     try {
+      // 1. Tự động xóa tệp chương trình trên Google Drive nếu có
+      const driveFileId =
+        (deleteTarget as any).google_drive_id ||
+        extractGoogleDriveFileId(deleteTarget.file_pdf_url);
+      if (driveFileId) {
+        try {
+          await deleteFileFromGoogleDrive(driveFileId);
+        } catch (gdriveErr) {
+          console.warn('Lỗi khi xóa tệp chương trình trên Google Drive:', gdriveErr);
+        }
+      }
+
+      // Xóa các tệp đính kèm trong danh sách thay đổi bổ sung nếu có
+      if (deleteTarget.danh_sach_thay_doi_bo_sung) {
+        for (const td of deleteTarget.danh_sach_thay_doi_bo_sung) {
+          const tdDriveId = (td as any).google_drive_id || extractGoogleDriveFileId(td.file_pdf_url);
+          if (tdDriveId) {
+            try {
+              await deleteFileFromGoogleDrive(tdDriveId);
+            } catch (err) {
+              console.warn('Lỗi khi xóa tệp thay đổi bổ sung trên Google Drive:', err);
+            }
+          }
+          await api.deletePdf('td-pdf-' + deleteTarget.id + '-' + td.id).catch(() => {});
+        }
+      }
+
+      // 2. Xóa khỏi Kho PDF
+      await api.deletePdf('ct-pdf-' + deleteTarget.id).catch(() => {});
+
+      // 3. Xóa bản ghi chương trình
       await api.deleteChuongTrinh(deleteTarget.id);
       setDeleteTarget(null);
       await loadData();
+      window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
       onDataChanged?.();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : String(err));

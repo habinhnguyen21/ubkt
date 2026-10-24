@@ -13,19 +13,16 @@ import { AuditLogModal } from './components/AuditLogModal';
 import UserManager from './components/UserManager';
 import { HoSoDiaBanManager } from './components/HoSoDiaBanManager';
 import { DonThuManager } from './components/DonThuManager';
+import { CloudSyncModal } from './components/CloudSyncModal';
+import { cloudSyncService } from './services/cloudSyncService';
 
 type TabKey = 'tong_quan' | 'don_vi' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
 
-// Dọn sạch dữ liệu chạy thử nghiệm cũ khỏi localStorage để sẵn sàng chạy chính thức
+// Khởi tạo trạng thái môi trường chính thức
 if (typeof window !== 'undefined') {
   try {
     const isCleaned = localStorage.getItem('ubkt_prod_clean_done');
     if (!isCleaned) {
-      localStorage.removeItem('ubkt_ho_so_dia_ban_records');
-      localStorage.removeItem('ubkt_ho_so_dia_ban_files');
-      localStorage.removeItem('ubkt_bao_cao_thang_items');
-      localStorage.removeItem('ubkt_phan_cong_dia_ban');
-      localStorage.removeItem('ubkt_mock_db');
       localStorage.setItem('ubkt_prod_clean_done', 'true');
     }
   } catch {
@@ -42,6 +39,7 @@ export function App() {
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [showAuditLogs, setShowAuditLogs] = useState(false);
   const [showUserManager, setShowUserManager] = useState(false);
+  const [showCloudSyncModal, setShowCloudSyncModal] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
@@ -73,6 +71,12 @@ export function App() {
       fetchAppInfo();
     };
     window.addEventListener('ubkt_data_synced', handleDataSynced);
+
+    // Tự động kiểm tra và đồng bộ Cloud 2 chiều khi khởi động ứng dụng
+    cloudSyncService.smartSync().catch((err) => {
+      console.warn('[App] Lỗi đồng bộ đám mây tự động:', err);
+    });
+
     return () => window.removeEventListener('ubkt_data_synced', handleDataSynced);
   }, [fetchAppInfo]);
 
@@ -156,6 +160,7 @@ export function App() {
           onChangePassword={() => setShowChangePasswordModal(true)}
           onOpenAuditLogs={() => setShowAuditLogs(true)}
           onOpenUserManager={() => setShowUserManager(true)}
+          onOpenCloudSync={() => setShowCloudSyncModal(true)}
           isSyncing={isSyncing}
           onRefresh={handleManualSync}
         >
@@ -198,6 +203,13 @@ export function App() {
           }}
         />
       )}
+
+      {/* Modal Đồng bộ Đám mây Cloud */}
+      <CloudSyncModal
+        isOpen={showCloudSyncModal}
+        onClose={() => setShowCloudSyncModal(false)}
+        onSynced={fetchAppInfo}
+      />
     </>
   );
 }

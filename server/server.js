@@ -148,11 +148,19 @@ app.post('/api/login', (req, res) => {
 
   const user = db.users.find((u) => u.ten_dang_nhap.toLowerCase() === normalizedU);
   if (!user) {
-    return res.status(401).json({ message: 'Tên đăng nhập hoặc mật khẩu không chính xác' });
+    return res.status(401).json({ message: 'Tên đăng nhập không tồn tại' });
+  }
+
+  if (user.trang_thai === 0) {
+    return res.status(403).json({ message: 'Tài khoản đang bị tạm khóa. Vui lòng liên hệ Quản trị viên' });
   }
 
   const validPasswords = ['Admin@123456', 'admin@123456', 'admin123', 'admin', '123456'];
-  if (user.mat_khau === mat_khau || validPasswords.includes(mat_khau)) {
+  if (
+    user.mat_khau === mat_khau ||
+    (user.mat_khau && user.mat_khau.trim() === (mat_khau || '').trim()) ||
+    validPasswords.includes(mat_khau)
+  ) {
     const { mat_khau: _pw, ...cleanUser } = user;
     return res.json({
       user: cleanUser,
@@ -160,7 +168,7 @@ app.post('/api/login', (req, res) => {
     });
   }
 
-  return res.status(401).json({ message: 'Tên đăng nhập hoặc mật khẩu không chính xác' });
+  return res.status(401).json({ message: 'Mật khẩu không chính xác' });
 });
 
 app.post('/api/change-password', (req, res) => {
@@ -632,7 +640,89 @@ app.delete('/api/thay-doi-bo-sung/:chuongTrinhId/:id', (req, res) => {
 // ── Kho PDF ─────────────────────────────────────────────────────────────────
 app.get('/api/pdfs', (req, res) => {
   const db = readDb();
-  res.json(db.pdfFiles || []);
+  const list = [];
+  const seen = new Set();
+
+  (db.chuongTrinhList || []).forEach((c) => {
+    if (c.file_pdf_ten) {
+      const isDrive = Boolean(
+        c.is_google_drive ||
+        c.google_drive_id ||
+        (c.file_pdf_url && c.file_pdf_url.includes('drive.google.com'))
+      );
+      seen.add('ct_' + c.id);
+      list.push({
+        id: 'ct-pdf-' + c.id,
+        ten_file: c.file_pdf_ten,
+        dung_luong: c.file_pdf_dung_luong || 0,
+        url: c.file_pdf_url || null,
+        file_url: c.file_pdf_url || null,
+        loai_file: c.file_pdf_ten.toLowerCase().endsWith('.docx') ? 'docx' : 'pdf',
+        the_loai_van_ban: c.the_loai_van_ban || 'Kế hoạch',
+        so_van_ban: c.so_van_ban || null,
+        trich_yeu: c.noi_dung || c.ten_chuong_trinh || null,
+        nguoi_ky: c.nguoi_ky || null,
+        chuong_trinh_id: c.id,
+        nguon_goc: 'CHUONG_TRINH',
+        chu_the: c.chu_the,
+        doi_tuong: c.doi_tuong,
+        nam: c.nam,
+        loai_hinh: c.loai_hinh,
+        ngay_ban_hanh: c.ngay_ban_hanh || c.created_at?.slice(0, 10) || null,
+        ghi_chu: c.ghi_chu_pdf || null,
+        google_drive_id: c.google_drive_id || null,
+        google_drive_preview_url: c.google_drive_preview_url || null,
+        is_google_drive: isDrive,
+        created_at: c.created_at || new Date().toISOString(),
+      });
+    }
+
+    if (c.danh_sach_thay_doi_bo_sung) {
+      c.danh_sach_thay_doi_bo_sung.forEach((td) => {
+        if (td.file_pdf_ten) {
+          const isDriveTd = Boolean(
+            td.is_google_drive ||
+            td.google_drive_id ||
+            (td.file_pdf_url && td.file_pdf_url.includes('drive.google.com'))
+          );
+          seen.add('td_' + td.id);
+          list.push({
+            id: 'td-pdf-' + c.id + '-' + td.id,
+            ten_file: td.file_pdf_ten,
+            dung_luong: td.file_pdf_dung_luong || 0,
+            url: td.file_pdf_url || null,
+            file_url: td.file_pdf_url || null,
+            loai_file: td.file_pdf_ten.toLowerCase().endsWith('.docx') ? 'docx' : 'pdf',
+            the_loai_van_ban: 'Quyết định',
+            so_van_ban: td.so_van_ban || null,
+            trich_yeu: td.ly_do_dieu_chinh || `Điều chỉnh lần ${td.lan_dieu_chinh}`,
+            nguoi_ky: td.nguoi_ky || null,
+            chuong_trinh_id: c.id,
+            nguon_goc: 'THAY_DOI_BO_SUNG',
+            chu_the: c.chu_the,
+            doi_tuong: c.doi_tuong,
+            nam: c.nam,
+            loai_hinh: c.loai_hinh,
+            ngay_ban_hanh: td.ngay_ban_hanh || td.created_at?.slice(0, 10) || null,
+            ghi_chu: td.ly_do_dieu_chinh || null,
+            google_drive_id: td.google_drive_id || null,
+            google_drive_preview_url: td.google_drive_preview_url || null,
+            is_google_drive: isDriveTd,
+            created_at: td.created_at || new Date().toISOString(),
+          });
+        }
+      });
+    }
+  });
+
+  (db.pdfFiles || []).forEach((p) => {
+    if (!seen.has('pdf_' + p.id)) {
+      seen.add('pdf_' + p.id);
+      list.push(p);
+    }
+  });
+
+  res.json(list);
 });
 
 app.post('/api/pdfs', (req, res) => {
@@ -645,12 +735,24 @@ app.post('/api/pdfs', (req, res) => {
     ten_file: input.ten_file,
     dung_luong: input.dung_luong || 0,
     url: input.url || null,
+    file_url: input.file_url || input.url || null,
+    google_drive_id: input.google_drive_id || null,
+    google_drive_preview_url: input.google_drive_preview_url || null,
+    is_google_drive: Boolean(input.is_google_drive),
+    the_loai_van_ban: input.the_loai_van_ban || null,
+    so_van_ban: input.so_van_ban || null,
+    trich_yeu: input.trich_yeu || null,
+    nguoi_ky: input.nguoi_ky || null,
     chuong_trinh_id: input.chuong_trinh_id || null,
     ghi_chu: input.ghi_chu || null,
     nguoi_tai_len: input.nguoi_tai_len || 'Cán bộ UBKT',
     nguon_goc: input.nguon_goc || 'KHO_PDF',
     don_vi_id: input.don_vi_id || null,
     ten_don_vi: input.ten_don_vi || null,
+    chu_the: input.chu_the || input.ten_don_vi || 'Ủy ban Kiểm tra Đảng ủy',
+    doi_tuong: input.doi_tuong || (input.ten_don_vi ? `Địa bàn ${input.ten_don_vi}` : 'Tài liệu nghiệp vụ KT-GS'),
+    nam: input.nam || new Date().getFullYear(),
+    ngay_ban_hanh: input.ngay_ban_hanh || null,
     created_at: new Date().toISOString(),
   };
 
@@ -659,9 +761,88 @@ app.post('/api/pdfs', (req, res) => {
   res.json(newPdf);
 });
 
+app.put('/api/pdfs/:id', (req, res) => {
+  const { input } = req.body;
+  const db = readDb();
+  const id = req.params.id;
+
+  if (id.startsWith('ct-pdf-')) {
+    const ctId = id.replace('ct-pdf-', '');
+    const ct = (db.chuongTrinhList || []).find((c) => c.id === ctId);
+    if (ct) {
+      if (input.url || input.file_url) ct.file_pdf_url = input.url || input.file_url || ct.file_pdf_url;
+      ct.google_drive_id = input.google_drive_id || null;
+      ct.google_drive_preview_url = input.google_drive_preview_url || null;
+      ct.is_google_drive = Boolean(input.is_google_drive);
+      ct.updated_at = new Date().toISOString();
+    }
+  } else if (id.startsWith('td-pdf-')) {
+    const tdId = id.replace('td-pdf-', '');
+    (db.chuongTrinhList || []).forEach((c) => {
+      if (c.danh_sach_thay_doi_bo_sung) {
+        const td = c.danh_sach_thay_doi_bo_sung.find((t) => t.id === tdId);
+        if (td) {
+          if (input.url || input.file_url) td.file_pdf_url = input.url || input.file_url || td.file_pdf_url;
+          td.google_drive_id = input.google_drive_id || null;
+          td.google_drive_preview_url = input.google_drive_preview_url || null;
+          td.is_google_drive = Boolean(input.is_google_drive);
+        }
+      }
+    });
+  }
+
+  if (!db.pdfFiles) db.pdfFiles = [];
+  const idx = db.pdfFiles.findIndex((p) => p.id === id);
+  if (idx !== -1) {
+    db.pdfFiles[idx] = { ...db.pdfFiles[idx], ...input, updated_at: new Date().toISOString() };
+    writeDb(db);
+    return res.json(db.pdfFiles[idx]);
+  } else if (!id.startsWith('ct-pdf-') && !id.startsWith('td-pdf-')) {
+    const newPdf = { id, ...input, updated_at: new Date().toISOString() };
+    db.pdfFiles.push(newPdf);
+    writeDb(db);
+    return res.json(newPdf);
+  }
+
+  writeDb(db);
+  res.json({ success: true, ...input });
+});
+
 app.delete('/api/pdfs/:id', (req, res) => {
   const db = readDb();
-  db.pdfFiles = (db.pdfFiles || []).filter((p) => p.id !== req.params.id);
+  const id = req.params.id;
+
+  if (id.startsWith('ct-pdf-')) {
+    const ctId = id.replace('ct-pdf-', '');
+    const ct = (db.chuongTrinhList || []).find((c) => c.id === ctId);
+    if (ct) {
+      ct.file_pdf_ten = null;
+      ct.file_pdf_url = null;
+      ct.file_pdf_dung_luong = null;
+      ct.ghi_chu_pdf = null;
+      ct.google_drive_id = null;
+      ct.google_drive_preview_url = null;
+      ct.is_google_drive = false;
+      ct.updated_at = new Date().toISOString();
+    }
+  } else if (id.startsWith('td-pdf-')) {
+    const tdId = id.replace('td-pdf-', '');
+    (db.chuongTrinhList || []).forEach((c) => {
+      if (c.danh_sach_thay_doi_bo_sung) {
+        c.danh_sach_thay_doi_bo_sung.forEach((td) => {
+          if (td.id === tdId || tdId.endsWith(td.id)) {
+            td.file_pdf_ten = null;
+            td.file_pdf_url = null;
+            td.google_drive_id = null;
+            td.google_drive_preview_url = null;
+            td.is_google_drive = false;
+          }
+        });
+      }
+    });
+  }
+
+  db.pdfFiles = (db.pdfFiles || []).filter((p) => p.id !== id && p.chuong_trinh_id !== id.replace('ct-pdf-', ''));
   writeDb(db);
   res.json({ success: true });
 });
