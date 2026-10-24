@@ -87,6 +87,26 @@
       "created_at": "2026-10-23T16:52:07.644Z",
       "updated_at": "2026-10-23T17:42:46.349Z",
       "deleted_at": "2026-10-23T17:42:46.349Z"
+    },
+    {
+      "id": "dv-1792814116242",
+      "ten": "Đảng bộ phường Ái Quốc",
+      "loai": "CHI_BO",
+      "don_vi_cha_id": null,
+      "ma": "TC-116242",
+      "thu_tu": 5,
+      "ghi_chu": null,
+      "trang_thai": "DANG_HOAT_DONG",
+      "ngay_thanh_lap": null,
+      "ngay_ket_thuc": null,
+      "so_quyet_dinh": null,
+      "nguoi_tao_ten": "Cán bộ quản trị",
+      "nguoi_tao_id": "01918a00-0000-7000-8000-000000000000",
+      "version": 1,
+      "sync_status": "synced",
+      "created_at": "2026-10-24T03:55:16.242Z",
+      "updated_at": "2026-10-24T03:55:16.242Z",
+      "deleted_at": null
     }
   ],
   "chuongTrinhList": [
@@ -152,6 +172,17 @@
   ],
   "donThuList": [],
   "auditLogs": [
+    {
+      "id": "log-1792814116242",
+      "nguoi_dung_id": "01918a00-0000-7000-8000-000000000000",
+      "ten_nguoi_dung": "Cán bộ quản trị",
+      "hanh_dong": "Thêm mới tổ chức: Đảng bộ phường Ái Quốc (Mã: TC-116242)",
+      "bang_anh_huong": "don_vi",
+      "ban_ghi_id": "dv-1792814116242",
+      "du_lieu_cu": null,
+      "du_lieu_moi": "{\"id\":\"dv-1792814116242\",\"ten\":\"Đảng bộ phường Ái Quốc\",\"loai\":\"CHI_BO\",\"don_vi_cha_id\":null,\"ma\":\"TC-116242\",\"thu_tu\":5,\"ghi_chu\":null,\"trang_thai\":\"DANG_HOAT_DONG\",\"ngay_thanh_lap\":null,\"ngay_ket_thuc\":null,\"so_quyet_dinh\":null,\"nguoi_tao_ten\":\"Cán bộ quản trị\",\"nguoi_tao_id\":\"01918a00-0000-7000-8000-000000000000\",\"version\":1,\"sync_status\":\"synced\",\"created_at\":\"2026-10-24T03:55:16.242Z\",\"updated_at\":\"2026-10-24T03:55:16.242Z\",\"deleted_at\":null}",
+      "thoi_gian": "2026-10-24T03:55:16.242Z"
+    },
     {
       "id": "log-1792777367888",
       "nguoi_dung_id": "01918a00-0000-7000-8000-000000000000",
