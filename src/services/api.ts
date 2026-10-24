@@ -408,15 +408,96 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       const { items, actor_name } = args as { items: any[]; actor_name?: string };
       const imported: DonVi[] = [];
       const errors: string[] = [];
-      const existingCodes = new Set(db.donViList.filter((d) => !d.deleted_at && d.ma).map((d) => d.ma!.toLowerCase()));
-      const codeToIdMap = new Map<string, string>();
-      const nameToIdMap = new Map<string, string>();
-      db.donViList
-        .filter((d) => !d.deleted_at)
-        .forEach((d) => {
-          if (d.ma) codeToIdMap.set(d.ma.toLowerCase(), d.id);
-          if (d.ten) nameToIdMap.set(d.ten.trim().toLowerCase(), d.id);
+
+      const normalize = (t?: string | null) =>
+        (t || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/[–—]/g, '-');
+      const isRootVal = (val?: string | null) => {
+        if (!val) return true;
+        const clean = normalize(val);
+        return [
+          '', '-', '--', '---', '0', 'none', 'null', 'n/a', 'na',
+          'goc', 'gốc', '-- gốc --', 'khong', 'không', 'khong co', 'không có',
+          'root', 'tổ chức gốc', 'cấp cao nhất', 'trực tiếp'
+        ].includes(clean);
+      };
+
+      const resolveParent = (parentVal?: string | null, currentUnits: DonVi[] = [], currentImported: DonVi[] = []) => {
+        if (isRootVal(parentVal)) return null;
+        const raw = (parentVal || '').trim();
+        const lower = normalize(raw);
+        const all = [...currentUnits.filter((d) => !d.deleted_at), ...currentImported];
+
+        // 1. Theo ID
+        const byId = all.find((d) => d.id === raw);
+        if (byId) return byId.id;
+
+        // 2. Theo Mã
+        const byCode = all.find((d) => d.ma && normalize(d.ma) === lower);
+        if (byCode) return byCode.id;
+
+        // 3. Theo Tên
+        const byName = all.find((d) => d.ten && normalize(d.ten) === lower);
+        if (byName) return byName.id;
+
+        // 4. Ngoặc hoặc gạch nối
+        const bracketMatch = raw.match(/^([a-zA-Z0-9_\-\.]+)\s*[\(\-–—:]\s*(.*?)\)?$/);
+        if (bracketMatch) {
+          const extCode = normalize(bracketMatch[1]);
+          const extName = normalize(bracketMatch[2]);
+          const byExtCode = all.find((d) => d.ma && normalize(d.ma) === extCode);
+          if (byExtCode) return byExtCode.id;
+          if (extName) {
+            const byExtName = all.find((d) => d.ten && normalize(d.ten) === extName);
+            if (byExtName) return byExtName.id;
+          }
+        }
+
+        // 5. Tiền tố mã
+        const codePrefix = all.find((d) => {
+          if (!d.ma) return false;
+          const cleanMa = normalize(d.ma);
+          return (
+            lower === cleanMa ||
+            lower.startsWith(cleanMa + ' ') ||
+            lower.startsWith(cleanMa + '(') ||
+            lower.startsWith(cleanMa + '-')
+          );
         });
+        if (codePrefix) return codePrefix.id;
+
+        // 6. Hoán đổi đảng ủy <-> đảng bộ
+        const swapped = lower.includes('đảng ủy')
+          ? lower.replace(/đảng ủy/g, 'đảng bộ')
+          : lower.includes('đảng bộ')
+          ? lower.replace(/đảng bộ/g, 'đảng ủy')
+          : null;
+        if (swapped) {
+          const bySwapped = all.find((d) => d.ten && normalize(d.ten) === swapped);
+          if (bySwapped) return bySwapped.id;
+        }
+
+        // 7. Cấp gốc duy nhất trên hệ thống
+        const roots = all.filter((d) => !d.don_vi_cha_id);
+        if (roots.length === 1) {
+          const root = roots[0];
+          const genericTerms = [
+            'đảng ủy', 'đảng bộ', 'đảng ủy cơ sở', 'đảng bộ cơ sở',
+            'đảng ủy phường', 'đảng bộ phường', 'cấp trên'
+          ];
+          if (
+            genericTerms.some((t) => lower === t || lower.includes(t)) ||
+            (root.ten && (lower.includes(normalize(root.ten)) || normalize(root.ten).includes(lower)))
+          ) {
+            return root.id;
+          }
+        }
+
+        return null;
+      };
+
+      const existingCodes = new Set(
+        db.donViList.filter((d) => !d.deleted_at && d.ma).map((d) => normalize(d.ma)),
+      );
 
       (items || []).forEach((item, idx) => {
         const row = idx + 1;
@@ -426,14 +507,13 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
           return;
         }
         const ma = item.ma ? item.ma.trim() : `TC-${Date.now().toString().slice(-4)}-${row}`;
-        if (existingCodes.has(ma.toLowerCase())) {
+        if (existingCodes.has(normalize(ma))) {
           errors.push(`Dòng ${row}: Mã "${ma}" đã tồn tại`);
           return;
         }
         let parentId = item.don_vi_cha_id || null;
         if (!parentId && item.ma_cap_tren) {
-          const lowerP = item.ma_cap_tren.trim().toLowerCase();
-          parentId = codeToIdMap.get(lowerP) || nameToIdMap.get(lowerP) || null;
+          parentId = resolveParent(item.ma_cap_tren, db.donViList, imported);
         }
         const newUnit: DonVi = {
           id: `dv-${Date.now()}-${idx}`,
@@ -453,16 +533,57 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           deleted_at: null,
-        };
-        existingCodes.add(ma.toLowerCase());
-        codeToIdMap.set(ma.toLowerCase(), newUnit.id);
+          _temp_ma_cap_tren: item.ma_cap_tren || null,
+        } as any;
+        existingCodes.add(normalize(ma));
         imported.push(newUnit);
       });
+
+      // Pass 2: liên kết cấp trên sau nếu xuất hiện ở cuối file
+      imported.forEach((unit: any) => {
+        if (!unit.don_vi_cha_id && unit._temp_ma_cap_tren) {
+          unit.don_vi_cha_id = resolveParent(unit._temp_ma_cap_tren, db.donViList, imported);
+        }
+        delete unit._temp_ma_cap_tren;
+      });
+
       if (imported.length > 0) {
         db.donViList.push(...imported);
         saveMockDb(db);
       }
       return { success: true, importedCount: imported.length, errorCount: errors.length, errors, imported } as T;
+    }
+
+    case 'batch_delete_don_vi': {
+      const { ids } = args as { ids: string[]; user_id?: string; actor_name?: string };
+      const idSet = new Set(ids || []);
+      const now = new Date().toISOString();
+      const deleted: DonVi[] = [];
+      const errors: string[] = [];
+
+      (ids || []).forEach((id) => {
+        const item = db.donViList.find((d) => d.id === id && !d.deleted_at);
+        if (!item) return;
+
+        const unselectedChildren = db.donViList.filter(
+          (d) => d.don_vi_cha_id === id && !d.deleted_at && !idSet.has(d.id),
+        );
+        if (unselectedChildren.length > 0) {
+          errors.push(
+            `Không thể xóa "${item.ten}" vì có ${unselectedChildren.length} tổ chức trực thuộc không nằm trong danh sách xóa`,
+          );
+          return;
+        }
+
+        item.deleted_at = now;
+        item.updated_at = now;
+        deleted.push(item);
+      });
+
+      if (deleted.length > 0) {
+        saveMockDb(db);
+      }
+      return { success: true, deletedCount: deleted.length, errorCount: errors.length, errors } as T;
     }
 
     case 'get_don_vi_relations': {
@@ -1413,6 +1534,9 @@ export const api = {
 
   batchImportDonVi: (items: any[], actor_name?: string, user_id?: string) =>
     requestApi<{ success: boolean; importedCount: number; errorCount: number; errors: string[]; imported: DonVi[] }>('/api/don-vi/batch-import', 'POST', { items, actor_name, user_id }, 'batch_import_don_vi', { items, actor_name, user_id }),
+
+  batchDeleteDonVi: (ids: string[], user_id?: string, actor_name?: string) =>
+    requestApi<{ success: boolean; deletedCount: number; errorCount: number; errors: string[] }>('/api/don-vi/batch-delete', 'POST', { ids, user_id, actor_name }, 'batch_delete_don_vi', { ids, user_id, actor_name }),
 
   getDonViRelations: (id: string) =>
     requestApi<{ chuongTrinhCount: number; donThuCount: number; childrenCount: number; history: NhatKy[] }>(`/api/don-vi/${id}/relations`, 'GET', undefined, 'get_don_vi_relations', { id }),

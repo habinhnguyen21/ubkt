@@ -12,6 +12,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   AlertCircle,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 interface OrgImportExcelModalProps {
@@ -41,9 +43,18 @@ export const OrgImportExcelModal: React.FC<OrgImportExcelModalProps> = ({
   const [isParsing, setIsParsing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
+
+  const handleCopyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedCode(code);
+    setTimeout(() => {
+      setCopiedCode(null);
+    }, 2000);
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -191,13 +202,13 @@ export const OrgImportExcelModal: React.FC<OrgImportExcelModalProps> = ({
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed mb-3">
                   Tệp mẫu đã bao gồm các cột định dạng chuẩn: Mã tổ chức, Tên tổ chức, Loại hình,
-                  Mã cấp trên, Ngày thành lập và Ghi chú.
+                  Mã cấp trên, Ngày thành lập và Ghi chú (đã điền sẵn mã tổ chức cấp trên thực tế).
                 </p>
               </div>
 
               <button
                 type="button"
-                onClick={downloadUnitImportTemplate}
+                onClick={() => downloadUnitImportTemplate(allUnits)}
                 className="w-full py-2 px-3 bg-white hover:bg-blue-50 border border-slate-300 hover:border-blue-400 text-slate-800 hover:text-blue-700 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-2 shadow-2xs cursor-pointer"
               >
                 <Download className="w-4 h-4 text-blue-600" />
@@ -217,8 +228,7 @@ export const OrgImportExcelModal: React.FC<OrgImportExcelModalProps> = ({
                   </h4>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed mb-3">
-                  Hệ thống sẽ tự động quét, kiểm tra trùng lặp mã và xác minh tính hợp lệ của quan
-                  hệ phân cấp trước khi lưu.
+                  Hệ thống tự động nhận diện phân cách (dấu phẩy hoặc chấm phẩy), kiểm tra trùng lặp mã và xác minh tính hợp lệ của cấp trên.
                 </p>
               </div>
 
@@ -249,32 +259,61 @@ export const OrgImportExcelModal: React.FC<OrgImportExcelModalProps> = ({
           </div>
 
           {/* Khối hướng dẫn Mã cấp trên */}
-          <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs space-y-2">
+          <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs space-y-2.5">
             <div className="font-bold text-blue-900 flex items-center gap-1.5">
               <span>💡</span>
-              <span>Cột "Mã cấp trên" trong tệp Excel lấy ở đâu?</span>
+              <span>Hướng dẫn điền cột "Mã cấp trên" trong tệp Excel:</span>
             </div>
             <div className="text-slate-700 leading-relaxed text-[11px] space-y-1">
               <p>
-                • <strong>Nếu là Tổ chức Đảng cấp cao nhất (Đảng bộ/Đảng ủy gốc):</strong> <u>Để trống</u> cột <em>Mã cấp trên</em>.
+                • <strong>Nếu là Tổ chức Đảng cấp cao nhất (Đảng bộ/Đảng ủy gốc):</strong> <u>Để trống</u> cột <em>Mã cấp trên</em> (hoặc điền <code>-</code>).
               </p>
               <p>
-                • <strong>Nếu là Chi bộ trực thuộc cấp dưới:</strong> Điền <strong>Mã tổ chức</strong> (hoặc điền đúng <strong>Tên tổ chức</strong>) của cấp trên trực tiếp.
+                • <strong>Nếu là Chi bộ trực thuộc cấp dưới:</strong> Điền <strong>Mã tổ chức</strong> (ví dụ: <code>DU-01</code>) hoặc điền <strong>Tên tổ chức</strong> của cấp trên. Hệ thống hỗ trợ nhận diện thông minh linh hoạt.
+              </p>
+              <p>
+                • <strong>Nếu cùng tạo mới cả cấp trên và cấp dưới trong cùng một tệp:</strong> Hệ thống sẽ tự động ghép nối dù cấp trên nằm ở dòng trước hay dòng sau.
               </p>
             </div>
             {allUnits && allUnits.length > 0 && (
               <div className="pt-2 border-t border-blue-200/60">
-                <span className="font-semibold text-blue-950 text-[11px]">Danh sách mã các tổ chức hiện có trên hệ thống để sao chép vào file Excel:</span>
-                <div className="mt-1.5 flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-                  {allUnits.filter(u => !u.deleted_at).map(u => (
-                    <span
-                      key={u.id}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-blue-300 rounded-md text-[11px] text-slate-800 shadow-2xs"
-                    >
-                      <strong className="text-blue-700 font-mono">{u.ma || 'DU-01'}</strong>
-                      <span className="text-slate-600">({u.ten})</span>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-semibold text-blue-950 text-[11px]">
+                    Bấm vào mã dưới đây để sao chép nhanh vào file Excel:
+                  </span>
+                  {copiedCode && (
+                    <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-1 bg-emerald-100 px-2 py-0.5 rounded-full animate-in fade-in">
+                      <Check className="w-3 h-3" /> Đã chép mã "{copiedCode}"
                     </span>
-                  ))}
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                  {allUnits
+                    .filter((u) => !u.deleted_at && u.ma)
+                    .map((u) => {
+                      const isCopied = copiedCode === u.ma;
+                      return (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onClick={() => handleCopyCode(u.ma!)}
+                          title="Bấm để sao chép mã"
+                          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] transition cursor-pointer border ${
+                            isCopied
+                              ? 'bg-emerald-50 border-emerald-400 text-emerald-800'
+                              : 'bg-white hover:bg-blue-100/70 border-blue-300 text-slate-800 shadow-2xs'
+                          }`}
+                        >
+                          <strong className="text-blue-700 font-mono font-bold">{u.ma}</strong>
+                          <span className="text-slate-600 truncate max-w-[140px]">({u.ten})</span>
+                          {isCopied ? (
+                            <Check className="w-3 h-3 text-emerald-600 shrink-0" />
+                          ) : (
+                            <Copy className="w-3 h-3 text-slate-400 group-hover:text-blue-600 shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })}
                 </div>
               </div>
             )}

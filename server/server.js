@@ -390,6 +390,66 @@ app.delete('/api/don-vi/:id', (req, res) => {
   res.json({ success: true, message: `Đã xóa tổ chức "${item.ten}" thành công` });
 });
 
+// Xóa hàng loạt tổ chức Đảng
+app.post('/api/don-vi/batch-delete', (req, res) => {
+  const { ids, user_id, actor_name } = req.body || {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ message: 'Danh sách ID cần xóa trống' });
+  }
+
+  const db = readDb();
+  const idSet = new Set(ids);
+  const now = new Date().toISOString();
+
+  const deleted = [];
+  const errors = [];
+
+  ids.forEach((id) => {
+    const item = db.donViList.find((d) => d.id === id && !d.deleted_at);
+    if (!item) return;
+
+    // Kiểm tra nếu có tổ chức trực thuộc cấp dưới mà con đó KHÔNG nằm trong danh sách cùng xóa
+    const unselectedChildren = db.donViList.filter(
+      (d) => d.don_vi_cha_id === id && !d.deleted_at && !idSet.has(d.id),
+    );
+    if (unselectedChildren.length > 0) {
+      errors.push(
+        `Không thể xóa "${item.ten}" vì có ${unselectedChildren.length} tổ chức trực thuộc không nằm trong danh sách xóa`,
+      );
+      return;
+    }
+
+    item.deleted_at = now;
+    item.updated_at = now;
+    deleted.push(item);
+  });
+
+  if (deleted.length > 0) {
+    db.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      nguoi_dung_id: user_id || null,
+      ten_nguoi_dung: actor_name || 'Cán bộ quản trị',
+      hanh_dong: `Xóa hàng loạt ${deleted.length} tổ chức Đảng: ${deleted
+        .map((d) => d.ten)
+        .slice(0, 5)
+        .join(', ')}${deleted.length > 5 ? '...' : ''}`,
+      bang_anh_huong: 'don_vi',
+      ban_ghi_id: null,
+      du_lieu_cu: JSON.stringify({ count: deleted.length, ids: deleted.map((d) => d.id) }),
+      du_lieu_moi: null,
+      thoi_gian: now,
+    });
+    writeDb(db);
+  }
+
+  res.json({
+    success: true,
+    deletedCount: deleted.length,
+    errorCount: errors.length,
+    errors,
+  });
+});
+
 // Chuyển trạng thái hoạt động (Đang hoạt động / Tạm ngừng / Đã chấm dứt)
 app.post('/api/don-vi/:id/toggle-status', (req, res) => {
   const { id } = req.params;
@@ -429,21 +489,100 @@ app.post('/api/don-vi/batch-import', (req, res) => {
   }
 
   const db = readDb();
-  const existingCodes = new Set(
-    db.donViList.filter((d) => !d.deleted_at && d.ma).map((d) => d.ma.toLowerCase()),
-  );
-  const codeToIdMap = new Map();
-  const nameToIdMap = new Map();
-  db.donViList
-    .filter((d) => !d.deleted_at)
-    .forEach((d) => {
-      if (d.ma) codeToIdMap.set(d.ma.toLowerCase(), d.id);
-      if (d.ten) nameToIdMap.set(d.ten.trim().toLowerCase(), d.id);
+  const normalize = (t) =>
+    (t || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/[–—]/g, '-');
+  const isRootVal = (val) => {
+    if (!val) return true;
+    const clean = normalize(val);
+    return [
+      '', '-', '--', '---', '0', 'none', 'null', 'n/a', 'na',
+      'goc', 'gốc', '-- gốc --', 'khong', 'không', 'khong co', 'không có',
+      'root', 'tổ chức gốc', 'cấp cao nhất', 'trực tiếp'
+    ].includes(clean);
+  };
+
+  const resolveParent = (parentVal, currentUnits, currentImported) => {
+    if (isRootVal(parentVal)) return null;
+    const raw = (parentVal || '').trim();
+    const lower = normalize(raw);
+    const all = [...currentUnits.filter((d) => !d.deleted_at), ...currentImported];
+
+    // 1. Theo ID
+    const byId = all.find((d) => d.id === raw);
+    if (byId) return byId.id;
+
+    // 2. Theo Mã
+    const byCode = all.find((d) => d.ma && normalize(d.ma) === lower);
+    if (byCode) return byCode.id;
+
+    // 3. Theo Tên
+    const byName = all.find((d) => d.ten && normalize(d.ten) === lower);
+    if (byName) return byName.id;
+
+    // 4. Ngoặc hoặc gạch nối: "DU-01 (Tên tổ chức)" hoặc "DU-01 - Tên"
+    const bracketMatch = raw.match(/^([a-zA-Z0-9_\-\.]+)\s*[\(\-–—:]\s*(.*?)\)?$/);
+    if (bracketMatch) {
+      const extCode = normalize(bracketMatch[1]);
+      const extName = normalize(bracketMatch[2]);
+      const byExtCode = all.find((d) => d.ma && normalize(d.ma) === extCode);
+      if (byExtCode) return byExtCode.id;
+      if (extName) {
+        const byExtName = all.find((d) => d.ten && normalize(d.ten) === extName);
+        if (byExtName) return byExtName.id;
+      }
+    }
+
+    // 5. Tiền tố mã: "DU-01 ..."
+    const codePrefix = all.find((d) => {
+      if (!d.ma) return false;
+      const cleanMa = normalize(d.ma);
+      return (
+        lower === cleanMa ||
+        lower.startsWith(cleanMa + ' ') ||
+        lower.startsWith(cleanMa + '(') ||
+        lower.startsWith(cleanMa + '-')
+      );
     });
+    if (codePrefix) return codePrefix.id;
+
+    // 6. Hoán đổi đảng ủy <-> đảng bộ
+    const swapped = lower.includes('đảng ủy')
+      ? lower.replace(/đảng ủy/g, 'đảng bộ')
+      : lower.includes('đảng bộ')
+      ? lower.replace(/đảng bộ/g, 'đảng ủy')
+      : null;
+    if (swapped) {
+      const bySwapped = all.find((d) => d.ten && normalize(d.ten) === swapped);
+      if (bySwapped) return bySwapped.id;
+    }
+
+    // 7. Cấp gốc duy nhất trên hệ thống
+    const roots = all.filter((d) => !d.don_vi_cha_id);
+    if (roots.length === 1) {
+      const root = roots[0];
+      const genericTerms = [
+        'đảng ủy', 'đảng bộ', 'đảng ủy cơ sở', 'đảng bộ cơ sở',
+        'đảng ủy phường', 'đảng bộ phường', 'cấp trên'
+      ];
+      if (
+        genericTerms.some((t) => lower === t || lower.includes(t)) ||
+        (root.ten && (lower.includes(normalize(root.ten)) || normalize(root.ten).includes(lower)))
+      ) {
+        return root.id;
+      }
+    }
+
+    return null;
+  };
+
+  const existingCodes = new Set(
+    db.donViList.filter((d) => !d.deleted_at && d.ma).map((d) => normalize(d.ma)),
+  );
 
   const imported = [];
   const errors = [];
 
+  // Pass 1: Tạo các bản ghi tổ chức
   items.forEach((item, index) => {
     const rowNum = index + 1;
     const ten = (item.ten || '').trim();
@@ -453,15 +592,14 @@ app.post('/api/don-vi/batch-import', (req, res) => {
     }
 
     const ma = item.ma ? item.ma.trim() : `TC-${Date.now().toString().slice(-4)}-${rowNum}`;
-    if (existingCodes.has(ma.toLowerCase())) {
+    if (existingCodes.has(normalize(ma))) {
       errors.push(`Dòng ${rowNum}: Mã tổ chức "${ma}" đã tồn tại`);
       return;
     }
 
     let parentId = item.don_vi_cha_id || null;
     if (!parentId && item.ma_cap_tren) {
-      const lowerP = item.ma_cap_tren.trim().toLowerCase();
-      parentId = codeToIdMap.get(lowerP) || nameToIdMap.get(lowerP) || null;
+      parentId = resolveParent(item.ma_cap_tren, db.donViList, imported);
     }
 
     const newId = `dv-${Date.now()}-${index}`;
@@ -483,11 +621,19 @@ app.post('/api/don-vi/batch-import', (req, res) => {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       deleted_at: null,
+      _temp_ma_cap_tren: item.ma_cap_tren || null,
     };
 
-    existingCodes.add(ma.toLowerCase());
-    codeToIdMap.set(ma.toLowerCase(), newId);
+    existingCodes.add(normalize(ma));
     imported.push(newUnit);
+  });
+
+  // Pass 2: Khắc phục liên kết cấp trên cho các trường hợp cấp trên nằm phía sau trong file
+  imported.forEach((unit) => {
+    if (!unit.don_vi_cha_id && unit._temp_ma_cap_tren) {
+      unit.don_vi_cha_id = resolveParent(unit._temp_ma_cap_tren, db.donViList, imported);
+    }
+    delete unit._temp_ma_cap_tren;
   });
 
   if (imported.length > 0) {

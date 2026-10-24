@@ -153,7 +153,167 @@ export function exportUnitsToCsv(units: DonVi[], fileName = 'Danh_sach_co_cau_to
 /**
  * Tải file Excel mẫu để nhập danh sách tổ chức
  */
-export function downloadUnitImportTemplate() {
+/**
+ * Chuẩn hóa chuỗi để so sánh linh hoạt (bỏ khoảng trắng thừa, chuyển thường, chuẩn hóa dấu gạch ngang)
+ */
+export function normalizeOrgSearchText(text?: string | null): string {
+  if (!text) return '';
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[–—]/g, '-');
+}
+
+/**
+ * Kiểm tra xem giá trị cột cấp trên có mang ý nghĩa "Không có cấp trên / Cấp cao nhất / Gốc"
+ */
+export function isRootParentIndicator(val?: string | null): boolean {
+  if (!val) return true;
+  const clean = normalizeOrgSearchText(val);
+  const rootIndicators = [
+    '', '-', '--', '---', '0', 'none', 'null', 'n/a', 'na',
+    'goc', 'gốc', '-- gốc --', '--gốc--',
+    'khong', 'không', 'khong co', 'không có', 'khong co cap tren', 'không có cấp trên',
+    'root', 'tổ chức gốc', 'to chuc goc', 'cấp cao nhất', 'cap cao nhat', 'trực tiếp', 'truc tiep',
+    'gốc (không có cấp trên)', 'khác', 'khac'
+  ];
+  return rootIndicators.includes(clean);
+}
+
+/**
+ * Tìm kiếm tổ chức cấp trên một cách thông minh, hỗ trợ:
+ * - Mã tổ chức (DU-01, du-01)
+ * - Tên tổ chức (Đảng bộ phường Ái Quốc, Đảng ủy phường Ái Quốc)
+ * - ID tổ chức
+ * - Định dạng sao chép từ giao diện: "DU-01 (Đảng bộ...)" hoặc "DU-01 - Đảng bộ..."
+ * - Hoán đổi linh hoạt giữa "đảng ủy" và "đảng bộ"
+ * - Nhận diện cấp gốc duy nhất trên hệ thống nếu người dùng nhập "Đảng ủy" / "Đảng bộ"
+ * - Nhận diện các tổ chức được khai báo trong cùng tệp tải lên
+ */
+export function resolveParentUnit(
+  parentInput: string,
+  existingUnits: DonVi[],
+  fileKnownUnits?: Array<{ ma?: string; ten?: string }>,
+): {
+  isRoot: boolean;
+  matchedUnit?: DonVi;
+  matchedFromCurrentFile?: boolean;
+  error?: string;
+} {
+  if (isRootParentIndicator(parentInput)) {
+    return { isRoot: true };
+  }
+
+  const raw = parentInput.trim();
+  const lower = normalizeOrgSearchText(raw);
+  const activeUnits = (existingUnits || []).filter((u) => !u.deleted_at);
+
+  // 1. Tìm trực tiếp theo ID
+  const matchById = activeUnits.find((u) => u.id === raw);
+  if (matchById) return { isRoot: false, matchedUnit: matchById };
+
+  // 2. Tìm trực tiếp theo Mã
+  const matchByCode = activeUnits.find((u) => u.ma && normalizeOrgSearchText(u.ma) === lower);
+  if (matchByCode) return { isRoot: false, matchedUnit: matchByCode };
+
+  // 3. Tìm trực tiếp theo Tên
+  const matchByName = activeUnits.find((u) => u.ten && normalizeOrgSearchText(u.ten) === lower);
+  if (matchByName) return { isRoot: false, matchedUnit: matchByName };
+
+  // 4. Nếu người dùng copy từ UI hoặc file: "DU-01 (Tên tổ chức)" hoặc "DU-01 - Tên tổ chức" hoặc "DU-01: Tên"
+  const bracketMatch = raw.match(/^([a-zA-Z0-9_\-\.]+)\s*[\(\-–—:]\s*(.*?)\)?$/);
+  if (bracketMatch) {
+    const extractedCode = normalizeOrgSearchText(bracketMatch[1]);
+    const extractedName = normalizeOrgSearchText(bracketMatch[2]);
+
+    const unitByExtractedCode = activeUnits.find(
+      (u) => u.ma && normalizeOrgSearchText(u.ma) === extractedCode,
+    );
+    if (unitByExtractedCode) return { isRoot: false, matchedUnit: unitByExtractedCode };
+
+    if (extractedName) {
+      const unitByExtractedName = activeUnits.find(
+        (u) => u.ten && normalizeOrgSearchText(u.ten) === extractedName,
+      );
+      if (unitByExtractedName) return { isRoot: false, matchedUnit: unitByExtractedName };
+    }
+  }
+
+  // 5. Kiểm tra tiền tố mã tổ chức trong chuỗi: ví dụ "DU-01" xuất hiện ở đầu chuỗi
+  const codePrefixMatch = activeUnits.find((u) => {
+    if (!u.ma) return false;
+    const cleanMa = normalizeOrgSearchText(u.ma);
+    return (
+      lower === cleanMa ||
+      lower.startsWith(cleanMa + ' ') ||
+      lower.startsWith(cleanMa + '(') ||
+      lower.startsWith(cleanMa + '-')
+    );
+  });
+  if (codePrefixMatch) return { isRoot: false, matchedUnit: codePrefixMatch };
+
+  // 6. Hoán đổi linh hoạt giữa "đảng ủy" và "đảng bộ"
+  const swapped = lower.includes('đảng ủy')
+    ? lower.replace(/đảng ủy/g, 'đảng bộ')
+    : lower.includes('đảng bộ')
+    ? lower.replace(/đảng bộ/g, 'đảng ủy')
+    : null;
+
+  if (swapped) {
+    const unitBySwappedName = activeUnits.find(
+      (u) => u.ten && normalizeOrgSearchText(u.ten) === swapped,
+    );
+    if (unitBySwappedName) return { isRoot: false, matchedUnit: unitBySwappedName };
+  }
+
+  // 7. Nếu hệ thống chỉ có 1 tổ chức cấp cao nhất (gốc, don_vi_cha_id == null)
+  // và người dùng gõ từ khóa chung như "đảng ủy", "đảng bộ", "đảng ủy cơ sở", "đảng bộ cơ sở"
+  const rootUnits = activeUnits.filter((u) => !u.don_vi_cha_id);
+  if (rootUnits.length === 1) {
+    const root = rootUnits[0];
+    const genericRootTerms = [
+      'đảng ủy',
+      'đảng bộ',
+      'đảng ủy cơ sở',
+      'đảng bộ cơ sở',
+      'đảng ủy phường',
+      'đảng bộ phường',
+      'cấp trên',
+      'đảng ủy cấp trên',
+    ];
+    if (
+      genericRootTerms.some((term) => lower === term || lower.includes(term)) ||
+      (root.ten &&
+        (lower.includes(normalizeOrgSearchText(root.ten)) ||
+          normalizeOrgSearchText(root.ten).includes(lower)))
+    ) {
+      return { isRoot: false, matchedUnit: root };
+    }
+  }
+
+  // 8. Kiểm tra trong danh sách các tổ chức cùng tệp tải lên (fileKnownUnits)
+  if (fileKnownUnits && fileKnownUnits.length > 0) {
+    const matchInFile = fileKnownUnits.find(
+      (f) =>
+        (f.ma && normalizeOrgSearchText(f.ma) === lower) ||
+        (f.ten && normalizeOrgSearchText(f.ten) === lower),
+    );
+    if (matchInFile) {
+      return { isRoot: false, matchedFromCurrentFile: true };
+    }
+  }
+
+  return {
+    isRoot: false,
+    error: `Mã hoặc tên cấp trên "${raw}" không tồn tại trên hệ thống (Hệ thống chấp nhận Mã, Tên hoặc để trống nếu là cấp gốc)`,
+  };
+}
+
+/**
+ * Tải file Excel mẫu để nhập danh sách tổ chức
+ */
+export function downloadUnitImportTemplate(existingUnits?: DonVi[]) {
   const headers = [
     'Mã tổ chức (*)',
     'Tên tổ chức (*)',
@@ -165,10 +325,43 @@ export function downloadUnitImportTemplate() {
     'Ghi chú',
   ];
 
+  // Tìm tổ chức gốc hiện có để làm mẫu cấp trên chính xác
+  const activeUnits = (existingUnits || []).filter((u) => !u.deleted_at);
+  const rootUnit = activeUnits.find((u) => !u.don_vi_cha_id) || activeUnits[0];
+  const rootCode = rootUnit?.ma || 'DU-01';
+  const rootName = rootUnit?.ten || 'Đảng bộ cơ sở';
+
   const sampleRows = [
-    ['CB-01', 'Chi bộ Quân sự', 'CHI_BO', 'DU-01', '2020-01-15', '05-QĐ/ĐU', 'DANG_HOAT_DONG', 'Chi bộ trực thuộc Đảng ủy'],
-    ['CB-02', 'Chi bộ Công an', 'CHI_BO', 'DU-01', '2020-01-15', '06-QĐ/ĐU', 'DANG_HOAT_DONG', 'Chi bộ trực thuộc Đảng ủy'],
-    ['CB-03', 'Chi bộ Khu dân cư số 1', 'CHI_BO', 'DU-01', '2020-01-15', '07-QĐ/ĐU', 'DANG_HOAT_DONG', 'Chi bộ địa bàn dân cư'],
+    [
+      'DU-02',
+      'Đảng bộ Khối Doanh nghiệp',
+      'DANG_BO',
+      '',
+      '2020-01-15',
+      '01-QĐ/TU',
+      'DANG_HOAT_DONG',
+      'Tổ chức cấp cao nhất (ĐỂ TRỐNG cột Mã cấp trên)',
+    ],
+    [
+      'CB-MAU-01',
+      'Chi bộ Quân sự',
+      'CHI_BO',
+      rootCode,
+      '2021-03-10',
+      '05-QĐ/ĐU',
+      'DANG_HOAT_DONG',
+      `Chi bộ trực thuộc ${rootName}`,
+    ],
+    [
+      'CB-MAU-02',
+      'Chi bộ Công an',
+      'CHI_BO',
+      rootCode,
+      '2021-03-10',
+      '06-QĐ/ĐU',
+      'DANG_HOAT_DONG',
+      `Chi bộ trực thuộc ${rootName}`,
+    ],
   ];
 
   const content =
@@ -218,24 +411,20 @@ export function parseAndValidateUnitCsv(
     return { validItems: [], errors: [{ line: 1, message: 'Tệp rỗng hoặc chỉ có dòng tiêu đề' }] };
   }
 
-  const existingCodes = new Set(
-    existingUnits.filter((u) => !u.deleted_at && u.ma).map((u) => u.ma!.toLowerCase()),
-  );
-  const codeToIdMap = new Map<string, string>();
-  const nameToIdMap = new Map<string, string>();
-  existingUnits
-    .filter((u) => !u.deleted_at)
-    .forEach((u) => {
-      if (u.ma) codeToIdMap.set(u.ma.toLowerCase(), u.id);
-      if (u.ten) nameToIdMap.set(u.ten.trim().toLowerCase(), u.id);
-    });
+  // Tự động nhận diện dấu phân cách: phẩy (,), chấm phẩy (;), hoặc tab (\t)
+  const firstLine = lines[0] || '';
+  let delimiter = ',';
+  const commaCount = (firstLine.match(/,/g) || []).length;
+  const semiCount = (firstLine.match(/;/g) || []).length;
+  const tabCount = (firstLine.match(/\t/g) || []).length;
+  if (semiCount > commaCount && semiCount > tabCount) {
+    delimiter = ';';
+  } else if (tabCount > commaCount && tabCount > semiCount) {
+    delimiter = '\t';
+  }
 
-  const validItems: any[] = [];
-  const errors: Array<{ line: number; message: string }> = [];
-  const fileSeenCodes = new Set<string>();
-
-  // Helper parse csv line considering quotes
-  const parseLine = (line: string): string[] => {
+  // Helper parse csv line
+  const parseLine = (line: string, delim: string): string[] => {
     const result: string[] = [];
     let cur = '';
     let inQuotes = false;
@@ -248,30 +437,53 @@ export function parseAndValidateUnitCsv(
         } else {
           inQuotes = !inQuotes;
         }
-      } else if (c === ',' && !inQuotes) {
-        result.push(cur.trim());
+      } else if (c === delim && !inQuotes) {
+        result.push(cur.trim().replace(/^"|"$/g, ''));
         cur = '';
       } else {
         cur += c;
       }
     }
-    result.push(cur.trim());
+    result.push(cur.trim().replace(/^"|"$/g, ''));
     return result;
   };
 
-  // Bỏ qua dòng 1 (header)
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseLine(lines[i]);
-    const lineNum = i + 1;
+  // PASS 1: Quét trước toàn bộ file để thu thập tất cả mã và tên tổ chức có trong file
+  const fileKnownUnits: Array<{ ma?: string; ten?: string; lineNum: number }> = [];
+  const parsedRows: Array<{ cols: string[]; lineNum: number }> = [];
 
-    const ma = cols[0] || '';
-    const ten = cols[1] || '';
-    const loai = cols[2] || 'CHI_BO';
-    const maCapTren = cols[3] || '';
-    const ngayThanhLap = cols[4] || '';
-    const soQuyetDinh = cols[5] || '';
-    const trangThaiRaw = cols[6] || 'DANG_HOAT_DONG';
-    const ghiChu = cols[7] || '';
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseLine(lines[i], delimiter);
+    const lineNum = i + 1;
+    parsedRows.push({ cols, lineNum });
+
+    const ma = cols[0] ? cols[0].trim() : '';
+    const ten = cols[1] ? cols[1].trim() : '';
+    if (ma || ten) {
+      fileKnownUnits.push({ ma, ten, lineNum });
+    }
+  }
+
+  const existingCodes = new Set(
+    existingUnits
+      .filter((u) => !u.deleted_at && u.ma)
+      .map((u) => normalizeOrgSearchText(u.ma)),
+  );
+  const fileSeenCodes = new Set<string>();
+
+  const validItems: any[] = [];
+  const errors: Array<{ line: number; message: string }> = [];
+
+  // PASS 2: Kiểm tra tính hợp lệ chi tiết
+  for (const { cols, lineNum } of parsedRows) {
+    const ma = cols[0] ? cols[0].trim() : '';
+    const ten = cols[1] ? cols[1].trim() : '';
+    const loai = cols[2] ? cols[2].trim() : 'CHI_BO';
+    const maCapTren = cols[3] ? cols[3].trim() : '';
+    const ngayThanhLap = cols[4] ? cols[4].trim() : '';
+    const soQuyetDinh = cols[5] ? cols[5].trim() : '';
+    const trangThaiRaw = cols[6] ? cols[6].trim() : 'DANG_HOAT_DONG';
+    const ghiChu = cols[7] ? cols[7].trim() : '';
 
     if (!ten) {
       errors.push({ line: lineNum, message: 'Tên tổ chức không được để trống' });
@@ -279,29 +491,31 @@ export function parseAndValidateUnitCsv(
     }
 
     if (ma) {
-      const lowerMa = ma.toLowerCase();
+      const lowerMa = normalizeOrgSearchText(ma);
       if (existingCodes.has(lowerMa)) {
         errors.push({ line: lineNum, message: `Mã tổ chức "${ma}" đã tồn tại trong CSDL` });
         continue;
       }
       if (fileSeenCodes.has(lowerMa)) {
-        errors.push({ line: lineNum, message: `Mã tổ chức "${ma}" bị trùng lặp trong chính tệp tải lên` });
+        errors.push({
+          line: lineNum,
+          message: `Mã tổ chức "${ma}" bị trùng lặp trong chính tệp tải lên`,
+        });
         continue;
       }
       fileSeenCodes.add(lowerMa);
     }
 
+    // Phân giải cấp trên thông minh
     let parentId: string | undefined = undefined;
-    if (maCapTren) {
-      const lowerParent = maCapTren.trim().toLowerCase();
-      if (codeToIdMap.has(lowerParent)) {
-        parentId = codeToIdMap.get(lowerParent);
-      } else if (nameToIdMap.has(lowerParent)) {
-        parentId = nameToIdMap.get(lowerParent);
-      } else if (!fileSeenCodes.has(lowerParent)) {
-        // Cấp trên không có trong CSDL và cũng không có ở các dòng trước trong tệp
-        errors.push({ line: lineNum, message: `Mã hoặc tên cấp trên "${maCapTren}" không tồn tại` });
+    if (maCapTren && !isRootParentIndicator(maCapTren)) {
+      const resolveResult = resolveParentUnit(maCapTren, existingUnits, fileKnownUnits);
+      if (resolveResult.error) {
+        errors.push({ line: lineNum, message: resolveResult.error });
         continue;
+      }
+      if (resolveResult.matchedUnit) {
+        parentId = resolveResult.matchedUnit.id;
       }
     }
 
@@ -316,7 +530,7 @@ export function parseAndValidateUnitCsv(
       ma: ma || undefined,
       ten,
       loai,
-      ma_cap_tren: maCapTren || undefined,
+      ma_cap_tren: isRootParentIndicator(maCapTren) ? undefined : maCapTren,
       don_vi_cha_id: parentId,
       ngay_thanh_lap: ngayThanhLap || undefined,
       so_quyet_dinh: soQuyetDinh || undefined,

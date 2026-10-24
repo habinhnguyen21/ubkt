@@ -125,6 +125,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
 
   // Modal xác nhận xóa tổ chức
   const [deleteTargetUnit, setDeleteTargetUnit] = useState<DonVi | null>(null);
+  const [batchDeleteTargetUnits, setBatchDeleteTargetUnits] = useState<DonVi[]>([]);
 
   // Modal cập nhật trạng thái hoạt động (Đang hoạt động / Tạm ngừng / Đã chấm dứt)
   const [toggleStatusTarget, setToggleStatusTarget] = useState<DonVi | null>(null);
@@ -462,6 +463,15 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
     await api.deleteDonVi(unitId, user.id, user.ho_ten);
     if (selectedUnitId === unitId) setSelectedUnitId(null);
     if (detailUnit?.id === unitId) setDetailUnit(null);
+    await loadData();
+    onDataChanged?.();
+  };
+
+  const handleConfirmBatchDelete = async (unitIds: string[]) => {
+    await api.batchDeleteDonVi(unitIds, user.id, user.ho_ten);
+    if (selectedUnitId && unitIds.includes(selectedUnitId)) setSelectedUnitId(null);
+    if (detailUnit && unitIds.includes(detailUnit.id)) setDetailUnit(null);
+    setBatchDeleteTargetUnits([]);
     await loadData();
     onDataChanged?.();
   };
@@ -1011,6 +1021,9 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
                     onDeleteUnit={(unit) => {
                       setDeleteTargetUnit(unit);
                     }}
+                    onBatchDeleteUnits={(units) => {
+                      setBatchDeleteTargetUnits(units);
+                    }}
                     onBatchToggleStatus={async (batchUnits, newStatus) => {
                       for (const u of batchUnits) {
                         await api.toggleDonViStatus(
@@ -1415,13 +1428,18 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
         onClose={() => setIsAuditHistoryOpen(false)}
       />
 
-      {/* Modal: Xác nhận xóa tổ chức Đảng */}
+      {/* Modal: Xác nhận xóa tổ chức Đảng (hỗ trợ xóa 1 hoặc xóa hàng loạt) */}
       <OrgDeleteModal
-        isOpen={Boolean(deleteTargetUnit)}
+        isOpen={Boolean(deleteTargetUnit || (batchDeleteTargetUnits && batchDeleteTargetUnits.length > 0))}
         unit={deleteTargetUnit}
+        units={batchDeleteTargetUnits}
         allUnits={allDonVi}
-        onClose={() => setDeleteTargetUnit(null)}
+        onClose={() => {
+          setDeleteTargetUnit(null);
+          setBatchDeleteTargetUnits([]);
+        }}
         onConfirm={handleConfirmDelete}
+        onConfirmBatch={handleConfirmBatchDelete}
       />
 
       {/* Modal 5: Thay đổi trạng thái hoạt động (Đang hoạt động / Tạm ngừng / Đã chấm dứt) */}

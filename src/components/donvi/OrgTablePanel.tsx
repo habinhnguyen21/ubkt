@@ -27,6 +27,7 @@ interface OrgTablePanelProps {
   onToggleStatus: (unit: DonVi) => void;
   onDeleteUnit?: (unit: DonVi) => void;
   onBatchToggleStatus?: (units: DonVi[], newStatus: string) => void;
+  onBatchDeleteUnits?: (units: DonVi[]) => void;
   filterPreset?: string;
 }
 
@@ -45,6 +46,7 @@ export const OrgTablePanel: React.FC<OrgTablePanelProps> = ({
   onToggleStatus,
   onDeleteUnit,
   onBatchToggleStatus,
+  onBatchDeleteUnits,
   filterPreset,
 }) => {
   // Mode: 'ALL' (toàn bộ) | 'CHILDREN' (chỉ con của selectedUnit)
@@ -251,33 +253,74 @@ export const OrgTablePanel: React.FC<OrgTablePanelProps> = ({
 
       {/* ── THAO TÁC HÀNG LOẠT NẾU CHỌN NHIỀU ── */}
       {selectedIds.size > 0 && (
-        <div className="px-4 py-2 bg-blue-50 border-b border-blue-100 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-blue-900">
-              Đã chọn {selectedIds.size} tổ chức:
+        <div className="px-4 py-2.5 bg-gradient-to-r from-blue-50 to-indigo-50/80 border-b border-blue-200/80 flex flex-wrap items-center justify-between gap-2.5 text-xs animate-in fade-in slide-in-from-top-1 duration-150">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-bold text-blue-950 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+              Đã chọn <span className="text-blue-700 font-mono text-xs px-2 py-0.5 bg-white rounded-md border border-blue-300 font-bold shadow-2xs">{selectedIds.size}</span> tổ chức
             </span>
+
+            <span className="text-slate-300">|</span>
+
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="text-slate-600 hover:text-slate-900 underline text-[11px] font-medium cursor-pointer"
+            >
+              Bỏ chọn tất cả
+            </button>
+
+            {selectedIds.size < filteredData.length && (
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set(filteredData.map((u) => u.id)))}
+                className="text-blue-700 hover:text-blue-900 underline text-[11px] font-semibold cursor-pointer"
+              >
+                Chọn tất cả {filteredData.length} tổ chức
+              </button>
+            )}
           </div>
 
-          {canEdit && onBatchToggleStatus && (
+          {canEdit && (
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  const selectedList = units.filter((u) => selectedIds.has(u.id));
-                  onBatchToggleStatus(selectedList, 'TAM_NGUNG');
-                }}
-                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs font-semibold cursor-pointer"
-              >
-                Tạm ngừng hoạt động
-              </button>
-              <button
-                onClick={() => {
-                  const selectedList = units.filter((u) => selectedIds.has(u.id));
-                  onBatchToggleStatus(selectedList, 'DANG_HOAT_DONG');
-                }}
-                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold cursor-pointer"
-              >
-                Kích hoạt lại
-              </button>
+              {onBatchToggleStatus && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const selectedList = units.filter((u) => selectedIds.has(u.id));
+                      onBatchToggleStatus(selectedList, 'TAM_NGUNG');
+                    }}
+                    className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-2xs transition"
+                  >
+                    Tạm ngừng
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const selectedList = units.filter((u) => selectedIds.has(u.id));
+                      onBatchToggleStatus(selectedList, 'DANG_HOAT_DONG');
+                    }}
+                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-2xs transition"
+                  >
+                    Kích hoạt lại
+                  </button>
+                </>
+              )}
+
+              {onBatchDeleteUnits && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const selectedList = units.filter((u) => selectedIds.has(u.id));
+                    onBatchDeleteUnits(selectedList);
+                  }}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-sm transition hover:shadow-md"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xóa {selectedIds.size} tổ chức</span>
+                </button>
+              )}
             </div>
           )}
         </div>
