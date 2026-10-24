@@ -345,6 +345,9 @@ export function HoSoDiaBanManager({ user }: Props) {
       deletedIds.add(target.id);
       localStorage.setItem(STORAGE_DELETED_DIA_BAN_IDS, JSON.stringify(Array.from(deletedIds)));
 
+      // Xóa đồng bộ trên Firestore Cloud
+      await cloudSyncService.deleteItemFromCloud('ho_so_dia_ban_records', target.id).catch(() => {});
+
       // 3. Xóa khỏi records
       setRecords((prev) => {
         const updated = prev.filter((r) => r.id !== target.id);
@@ -424,6 +427,11 @@ export function HoSoDiaBanManager({ user }: Props) {
       const deletedIds = getDeletedDiaBanIds();
       targets.forEach((t) => deletedIds.add(t.id));
       localStorage.setItem(STORAGE_DELETED_DIA_BAN_IDS, JSON.stringify(Array.from(deletedIds)));
+
+      // Xóa đồng bộ trên Firestore Cloud
+      for (const t of targets) {
+        await cloudSyncService.deleteItemFromCloud('ho_so_dia_ban_records', t.id).catch(() => {});
+      }
 
       // 3. Xóa khỏi records
       setRecords((prev) => {

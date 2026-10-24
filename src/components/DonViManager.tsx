@@ -231,6 +231,9 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
 
   useEffect(() => {
     loadData();
+    const handleSynced = () => loadData();
+    window.addEventListener('ubkt_data_synced', handleSynced);
+    return () => window.removeEventListener('ubkt_data_synced', handleSynced);
   }, []);
 
   // Tải lại danh sách cán bộ khi chuyển tab phân công

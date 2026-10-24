@@ -28,6 +28,7 @@ import { cloudSyncService } from './cloudSyncService';
 
 export const STORAGE_DELETED_DON_VI_IDS = 'ubkt_deleted_don_vi_ids';
 export const STORAGE_DELETED_CHUONG_TRINH_IDS = 'ubkt_deleted_chuong_trinh_ids';
+export const STORAGE_DELETED_DIABAN_IDS = 'ubkt_deleted_diaban_ids';
 
 export function getDeletedDonViIds(): Set<string> {
   try {
@@ -45,6 +46,25 @@ export function saveDeletedDonViId(id: string) {
     localStorage.setItem(STORAGE_DELETED_DON_VI_IDS, JSON.stringify(Array.from(set)));
   } catch (err) {
     console.error('Lỗi lưu ID tổ chức đã xóa:', err);
+  }
+}
+
+export function getDeletedDiaBanIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_DELETED_DIABAN_IDS);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveDeletedDiaBanId(id: string) {
+  try {
+    const set = getDeletedDiaBanIds();
+    set.add(id);
+    localStorage.setItem(STORAGE_DELETED_DIABAN_IDS, JSON.stringify(Array.from(set)));
+  } catch (err) {
+    console.error('Lỗi lưu ID địa bàn đã xóa:', err);
   }
 }
 
@@ -1549,8 +1569,13 @@ export const api = {
   updateDonVi: (input: UpdateDonViInput, user_id?: string) =>
     requestApi<DonVi>(`/api/don-vi/${input.id}`, 'PUT', { input, user_id }, 'update_don_vi', { input, user_id }),
 
-  deleteDonVi: (id: string, user_id?: string, actor_name?: string) =>
-    requestApi<void>(`/api/don-vi/${id}`, 'DELETE', { user_id, actor_name }, 'delete_don_vi', { id, user_id, actor_name }),
+  deleteDonVi: async (id: string, user_id?: string, actor_name?: string) => {
+    saveDeletedDonViId(id);
+    saveDeletedDiaBanId(id);
+    await cloudSyncService.deleteItemFromCloud('don_vi', id).catch(() => {});
+    await cloudSyncService.deleteItemFromCloud('ho_so_dia_ban_records', id).catch(() => {});
+    return requestApi<void>(`/api/don-vi/${id}`, 'DELETE', { user_id, actor_name }, 'delete_don_vi', { id, user_id, actor_name });
+  },
 
   toggleDonViStatus: (id: string, trang_thai: TrangThaiDonVi, ly_do?: string, actor_name?: string, user_id?: string) =>
     requestApi<DonVi>(`/api/don-vi/${id}/toggle-status`, 'POST', { trang_thai, ly_do, actor_name, user_id }, 'toggle_don_vi_status', { id, trang_thai, ly_do, actor_name, user_id }),
@@ -1558,8 +1583,15 @@ export const api = {
   batchImportDonVi: (items: any[], actor_name?: string, user_id?: string) =>
     requestApi<{ success: boolean; importedCount: number; errorCount: number; errors: string[]; imported: DonVi[] }>('/api/don-vi/batch-import', 'POST', { items, actor_name, user_id }, 'batch_import_don_vi', { items, actor_name, user_id }),
 
-  batchDeleteDonVi: (ids: string[], user_id?: string, actor_name?: string) =>
-    requestApi<{ success: boolean; deletedCount: number; errorCount: number; errors: string[] }>('/api/don-vi/batch-delete', 'POST', { ids, user_id, actor_name }, 'batch_delete_don_vi', { ids, user_id, actor_name }),
+  batchDeleteDonVi: async (ids: string[], user_id?: string, actor_name?: string) => {
+    for (const id of (ids || [])) {
+      saveDeletedDonViId(id);
+      saveDeletedDiaBanId(id);
+      await cloudSyncService.deleteItemFromCloud('don_vi', id).catch(() => {});
+      await cloudSyncService.deleteItemFromCloud('ho_so_dia_ban_records', id).catch(() => {});
+    }
+    return requestApi<{ success: boolean; deletedCount: number; errorCount: number; errors: string[] }>('/api/don-vi/batch-delete', 'POST', { ids, user_id, actor_name }, 'batch_delete_don_vi', { ids, user_id, actor_name });
+  },
 
   getDonViRelations: (id: string) =>
     requestApi<{ chuongTrinhCount: number; donThuCount: number; childrenCount: number; history: NhatKy[] }>(`/api/don-vi/${id}/relations`, 'GET', undefined, 'get_don_vi_relations', { id }),

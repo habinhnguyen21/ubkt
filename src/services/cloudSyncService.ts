@@ -308,7 +308,14 @@ export const cloudSyncService = {
 
       // 2. Cập nhật ubkt_ho_so_dia_ban_records
       if (!diaBanSnap.empty) {
-        const records = diaBanSnap.docs.map((d) => d.data());
+        let deletedDiaBanIds = new Set<string>();
+        try {
+          const raw = localStorage.getItem('ubkt_deleted_diaban_ids');
+          if (raw) deletedDiaBanIds = new Set(JSON.parse(raw));
+        } catch {}
+        const records = diaBanSnap.docs
+          .map((d) => d.data())
+          .filter((r) => !deletedDiaBanIds.has(r.id));
         localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(records));
       }
 
@@ -531,6 +538,12 @@ export const cloudSyncService = {
         if (raw) deletedCtIds = new Set(JSON.parse(raw));
       } catch {}
 
+      let deletedDiaBanIds = new Set<string>();
+      try {
+        const raw = localStorage.getItem('ubkt_deleted_diaban_ids');
+        if (raw) deletedDiaBanIds = new Set(JSON.parse(raw));
+      } catch {}
+
       const itemsToPushToCloud: { collection: string; id: string; data: any }[] = [];
 
       // A. ĐƠN VỊ (don_vi)
@@ -541,12 +554,17 @@ export const cloudSyncService = {
       localDonViList.forEach((item) => {
         if (!deletedDvIds.has(item.id) && !item.deleted_at) {
           donViMap.set(item.id, item);
+        } else if (item.deleted_at) {
+          deletedDvIds.add(item.id);
         }
       });
 
       cloudDonViList.forEach((cloudItem) => {
         if (deletedDvIds.has(cloudItem.id) || cloudItem.deleted_at) {
           donViMap.delete(cloudItem.id);
+          deletedDvIds.add(cloudItem.id);
+          // Gỡ bỏ vĩnh viễn khỏi Firestore Cloud nếu đã xóa
+          this.deleteItemFromCloud('don_vi', cloudItem.id).catch(() => {});
         } else {
           const localItem = donViMap.get(cloudItem.id);
           if (!localItem) {
@@ -570,6 +588,7 @@ export const cloudSyncService = {
         }
       });
       currentMockDb.donViList = Array.from(donViMap.values());
+      localStorage.setItem('ubkt_deleted_don_vi_ids', JSON.stringify(Array.from(deletedDvIds)));
 
       // B. CHƯƠNG TRÌNH KT-GS (chuong_trinh)
       const cloudCtList = ctSnap.docs.map((d) => d.data() as ChuongTrinhKtGs);
@@ -583,6 +602,7 @@ export const cloudSyncService = {
       cloudCtList.forEach((cloudItem) => {
         if (deletedCtIds.has(cloudItem.id)) {
           ctMap.delete(cloudItem.id);
+          this.deleteItemFromCloud('chuong_trinh', cloudItem.id).catch(() => {});
         } else {
           const localItem = ctMap.get(cloudItem.id);
           if (!localItem) {
@@ -606,33 +626,45 @@ export const cloudSyncService = {
         }
       });
       currentMockDb.chuongTrinhList = Array.from(ctMap.values());
+      localStorage.setItem('ubkt_deleted_chuong_trinh_ids', JSON.stringify(Array.from(deletedCtIds)));
 
       // C. HỒ SƠ ĐỊA BÀN (ho_so_dia_ban_records)
       const cloudDiaBan = diaBanSnap.docs.map((d) => d.data());
       const diaBanMap = new Map<string, any>();
-      currentDiaBan.forEach((r) => diaBanMap.set(r.id, r));
+      currentDiaBan.forEach((r) => {
+        if (!deletedDiaBanIds.has(r.id)) {
+          diaBanMap.set(r.id, r);
+        }
+      });
       cloudDiaBan.forEach((c) => {
-        const local = diaBanMap.get(c.id);
-        if (!local) {
-          diaBanMap.set(c.id, c);
+        if (deletedDiaBanIds.has(c.id)) {
+          diaBanMap.delete(c.id);
+          // Gỡ bỏ vĩnh viễn khỏi Firestore Cloud
+          this.deleteItemFromCloud('ho_so_dia_ban_records', c.id).catch(() => {});
         } else {
-          const cTime = new Date(c.updated_at || c.thoi_gian_tao || 0).getTime();
-          const lTime = new Date(local.updated_at || local.thoi_gian_tao || 0).getTime();
-          if (cTime > lTime) {
+          const local = diaBanMap.get(c.id);
+          if (!local) {
             diaBanMap.set(c.id, c);
-          } else if (lTime > cTime) {
-            itemsToPushToCloud.push({ collection: 'ho_so_dia_ban_records', id: local.id, data: local });
+          } else {
+            const cTime = new Date(c.updated_at || c.thoi_gian_tao || 0).getTime();
+            const lTime = new Date(local.updated_at || local.thoi_gian_tao || 0).getTime();
+            if (cTime > lTime) {
+              diaBanMap.set(c.id, c);
+            } else if (lTime > cTime) {
+              itemsToPushToCloud.push({ collection: 'ho_so_dia_ban_records', id: local.id, data: local });
+            }
           }
         }
       });
       const cloudDbSet = new Set(cloudDiaBan.map((d) => d.id));
       currentDiaBan.forEach((r) => {
-        if (!cloudDbSet.has(r.id)) {
+        if (!cloudDbSet.has(r.id) && !deletedDiaBanIds.has(r.id)) {
           itemsToPushToCloud.push({ collection: 'ho_so_dia_ban_records', id: r.id, data: r });
         }
       });
       const mergedDiaBan = Array.from(diaBanMap.values());
       localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(mergedDiaBan));
+      localStorage.setItem('ubkt_deleted_diaban_ids', JSON.stringify(Array.from(deletedDiaBanIds)));
 
       // D. FILE ĐỊA BÀN (ho_so_dia_ban_files)
       const cloudFiles = filesSnap.docs.map((d) => d.data() as HoSoDiaBanFile);
