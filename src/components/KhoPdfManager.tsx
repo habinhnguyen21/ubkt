@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { cloudSyncService } from '../services/cloudSyncService';
+import { centralDataService } from '../services/centralDataService';
 import type { ChuongTrinhKtGs, PdfKhoItem, User, DonVi, HoSoDiaBanFile } from '../types';
 import {
   FileText,
@@ -171,11 +172,8 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
         if (rawHsdb) {
           const hsdbFiles = JSON.parse(rawHsdb);
           if (Array.isArray(hsdbFiles)) {
-            const hasMock = hsdbFiles.some((f: any) => f.id === 'f-01' || f.id === 'f-02' || f.ten_don_vi?.includes('Quân sự'));
-            if (hasMock) {
-              localStorage.removeItem('ubkt_ho_so_dia_ban_files');
-            } else {
-              hsdbFiles.forEach((f: HoSoDiaBanFile) => {
+            hsdbFiles.forEach((f: HoSoDiaBanFile) => {
+              if (f.id === 'f-01' || f.id === 'f-02') return;
                 const fileKey = 'hsdb-' + f.id;
                 if (!seenIds.has(fileKey) && !deletedPdfIds.has(fileKey) && !deletedPdfIds.has(f.id) && !deletedPdfNames.has(f.ten_file)) {
                   seenIds.add(fileKey);
@@ -207,10 +205,9 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
               });
             }
           }
+        } catch (err) {
+          console.error('Lỗi nạp tệp hồ sơ địa bàn bổ sung:', err);
         }
-      } catch (err) {
-        console.error('Lỗi nạp tệp hồ sơ địa bàn bổ sung:', err);
-      }
 
       setDataList(combinedList);
       setAllPrograms(programs);
@@ -467,6 +464,9 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
             (f) => f.ten_file !== deleteTarget.ten_file && ('hsdb-' + f.id) !== deleteTarget.id && f.id !== deleteTarget.id.replace('hsdb-', '')
           );
           localStorage.setItem('ubkt_ho_so_dia_ban_files', JSON.stringify(filtered));
+          if (targetFile?.id) {
+            await centralDataService.deleteDoc('ho_so_dia_ban_files', targetFile.id);
+          }
 
           const targetDonViId = targetFile?.don_vi_id || deleteTarget.don_vi_id;
           if (targetDonViId) {
@@ -479,6 +479,10 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                   : r
               );
               localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(updatedRecs));
+              const matchR = updatedRecs.find((r: any) => r.id === targetDonViId);
+              if (matchR) {
+                await centralDataService.saveDoc('ho_so_dia_ban_records', matchR.id, matchR);
+              }
             }
           }
         }
@@ -491,10 +495,16 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
         const rawBc = localStorage.getItem('ubkt_bao_cao_thang');
         if (rawBc) {
           const bcList = JSON.parse(rawBc);
+          const targetBc = bcList.find(
+            (b: any) => b.file_ten === deleteTarget.ten_file || ('bc-' + b.id) === deleteTarget.id || b.id === deleteTarget.id.replace('bc-', '')
+          );
           const filteredBc = bcList.filter(
             (b: any) => b.file_ten !== deleteTarget.ten_file && ('bc-' + b.id) !== deleteTarget.id && b.id !== deleteTarget.id.replace('bc-', '')
           );
           localStorage.setItem('ubkt_bao_cao_thang', JSON.stringify(filteredBc));
+          if (targetBc?.id) {
+            await centralDataService.deleteDoc('bao_cao_thang', targetBc.id);
+          }
         }
       } catch (err) {
         console.error('Lỗi xóa tệp liên thông báo cáo tháng:', err);

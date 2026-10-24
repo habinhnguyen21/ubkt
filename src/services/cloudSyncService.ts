@@ -62,15 +62,26 @@ export const cloudSyncService = {
       // Loại bỏ undefined để Firestore không báo lỗi
       const cleanData = JSON.parse(JSON.stringify(data));
       await setDoc(docRef, cleanData, { merge: true });
+      // Xoá tombstone nếu bản ghi được tạo lại
+      const tombRef = doc(firestoreDb, 'tombstones', String(id));
+      deleteDoc(tombRef).catch(() => {});
     } catch (err) {
       console.warn(`[CloudSync] Lỗi lưu ${collectionName}/${id}:`, err);
     }
   },
 
-  // Xóa 1 bản ghi khỏi Firestore
+  // Xóa 1 bản ghi khỏi Firestore kèm ghi nhận Tombstone chống hồi sinh dữ liệu
   async deleteItemFromCloud(collectionName: string, id: string): Promise<void> {
     try {
       if (!id) return;
+      // Ghi tombstone vào Firestore trước để các máy khác biết và không bao giờ đẩy lại
+      const tombRef = doc(firestoreDb, 'tombstones', String(id));
+      await setDoc(tombRef, {
+        id: String(id),
+        collection: collectionName,
+        deleted_at: new Date().toISOString(),
+      }, { merge: true }).catch(() => {});
+
       const docRef = doc(firestoreDb, collectionName, String(id));
       await deleteDoc(docRef);
     } catch (err) {
@@ -481,6 +492,7 @@ export const cloudSyncService = {
         usersSnap,
         phanCongSnap,
         gdriveDoc,
+        tombstonesSnap,
       ] = await Promise.all([
         getDocs(collection(firestoreDb, 'don_vi')),
         getDocs(collection(firestoreDb, 'chuong_trinh')),
@@ -492,9 +504,13 @@ export const cloudSyncService = {
         getDocs(collection(firestoreDb, 'users')),
         getDocs(collection(firestoreDb, 'phan_cong_dia_ban')),
         getDoc(doc(firestoreDb, 'system_config', 'google_drive')),
+        getDocs(collection(firestoreDb, 'tombstones')),
       ]);
 
       onProgress?.('Đang hợp nhất dữ liệu 2 chiều...');
+
+      const cloudTombstones = new Set<string>();
+      tombstonesSnap.docs.forEach((d) => cloudTombstones.add(d.id));
 
       let currentMockDb: any = {};
       try {
@@ -556,15 +572,23 @@ export const cloudSyncService = {
         if (raw) deletedPdfNames = new Set(JSON.parse(raw));
       } catch {}
 
+      // Đồng bộ toàn bộ tombstones vào các tập xoá cục bộ
+      cloudTombstones.forEach((id) => {
+        deletedDvIds.add(id);
+        deletedCtIds.add(id);
+        deletedDiaBanIds.add(id);
+        deletedPdfIds.add(id);
+      });
+
       const itemsToPushToCloud: { collection: string; id: string; data: any }[] = [];
 
       // A. ĐƠN VỊ (don_vi)
       const cloudDonViList = donViSnap.docs.map((d) => d.data() as DonVi);
-      const localDonViList: DonVi[] = currentMockDb.donViList || [];
+      const localDonViList: DonVi[] = (currentMockDb.donViList || []).filter((d: DonVi) => !cloudTombstones.has(d.id));
       const donViMap = new Map<string, DonVi>();
 
       localDonViList.forEach((item) => {
-        if (!deletedDvIds.has(item.id) && !item.deleted_at) {
+        if (!deletedDvIds.has(item.id) && !item.deleted_at && !cloudTombstones.has(item.id)) {
           donViMap.set(item.id, item);
         } else if (item.deleted_at) {
           deletedDvIds.add(item.id);
@@ -572,7 +596,7 @@ export const cloudSyncService = {
       });
 
       cloudDonViList.forEach((cloudItem) => {
-        if (deletedDvIds.has(cloudItem.id) || cloudItem.deleted_at) {
+        if (deletedDvIds.has(cloudItem.id) || cloudItem.deleted_at || cloudTombstones.has(cloudItem.id)) {
           donViMap.delete(cloudItem.id);
           deletedDvIds.add(cloudItem.id);
           // Gỡ bỏ vĩnh viễn khỏi Firestore Cloud nếu đã xóa
@@ -595,7 +619,7 @@ export const cloudSyncService = {
 
       const cloudDvIdSet = new Set(cloudDonViList.map((d) => d.id));
       localDonViList.forEach((localItem) => {
-        if (!cloudDvIdSet.has(localItem.id) && !deletedDvIds.has(localItem.id) && !localItem.deleted_at) {
+        if (!cloudDvIdSet.has(localItem.id) && !deletedDvIds.has(localItem.id) && !localItem.deleted_at && !cloudTombstones.has(localItem.id)) {
           itemsToPushToCloud.push({ collection: 'don_vi', id: localItem.id, data: localItem });
         }
       });
@@ -604,15 +628,15 @@ export const cloudSyncService = {
 
       // B. CHƯƠNG TRÌNH KT-GS (chuong_trinh)
       const cloudCtList = ctSnap.docs.map((d) => d.data() as ChuongTrinhKtGs);
-      const localCtList: ChuongTrinhKtGs[] = currentMockDb.chuongTrinhList || [];
+      const localCtList: ChuongTrinhKtGs[] = (currentMockDb.chuongTrinhList || []).filter((c: ChuongTrinhKtGs) => !cloudTombstones.has(c.id));
       const ctMap = new Map<string, ChuongTrinhKtGs>();
 
       localCtList.forEach((item) => {
-        if (!deletedCtIds.has(item.id)) ctMap.set(item.id, item);
+        if (!deletedCtIds.has(item.id) && !cloudTombstones.has(item.id)) ctMap.set(item.id, item);
       });
 
       cloudCtList.forEach((cloudItem) => {
-        if (deletedCtIds.has(cloudItem.id)) {
+        if (deletedCtIds.has(cloudItem.id) || cloudTombstones.has(cloudItem.id)) {
           ctMap.delete(cloudItem.id);
           this.deleteItemFromCloud('chuong_trinh', cloudItem.id).catch(() => {});
         } else {
@@ -633,7 +657,7 @@ export const cloudSyncService = {
 
       const cloudCtIdSet = new Set(cloudCtList.map((c) => c.id));
       localCtList.forEach((localItem) => {
-        if (!cloudCtIdSet.has(localItem.id) && !deletedCtIds.has(localItem.id)) {
+        if (!cloudCtIdSet.has(localItem.id) && !deletedCtIds.has(localItem.id) && !cloudTombstones.has(localItem.id)) {
           itemsToPushToCloud.push({ collection: 'chuong_trinh', id: localItem.id, data: localItem });
         }
       });
@@ -644,12 +668,12 @@ export const cloudSyncService = {
       const cloudDiaBan = diaBanSnap.docs.map((d) => d.data());
       const diaBanMap = new Map<string, any>();
       currentDiaBan.forEach((r) => {
-        if (!deletedDiaBanIds.has(r.id)) {
+        if (!deletedDiaBanIds.has(r.id) && !cloudTombstones.has(r.id)) {
           diaBanMap.set(r.id, r);
         }
       });
       cloudDiaBan.forEach((c) => {
-        if (deletedDiaBanIds.has(c.id)) {
+        if (deletedDiaBanIds.has(c.id) || cloudTombstones.has(c.id)) {
           diaBanMap.delete(c.id);
           // Gỡ bỏ vĩnh viễn khỏi Firestore Cloud
           this.deleteItemFromCloud('ho_so_dia_ban_records', c.id).catch(() => {});
@@ -670,7 +694,7 @@ export const cloudSyncService = {
       });
       const cloudDbSet = new Set(cloudDiaBan.map((d) => d.id));
       currentDiaBan.forEach((r) => {
-        if (!cloudDbSet.has(r.id) && !deletedDiaBanIds.has(r.id)) {
+        if (!cloudDbSet.has(r.id) && !deletedDiaBanIds.has(r.id) && !cloudTombstones.has(r.id)) {
           itemsToPushToCloud.push({ collection: 'ho_so_dia_ban_records', id: r.id, data: r });
         }
       });
@@ -682,12 +706,12 @@ export const cloudSyncService = {
       const cloudFiles = filesSnap.docs.map((d) => d.data() as HoSoDiaBanFile);
       const filesMap = new Map<string, any>();
       currentFiles.forEach((f) => {
-        if (!deletedPdfNames.has(f.ten_file) && !deletedPdfIds.has(f.id) && !deletedPdfIds.has('hsdb-' + f.id)) {
+        if (!deletedPdfNames.has(f.ten_file) && !deletedPdfIds.has(f.id) && !deletedPdfIds.has('hsdb-' + f.id) && !cloudTombstones.has(f.id) && !cloudTombstones.has('hsdb-' + f.id)) {
           filesMap.set(f.id, f);
         }
       });
       cloudFiles.forEach((c) => {
-        if (deletedPdfNames.has(c.ten_file) || deletedPdfIds.has(c.id) || deletedPdfIds.has('hsdb-' + c.id)) {
+        if (deletedPdfNames.has(c.ten_file) || deletedPdfIds.has(c.id) || deletedPdfIds.has('hsdb-' + c.id) || cloudTombstones.has(c.id) || cloudTombstones.has('hsdb-' + c.id)) {
           filesMap.delete(c.id);
           this.deleteItemFromCloud('ho_so_dia_ban_files', c.id).catch(() => {});
         } else {
@@ -700,7 +724,9 @@ export const cloudSyncService = {
           !cloudFilesSet.has(f.id) &&
           !deletedPdfNames.has(f.ten_file) &&
           !deletedPdfIds.has(f.id) &&
-          !deletedPdfIds.has('hsdb-' + f.id)
+          !deletedPdfIds.has('hsdb-' + f.id) &&
+          !cloudTombstones.has(f.id) &&
+          !cloudTombstones.has('hsdb-' + f.id)
         ) {
           itemsToPushToCloud.push({ collection: 'ho_so_dia_ban_files', id: f.id, data: f });
         }
@@ -711,13 +737,22 @@ export const cloudSyncService = {
       // E. BÁO CÁO THÁNG (bao_cao_thang)
       const cloudBc = bcSnap.docs.map((d) => d.data() as BaoCaoThangItem);
       const bcMap = new Map<string, any>();
-      currentBc.forEach((b) => bcMap.set(b.id, b));
+      currentBc.forEach((b) => {
+        if (!cloudTombstones.has(b.id) && !cloudTombstones.has('bc-' + b.id)) {
+          bcMap.set(b.id, b);
+        }
+      });
       cloudBc.forEach((c) => {
-        if (!bcMap.has(c.id)) bcMap.set(c.id, c);
+        if (cloudTombstones.has(c.id) || cloudTombstones.has('bc-' + c.id)) {
+          bcMap.delete(c.id);
+          this.deleteItemFromCloud('bao_cao_thang', c.id).catch(() => {});
+        } else if (!bcMap.has(c.id)) {
+          bcMap.set(c.id, c);
+        }
       });
       const cloudBcSet = new Set(cloudBc.map((b) => b.id));
       currentBc.forEach((b) => {
-        if (!cloudBcSet.has(b.id)) {
+        if (!cloudBcSet.has(b.id) && !cloudTombstones.has(b.id) && !cloudTombstones.has('bc-' + b.id)) {
           itemsToPushToCloud.push({ collection: 'bao_cao_thang', id: b.id, data: b });
         }
       });
@@ -726,14 +761,15 @@ export const cloudSyncService = {
 
       // F. KHO PDF (pdf_files)
       const cloudPdf = pdfSnap.docs.map((d) => d.data() as PdfKhoItem);
-      const localPdf: PdfKhoItem[] = currentMockDb.pdfFiles || [];
+      const localPdf: PdfKhoItem[] = (currentMockDb.pdfFiles || []).filter((p: PdfKhoItem) => !cloudTombstones.has(p.id));
       const pdfMap = new Map<string, PdfKhoItem>();
 
       localPdf.forEach((p) => {
         if (
           !deletedPdfIds.has(p.id) &&
           !deletedPdfNames.has(p.ten_file) &&
-          !(p.chuong_trinh_id && deletedCtIds.has(p.chuong_trinh_id))
+          !(p.chuong_trinh_id && deletedCtIds.has(p.chuong_trinh_id)) &&
+          !cloudTombstones.has(p.id)
         ) {
           pdfMap.set(p.id, p);
         }
@@ -743,7 +779,8 @@ export const cloudSyncService = {
         if (
           deletedPdfIds.has(c.id) ||
           deletedPdfNames.has(c.ten_file) ||
-          (c.chuong_trinh_id && deletedCtIds.has(c.chuong_trinh_id))
+          (c.chuong_trinh_id && deletedCtIds.has(c.chuong_trinh_id)) ||
+          cloudTombstones.has(c.id)
         ) {
           pdfMap.delete(c.id);
           deletedPdfIds.add(c.id);
@@ -761,7 +798,8 @@ export const cloudSyncService = {
           !cloudPdfSet.has(p.id) &&
           !deletedPdfIds.has(p.id) &&
           !deletedPdfNames.has(p.ten_file) &&
-          !(p.chuong_trinh_id && deletedCtIds.has(p.chuong_trinh_id))
+          !(p.chuong_trinh_id && deletedCtIds.has(p.chuong_trinh_id)) &&
+          !cloudTombstones.has(p.id)
         ) {
           itemsToPushToCloud.push({ collection: 'pdf_files', id: p.id, data: p });
         }
@@ -772,15 +810,22 @@ export const cloudSyncService = {
 
       // G. ĐƠN THƯ (don_thu)
       const cloudDonThu = donThuSnap.docs.map((d) => d.data() as DonThu);
-      const localDonThu: DonThu[] = currentMockDb.donThuList || [];
+      const localDonThu: DonThu[] = (currentMockDb.donThuList || []).filter((d: DonThu) => !cloudTombstones.has(d.id));
       const donThuMap = new Map<string, DonThu>();
-      localDonThu.forEach((d) => donThuMap.set(d.id, d));
+      localDonThu.forEach((d) => {
+        if (!cloudTombstones.has(d.id)) donThuMap.set(d.id, d);
+      });
       cloudDonThu.forEach((c) => {
-        if (!donThuMap.has(c.id)) donThuMap.set(c.id, c);
+        if (cloudTombstones.has(c.id)) {
+          donThuMap.delete(c.id);
+          this.deleteItemFromCloud('don_thu', c.id).catch(() => {});
+        } else if (!donThuMap.has(c.id)) {
+          donThuMap.set(c.id, c);
+        }
       });
       const cloudDonThuSet = new Set(cloudDonThu.map((d) => d.id));
       localDonThu.forEach((d) => {
-        if (!cloudDonThuSet.has(d.id)) {
+        if (!cloudDonThuSet.has(d.id) && !cloudTombstones.has(d.id)) {
           itemsToPushToCloud.push({ collection: 'don_thu', id: d.id, data: d });
         }
       });
@@ -788,15 +833,15 @@ export const cloudSyncService = {
 
       // H. TÀI KHOẢN (users)
       const cloudUsers = usersSnap.docs.map((d) => d.data() as User & { mat_khau?: string });
-      const localUsers: (User & { mat_khau?: string })[] = currentMockDb.users || [];
+      const localUsers: (User & { mat_khau?: string })[] = (currentMockDb.users || []).filter((u: User) => !cloudTombstones.has(u.id));
       const userMap = new Map<string, User & { mat_khau?: string }>();
       localUsers.forEach((u) => {
         const k = u.id || u.ten_dang_nhap?.toLowerCase();
-        if (k) userMap.set(k, u);
+        if (k && !cloudTombstones.has(u.id)) userMap.set(k, u);
       });
       cloudUsers.forEach((cu) => {
         const k = cu.id || cu.ten_dang_nhap?.toLowerCase();
-        if (!k) return;
+        if (!k || cloudTombstones.has(cu.id)) return;
         const lu = userMap.get(k);
         if (!lu) {
           userMap.set(k, cu);
@@ -810,7 +855,7 @@ export const cloudSyncService = {
       const cloudUserKeys = new Set(cloudUsers.map((u) => u.id || u.ten_dang_nhap?.toLowerCase()));
       localUsers.forEach((lu) => {
         const k = lu.id || lu.ten_dang_nhap?.toLowerCase();
-        if (k && !cloudUserKeys.has(k)) {
+        if (k && !cloudUserKeys.has(k) && !cloudTombstones.has(lu.id)) {
           itemsToPushToCloud.push({ collection: 'users', id: lu.id, data: lu });
         }
       });
@@ -821,11 +866,16 @@ export const cloudSyncService = {
       const pcMap = new Map<string, any>();
       currentPhanCong.forEach((p) => {
         const k = p.id || p.don_vi_id;
-        if (k) pcMap.set(k, p);
+        if (k && !cloudTombstones.has(k)) pcMap.set(k, p);
       });
       cloudPhanCong.forEach((c) => {
         const k = c.id || c.don_vi_id;
-        if (k && !pcMap.has(k)) pcMap.set(k, c);
+        if (k && cloudTombstones.has(k)) {
+          pcMap.delete(k);
+          this.deleteItemFromCloud('phan_cong_dia_ban', k).catch(() => {});
+        } else if (k && !pcMap.has(k)) {
+          pcMap.set(k, c);
+        }
       });
       const cloudPcKeys = new Set(cloudPhanCong.map((p) => p.id || p.don_vi_id));
       currentPhanCong.forEach((p) => {

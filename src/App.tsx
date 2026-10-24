@@ -15,6 +15,7 @@ import { HoSoDiaBanManager } from './components/HoSoDiaBanManager';
 import { DonThuManager } from './components/DonThuManager';
 import { CloudSyncModal } from './components/CloudSyncModal';
 import { cloudSyncService } from './services/cloudSyncService';
+import { centralDataService } from './services/centralDataService';
 
 type TabKey = 'tong_quan' | 'don_vi' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
 
@@ -72,6 +73,12 @@ export function App() {
     };
     window.addEventListener('ubkt_data_synced', handleDataSynced);
 
+    // Khởi tạo bộ lắng nghe thời gian thực Firestore tập trung (Real-Time Snapshot Sync)
+    const cleanupRealtime = centralDataService.initRealtimeSync();
+    centralDataService.ensureProductionSeed().catch((err) => {
+      console.warn('[App] Lỗi kiểm tra seed dữ liệu gốc:', err);
+    });
+
     // Khởi chạy vòng lặp tự động đồng bộ 2 chiều ẩn định kỳ mỗi 30s
     cloudSyncService.startAutoSync();
 
@@ -83,6 +90,7 @@ export function App() {
     return () => {
       window.removeEventListener('ubkt_data_synced', handleDataSynced);
       cloudSyncService.stopAutoSync();
+      cleanupRealtime();
     };
   }, [fetchAppInfo]);
 

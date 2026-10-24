@@ -20,7 +20,7 @@ import {
   extractGoogleDriveFileId,
   deleteFileFromGoogleDrive,
 } from '../services/googleDriveService';
-import { cloudSyncService } from '../services/cloudSyncService';
+import { centralDataService } from '../services/centralDataService';
 import {
   MapPin,
   Building2,
@@ -60,7 +60,7 @@ interface Props {
 
 const STORAGE_DIA_BAN_RECORDS = 'ubkt_ho_so_dia_ban_records';
 const STORAGE_HO_SO_FILES = 'ubkt_ho_so_dia_ban_files';
-const STORAGE_BAO_CAO_THANG = 'ubkt_bao_cao_thang_items';
+const STORAGE_BAO_CAO_THANG = 'ubkt_bao_cao_thang';
 const STORAGE_DELETED_DIA_BAN_IDS = 'ubkt_deleted_diaban_ids';
 
 const getDeletedDiaBanIds = (): Set<string> => {
@@ -101,12 +101,6 @@ export function HoSoDiaBanManager({ user }: Props) {
       if (saved) {
         const list: DiaBanRecord[] = JSON.parse(saved);
         if (Array.isArray(list)) {
-          // Nếu phát hiện dữ liệu mẫu cũ, dọn sạch ngay
-          const isMock = list.some((r) => r.ten_dia_ban?.includes('Quân sự') || r.ten_dia_ban?.includes('Công an') || r.can_bo_phu_trach_id?.includes('mock-'));
-          if (isMock) {
-            localStorage.removeItem(STORAGE_DIA_BAN_RECORDS);
-            return [];
-          }
           return list.filter((r) => !deletedIds.has(r.id));
         }
       }
@@ -123,11 +117,6 @@ export function HoSoDiaBanManager({ user }: Props) {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          const isMock = parsed.some((f: any) => f.id === 'f-01' || f.id === 'f-02' || f.ten_don_vi?.includes('Quân sự'));
-          if (isMock) {
-            localStorage.removeItem(STORAGE_HO_SO_FILES);
-            return [];
-          }
           return parsed;
         }
       }
@@ -140,15 +129,10 @@ export function HoSoDiaBanManager({ user }: Props) {
   // Danh sách các báo cáo tháng đã tiếp nhận (tích hợp nhiều địa bàn)
   const [baoCaoThangList, setBaoCaoThangList] = useState<BaoCaoThangItem[]>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_BAO_CAO_THANG);
+      const saved = localStorage.getItem(STORAGE_BAO_CAO_THANG) || localStorage.getItem('ubkt_bao_cao_thang_items');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          const isMock = parsed.some((b: any) => b.id === 'bc-01' || b.id === 'bc-02' || b.can_bo_id?.includes('mock-'));
-          if (isMock) {
-            localStorage.removeItem(STORAGE_BAO_CAO_THANG);
-            return [];
-          }
           return parsed;
         }
       }
@@ -345,8 +329,12 @@ export function HoSoDiaBanManager({ user }: Props) {
       deletedIds.add(target.id);
       localStorage.setItem(STORAGE_DELETED_DIA_BAN_IDS, JSON.stringify(Array.from(deletedIds)));
 
-      // Xóa đồng bộ trên Firestore Cloud
-      await cloudSyncService.deleteItemFromCloud('ho_so_dia_ban_records', target.id).catch(() => {});
+      // Xóa đồng bộ trên Firestore Cloud bằng centralDataService (kèm tombstone)
+      await centralDataService.deleteDoc('ho_so_dia_ban_records', target.id);
+      const relatedFiles = files.filter((f) => f.don_vi_id === target.id);
+      for (const f of relatedFiles) {
+        await centralDataService.deleteDoc('ho_so_dia_ban_files', f.id).catch(() => {});
+      }
 
       // 3. Xóa khỏi records
       setRecords((prev) => {
@@ -428,9 +416,11 @@ export function HoSoDiaBanManager({ user }: Props) {
       targets.forEach((t) => deletedIds.add(t.id));
       localStorage.setItem(STORAGE_DELETED_DIA_BAN_IDS, JSON.stringify(Array.from(deletedIds)));
 
-      // Xóa đồng bộ trên Firestore Cloud
-      for (const t of targets) {
-        await cloudSyncService.deleteItemFromCloud('ho_so_dia_ban_records', t.id).catch(() => {});
+      // Xóa đồng bộ trên Firestore Cloud bằng centralDataService (kèm tombstones)
+      await centralDataService.batchDelete('ho_so_dia_ban_records', Array.from(targetIds));
+      const relatedFiles = files.filter((f) => targetIds.has(f.don_vi_id || ''));
+      for (const f of relatedFiles) {
+        await centralDataService.deleteDoc('ho_so_dia_ban_files', f.id).catch(() => {});
       }
 
       // 3. Xóa khỏi records
@@ -705,7 +695,7 @@ export function HoSoDiaBanManager({ user }: Props) {
     setRecords(newRecords);
     localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(newRecords));
     newRecords.forEach((r) => {
-      cloudSyncService.saveItemToCloud('ho_so_dia_ban_records', r.id, r);
+      centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r).catch(() => {});
     });
   };
 
@@ -714,7 +704,7 @@ export function HoSoDiaBanManager({ user }: Props) {
     setFiles(newFiles);
     localStorage.setItem(STORAGE_HO_SO_FILES, JSON.stringify(newFiles));
     newFiles.forEach((f) => {
-      cloudSyncService.saveItemToCloud('ho_so_dia_ban_files', f.id, f);
+      centralDataService.saveDoc('ho_so_dia_ban_files', f.id, f).catch(() => {});
     });
   };
 
@@ -1144,6 +1134,7 @@ export function HoSoDiaBanManager({ user }: Props) {
       setFiles((prev) => {
         const next = [newFileItem, ...prev.filter((f) => f.ten_file !== canCuTenFile.trim())];
         localStorage.setItem(STORAGE_HO_SO_FILES, JSON.stringify(next));
+        centralDataService.saveDoc('ho_so_dia_ban_files', newFileItem.id, newFileItem).catch(() => {});
         return next;
       });
     }
@@ -1331,6 +1322,7 @@ export function HoSoDiaBanManager({ user }: Props) {
       setFiles((prevFiles) => {
         const nextFiles = [newFileItem, ...prevFiles.filter((f) => f.ten_file !== vanDeFileTen.trim())];
         localStorage.setItem(STORAGE_HO_SO_FILES, JSON.stringify(nextFiles));
+        centralDataService.saveDoc('ho_so_dia_ban_files', newFileItem.id, newFileItem).catch(() => {});
         return nextFiles;
       });
     }
@@ -1464,6 +1456,7 @@ export function HoSoDiaBanManager({ user }: Props) {
       setFiles((prevFiles) => {
         const nextFiles = [newFileItem, ...prevFiles.filter((f) => f.ten_file !== chiDaoFileTen.trim())];
         localStorage.setItem(STORAGE_HO_SO_FILES, JSON.stringify(nextFiles));
+        centralDataService.saveDoc('ho_so_dia_ban_files', newFileItem.id, newFileItem).catch(() => {});
         return nextFiles;
       });
     }
@@ -1604,6 +1597,7 @@ export function HoSoDiaBanManager({ user }: Props) {
         setFiles((prevFiles) => {
           const nextFiles = [newFileItem, ...prevFiles.filter((f) => f.ten_file !== thayDoiFileTen.trim())];
           localStorage.setItem(STORAGE_HO_SO_FILES, JSON.stringify(nextFiles));
+          centralDataService.saveDoc('ho_so_dia_ban_files', newFileItem.id, newFileItem).catch(() => {});
           return nextFiles;
         });
       }
@@ -1631,7 +1625,7 @@ export function HoSoDiaBanManager({ user }: Props) {
     setBaoCaoThangList(newList);
     localStorage.setItem(STORAGE_BAO_CAO_THANG, JSON.stringify(newList));
     newList.forEach((b) => {
-      cloudSyncService.saveItemToCloud('bao_cao_thang', b.id, b);
+      centralDataService.saveDoc('bao_cao_thang', b.id, b).catch(() => {});
     });
   };
 
@@ -1820,7 +1814,7 @@ export function HoSoDiaBanManager({ user }: Props) {
         (f) => f.id !== fileItem.id && f.ten_file !== fileItem.ten_file
       );
       saveFiles(nextFiles);
-      cloudSyncService.deleteItemFromCloud('ho_so_dia_ban_files', fileItem.id);
+      await centralDataService.deleteDoc('ho_so_dia_ban_files', fileItem.id);
 
       if (fileItem.don_vi_id) {
         const updatedRecords = records.map((r) =>
@@ -1869,7 +1863,7 @@ export function HoSoDiaBanManager({ user }: Props) {
 
       const updatedBc = baoCaoThangList.filter((b) => b.id !== bcItem.id);
       saveBaoCaoThangList(updatedBc);
-      cloudSyncService.deleteItemFromCloud('bao_cao_thang', bcItem.id);
+      await centralDataService.deleteDoc('bao_cao_thang', bcItem.id);
 
       if (bcItem.file_ten) {
         const nextFiles = files.filter(

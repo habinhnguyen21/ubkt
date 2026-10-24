@@ -16,8 +16,6 @@ import type {
   HoSoDiaBanFile,
   BaoCaoThangItem,
 } from '../types';
-import { db as firestoreDb } from './firebase';
-import { doc, deleteDoc } from 'firebase/firestore';
 import {
   isGoogleDriveConfigured,
   getGoogleDriveConfig,
@@ -25,6 +23,7 @@ import {
   extractGoogleDriveFileId,
 } from './googleDriveService';
 import { cloudSyncService } from './cloudSyncService';
+import { centralDataService } from './centralDataService';
 
 export const STORAGE_DELETED_DON_VI_IDS = 'ubkt_deleted_don_vi_ids';
 export const STORAGE_DELETED_CHUONG_TRINH_IDS = 'ubkt_deleted_chuong_trinh_ids';
@@ -373,7 +372,7 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
     case 'create_don_vi': {
       const { input } = args as { input: CreateDonViInput };
       const newDonVi: DonVi = {
-        id: 'mock-' + Date.now(),
+        id: 'dv-' + Date.now(),
         ten: input.ten.trim(),
         loai: input.loai,
         don_vi_cha_id: input.don_vi_cha_id,
@@ -385,14 +384,14 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         ngay_ket_thuc: input.ngay_ket_thuc || null,
         so_quyet_dinh: input.so_quyet_dinh || null,
         version: 1,
-        sync_status: 'pending',
+        sync_status: 'synced',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         deleted_at: null,
       };
       db.donViList.push(newDonVi);
       saveMockDb(db);
-      cloudSyncService.saveItemToCloud('don_vi', newDonVi.id, newDonVi);
+      await centralDataService.saveDoc('don_vi', newDonVi.id, newDonVi);
       return newDonVi as T;
     }
 
@@ -412,9 +411,9 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       if (input.so_quyet_dinh !== undefined) item.so_quyet_dinh = input.so_quyet_dinh;
       item.updated_at = new Date().toISOString();
       item.version += 1;
-      item.sync_status = 'pending';
+      item.sync_status = 'synced';
       saveMockDb(db);
-      cloudSyncService.saveItemToCloud('don_vi', item.id, item);
+      await centralDataService.saveDoc('don_vi', item.id, item);
       return item as T;
     }
 
@@ -425,6 +424,7 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         throw new Error('Không thể xóa đơn vị đang có đơn vị cấp dưới trực thuộc.');
       }
       saveDeletedDonViId(id);
+      saveDeletedDiaBanId(id);
       const item = db.donViList.find((d) => d.id === id);
       if (item) {
         item.deleted_at = new Date().toISOString();
@@ -432,12 +432,8 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       db.donViList = db.donViList.filter((d) => d.id !== id);
       saveMockDb(db);
 
-      // Đồng bộ xóa trực tiếp trên Firebase Firestore nếu có
-      try {
-        deleteDoc(doc(firestoreDb, 'don_vi', id)).catch(() => {});
-      } catch {
-        // ignore
-      }
+      await centralDataService.deleteDoc('don_vi', id);
+      await centralDataService.deleteDoc('ho_so_dia_ban_records', id);
 
       return undefined as T;
     }
@@ -635,6 +631,9 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       if (imported.length > 0) {
         db.donViList.push(...imported);
         saveMockDb(db);
+        for (const unit of imported) {
+          await centralDataService.saveDoc('don_vi', unit.id, unit);
+        }
       }
       return { success: true, importedCount: imported.length, errorCount: errors.length, errors, imported } as T;
     }
@@ -667,6 +666,13 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
 
       if (deleted.length > 0) {
         saveMockDb(db);
+        const deletedIds = deleted.map((d) => d.id);
+        deletedIds.forEach((id) => {
+          saveDeletedDonViId(id);
+          saveDeletedDiaBanId(id);
+        });
+        await centralDataService.batchDelete('don_vi', deletedIds);
+        await centralDataService.batchDelete('ho_so_dia_ban_records', deletedIds);
       }
       return { success: true, deletedCount: deleted.length, errorCount: errors.length, errors } as T;
     }
@@ -719,7 +725,7 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       (newUser as unknown as { mat_khau?: string }).mat_khau = req.mat_khau;
       db.users.push(newUser);
       saveMockDb(db);
-      cloudSyncService.saveItemToCloud('users', newUser.id, newUser);
+      await centralDataService.saveDoc('users', newUser.id, newUser);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('ubkt_users_updated', { detail: newUser }));
       }
@@ -734,7 +740,7 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       (user as unknown as { mat_khau?: string }).mat_khau = req.mat_khau_moi;
       user.updated_at = new Date().toISOString();
       saveMockDb(db);
-      cloudSyncService.saveItemToCloud('users', user.id, user);
+      await centralDataService.saveDoc('users', user.id, user);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
       }
@@ -753,7 +759,7 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       }
       user.updated_at = new Date().toISOString();
       saveMockDb(db);
-      cloudSyncService.saveItemToCloud('users', user.id, user);
+      await centralDataService.saveDoc('users', user.id, user);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
       }
@@ -764,7 +770,7 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       const { user_id } = args as { user_id: string };
       db.users = db.users.filter((u) => u.id !== user_id);
       saveMockDb(db);
-      cloudSyncService.deleteItemFromCloud('users', user_id);
+      await centralDataService.deleteDoc('users', user_id);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
       }
@@ -903,7 +909,7 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       if (!db.chuongTrinhList) db.chuongTrinhList = [];
       db.chuongTrinhList.unshift(newItem);
       saveMockDb(db);
-      cloudSyncService.saveItemToCloud('chuong_trinh', newItem.id, newItem);
+      await centralDataService.saveDoc('chuong_trinh', newItem.id, newItem);
       return newItem as T;
     }
 
@@ -947,7 +953,7 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       item.ghi_chu_pdf = input.ghi_chu_pdf?.trim() || null;
       item.updated_at = new Date().toISOString();
       saveMockDb(db);
-      cloudSyncService.saveItemToCloud('chuong_trinh', item.id, item);
+      await centralDataService.saveDoc('chuong_trinh', item.id, item);
       return item as T;
     }
 
@@ -960,12 +966,8 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       db.pdfFiles = db.pdfFiles.filter((p) => p.chuong_trinh_id !== id && p.id !== 'ct-pdf-' + id);
       saveMockDb(db);
 
-      // Đồng bộ xóa trực tiếp trên Firebase Firestore nếu có
-      try {
-        deleteDoc(doc(firestoreDb, 'chuong_trinh', id)).catch(() => {});
-      } catch {
-        // ignore
-      }
+      await centralDataService.deleteDoc('chuong_trinh', id);
+      await centralDataService.deleteDoc('pdf_files', 'ct-pdf-' + id);
 
       window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
       window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
@@ -1430,7 +1432,10 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
 
       saveDeletedPdfId(id);
       if (targetFileName) saveDeletedPdfName(targetFileName);
-      cloudSyncService.deleteItemFromCloud('pdf_files', id).catch(() => {});
+      await centralDataService.deleteDoc('pdf_files', id);
+      if (targetFileName) {
+        await centralDataService.deleteDoc('pdf_files', targetFileName);
+      }
 
       if (id.startsWith('ct-pdf-') || targetCtId || targetFileName) {
         const ctId = id.startsWith('ct-pdf-') ? id.replace('ct-pdf-', '') : targetCtId;
@@ -1605,6 +1610,7 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         thoi_gian: now,
       });
       saveMockDb(db);
+      await centralDataService.saveDoc('don_thu', newDonThu.id, newDonThu);
       return newDonThu as T;
     }
 
@@ -1635,6 +1641,7 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         thoi_gian: new Date().toISOString(),
       });
       saveMockDb(db);
+      await centralDataService.saveDoc('don_thu', updated.id, updated);
       return updated as T;
     }
 
@@ -1658,6 +1665,7 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         thoi_gian: new Date().toISOString(),
       });
       saveMockDb(db);
+      await centralDataService.deleteDoc('don_thu', id);
       return undefined as T;
     }
 
@@ -1691,8 +1699,8 @@ export const api = {
   deleteDonVi: async (id: string, user_id?: string, actor_name?: string) => {
     saveDeletedDonViId(id);
     saveDeletedDiaBanId(id);
-    await cloudSyncService.deleteItemFromCloud('don_vi', id).catch(() => {});
-    await cloudSyncService.deleteItemFromCloud('ho_so_dia_ban_records', id).catch(() => {});
+    await centralDataService.deleteDoc('don_vi', id);
+    await centralDataService.deleteDoc('ho_so_dia_ban_records', id);
     return requestApi<void>(`/api/don-vi/${id}`, 'DELETE', { user_id, actor_name }, 'delete_don_vi', { id, user_id, actor_name });
   },
 
@@ -1706,9 +1714,9 @@ export const api = {
     for (const id of (ids || [])) {
       saveDeletedDonViId(id);
       saveDeletedDiaBanId(id);
-      await cloudSyncService.deleteItemFromCloud('don_vi', id).catch(() => {});
-      await cloudSyncService.deleteItemFromCloud('ho_so_dia_ban_records', id).catch(() => {});
     }
+    await centralDataService.batchDelete('don_vi', ids || []);
+    await centralDataService.batchDelete('ho_so_dia_ban_records', ids || []);
     return requestApi<{ success: boolean; deletedCount: number; errorCount: number; errors: string[] }>('/api/don-vi/batch-delete', 'POST', { ids, user_id, actor_name }, 'batch_delete_don_vi', { ids, user_id, actor_name });
   },
 
@@ -1743,7 +1751,8 @@ export const api = {
 
   deleteChuongTrinh: async (id: string) => {
     saveDeletedChuongTrinhId(id);
-    await cloudSyncService.deleteItemFromCloud('chuong_trinh', id).catch(() => {});
+    await centralDataService.deleteDoc('chuong_trinh', id);
+    await centralDataService.deleteDoc('pdf_files', 'ct-pdf-' + id);
     // Tự động tìm và xóa các file PDF gắn với chương trình này
     try {
       const rawMock = localStorage.getItem(MOCK_STORAGE_KEY);
@@ -1753,7 +1762,7 @@ export const api = {
           const toDelete = mDb.pdfFiles.filter((p: any) => p.chuong_trinh_id === id);
           for (const p of toDelete) {
             saveDeletedPdfId(p.id);
-            await cloudSyncService.deleteItemFromCloud('pdf_files', p.id).catch(() => {});
+            await centralDataService.deleteDoc('pdf_files', p.id);
           }
           mDb.pdfFiles = mDb.pdfFiles.filter((p: any) => p.chuong_trinh_id !== id);
           localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(mDb));

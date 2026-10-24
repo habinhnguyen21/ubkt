@@ -1,0 +1,135 @@
+{
+  "timestamp": "2026-10-24T17:28:17.191Z",
+  "collections": {
+    "don_vi": [],
+    "chuong_trinh": [
+      {
+        "_id": "ct-nk-btv",
+        "google_drive_id": "1SP6gWNoPcpeo_maD7KV8s0MvdWTgbp4B",
+        "don_vi_id": "01918a00-0000-7000-8000-000000000002",
+        "term_start_year": 2025,
+        "is_google_drive": true,
+        "file_pdf_url": "https://drive.google.com/file/d/1SP6gWNoPcpeo_maD7KV8s0MvdWTgbp4B/view?usp=drivesdk",
+        "thoi_gian_loai": "CA_NHIEM_KY",
+        "co_quan_ban_hanh": "Ban Thường vụ Đảng ủy phường",
+        "ngay_ket_thuc": null,
+        "ten_chuong_trinh": "Kiểm tra, giám sát theo Quyết định/Kế hoạch số ...",
+        "so_van_ban": null,
+        "google_drive_preview_url": "https://drive.google.com/file/d/1SP6gWNoPcpeo_maD7KV8s0MvdWTgbp4B/preview",
+        "loai_chuong_trinh": "NHIEM_KY",
+        "loai_hinh": null,
+        "danh_sach_thay_doi_bo_sung": [],
+        "ghi_chu_pdf": "Kèm theo Quyết định của BTV Đảng ủy",
+        "nam": 2025,
+        "has_nhiem_ky": true,
+        "ngay_bat_dau": null,
+        "doi_tuong": "Toàn Đảng bộ",
+        "ten_don_vi": "Ban Thường vụ Đảng ủy",
+        "created_at": "2025-08-01T08:00:00Z",
+        "file_pdf_dung_luong": 2450000,
+        "id": "ct-nk-btv",
+        "noi_dung": "Kiểm tra, giám sát theo Quyết định/Kế hoạch số ...: Kiểm tra việc lãnh đạo, chỉ đạo và tổ chức thực hiện nhiệm vụ chính trị, công tác xây dựng Đảng, giữ gìn đoàn kết nội bộ.",
+        "nhiem_ky": "2025 - 2030",
+        "term_end_year": 2030,
+        "chu_the": "Ban Thường vụ Đảng ủy phường",
+        "updated_at": "2025-08-01T08:00:00Z",
+        "chu_the_ap_dung": "Toàn Đảng bộ",
+        "file_pdf_ten": "CT-KTGS của BCH, BTV.pdf",
+        "khoa_nhiem_ky": "2025 - 2030",
+        "trang_thai": "DANG_THUC_HIEN"
+      }
+    ],
+    "ho_so_dia_ban_records": [],
+    "ho_so_dia_ban_files": [],
+    "bao_cao_thang": [],
+    "pdf_files": [
+      {
+        "_id": "pdf-1792858320157-0",
+        "dung_luong": 2450000,
+        "id": "pdf-1792858320157-0",
+        "nguon_goc": "CHUONG_TRINH",
+        "don_vi_id": "01918a00-0000-7000-8000-000000000002",
+        "so_van_ban": null,
+        "doi_tuong": "Ban Thường vụ Đảng ủy",
+        "ngay_ban_hanh": "2026-10-24",
+        "chuong_trinh_id": "ct-nk-btv",
+        "the_loai_van_ban": "Kế hoạch",
+        "nguoi_ky": null,
+        "google_drive_id": "1SP6gWNoPcpeo_maD7KV8s0MvdWTgbp4B",
+        "ten_file": "CT-KTGS của BCH, BTV.pdf",
+        "is_google_drive": true,
+        "created_at": "2026-10-24T16:12:00.157Z",
+        "trich_yeu": "Kiểm tra, giám sát theo Quyết định/Kế hoạch số ...: Kiểm tra việc lãnh đạo, chỉ đạo và tổ chức thực hiện nhiệm vụ chính trị, công tác xây dựng Đảng, giữ gìn đoàn kết nội bộ.",
+        "file_url": "https://drive.google.com/file/d/1SP6gWNoPcpeo_maD7KV8s0MvdWTgbp4B/view?usp=drivesdk",
+        "ten_don_vi": "Ban Thường vụ Đảng ủy",
+        "google_drive_preview_url": "https://drive.google.com/file/d/1SP6gWNoPcpeo_maD7KV8s0MvdWTgbp4B/preview",
+        "chu_the": "Ban Thường vụ Đảng ủy",
+        "nam": 2026,
+        "url": "https://drive.google.com/file/d/1SP6gWNoPcpeo_maD7KV8s0MvdWTgbp4B/view?usp=drivesdk"
+      }
+    ],
+    "don_thu": [],
+    "users": [
+      {
+        "_id": "01918a00-0000-7000-8000-000000000000",
+        "mat_khau": "Admin@123456",
+        "ho_ten": "Quản trị viên Hệ thống",
+        "ten_dang_nhap": "admin",
+        "vai_tro": "ADMIN",
+        "updated_at": "2026-10-24T09:12:24.874Z",
+        "id": "01918a00-0000-7000-8000-000000000000",
+        "created_at": "2026-10-24T02:34:40.336Z",
+        "chuc_danh": "Khác",
+        "trang_thai": 1,
+        "must_change_password": false
+      },
+      {
+        "_id": "mock-user-1792809461415",
+        "created_at": "2026-10-24T02:37:41.415Z",
+        "id": "mock-user-1792809461415",
+        "vai_tro": "BIEN_TAP",
+        "must_change_password": true,
+        "trang_thai": 1,
+        "ten_dang_nhap": "064099007204",
+        "chuc_danh": "Uỷ viên UBKT",
+        "mat_khau": "aA@123456",
+        "ho_ten": "Hà Hoàng Bình Nguyên",
+        "updated_at": "2026-10-24T02:49:56.694Z"
+      }
+    ],
+    "phan_cong_dia_ban": [
+      {
+        "_id": "pc",
+        "don_vi_ids": [
+          "01918a00-0000-7000-8000-000000000001"
+        ],
+        "user_name": "Hà Hoàng Bình Nguyên",
+        "updated_at": "2026-10-24T02:57:34.989Z",
+        "user_id": "mock-user-1792809461415"
+      }
+    ],
+    "system_config": [
+      {
+        "_id": "google_drive",
+        "autoUpload": true,
+        "folderId": "AKfycbz3uXlRl5esMAB71-qB6mswKGuQnQiHBlbN-pfqH6K1hb6ebA_IT9bz-Wk_gggehqqpsA",
+        "scriptUrl": "https://script.google.com/macros/s/AKfycbz3uXlRl5esMAB71-qB6mswKGuQnQiHBlbN-pfqH6K1hb6ebA_IT9bz-Wk_gggehqqpsA/exec"
+      },
+      {
+        "_id": "sync_meta",
+        "last_synced_at": "18:02:02 24/10/2026",
+        "timestamp": "2026-10-24T11:02:02.472Z",
+        "counts": {
+          "pdfFiles": 1,
+          "users": 2,
+          "donVi": 0,
+          "hoSoDiaBan": 19,
+          "hoSoFiles": 0,
+          "chuongTrinh": 0,
+          "baoCaoThang": 0,
+          "donThu": 0
+        }
+      }
+    ]
+  }
+}
