@@ -296,6 +296,18 @@ export function HoSoDiaBanManager({ user }: Props) {
   const [deleteTargetRecord, setDeleteTargetRecord] = useState<DiaBanRecord | null>(null);
   const [isDeletingRecord, setIsDeletingRecord] = useState(false);
 
+  // Multi-select chọn nhiều hồ sơ địa bàn để xóa
+  const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(new Set());
+  const [batchDeleteRecords, setBatchDeleteRecords] = useState<DiaBanRecord[]>([]);
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+
+  const handleToggleSelectRecord = (id: string) => {
+    const next = new Set(selectedRecordIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedRecordIds(next);
+  };
+
   const handleConfirmDeleteRecord = async (target: DiaBanRecord) => {
     setIsDeletingRecord(true);
     try {
@@ -368,6 +380,93 @@ export function HoSoDiaBanManager({ user }: Props) {
       console.error('Lỗi khi xóa hồ sơ địa bàn:', err);
     } finally {
       setIsDeletingRecord(false);
+    }
+  };
+
+  const handleConfirmBatchDeleteRecords = async (targets: DiaBanRecord[]) => {
+    if (!targets || targets.length === 0) return;
+    setIsBatchDeleting(true);
+    try {
+      const targetIds = new Set(targets.map((t) => t.id));
+
+      // 1. Tự động xóa các tệp tài liệu của các địa bàn trên Google Drive và Kho PDF
+      const filesToDelete = files.filter((f) => targetIds.has(f.don_vi_id));
+      for (const f of filesToDelete) {
+        const driveId = f.google_drive_id || extractGoogleDriveFileId(f.file_url || f.url);
+        if (driveId) {
+          try {
+            await deleteFileFromGoogleDrive(driveId);
+          } catch (e) {
+            console.warn('Lỗi xóa tệp địa bàn trên Google Drive:', e);
+          }
+        }
+        await api.deletePdf('hsdb-' + f.id).catch(() => {});
+        await api.deletePdf(f.id).catch(() => {});
+      }
+
+      // Xóa các báo cáo tháng liên quan trên Google Drive và Kho PDF
+      const bcsToDelete = baoCaoThangList.filter((b) =>
+        b.danh_sach_don_vi_ids?.some((id) => targetIds.has(id))
+      );
+      for (const b of bcsToDelete) {
+        const bDriveId = (b as any).google_drive_id || extractGoogleDriveFileId(b.file_url);
+        if (bDriveId) {
+          try {
+            await deleteFileFromGoogleDrive(bDriveId);
+          } catch (e) {
+            console.warn('Lỗi xóa tệp báo cáo trên Google Drive:', e);
+          }
+        }
+        await api.deletePdf('bc-' + b.id).catch(() => {});
+      }
+
+      // 2. Lưu các ID vào danh sách đã xóa để ngăn tự động nạp lại
+      const deletedIds = getDeletedDiaBanIds();
+      targets.forEach((t) => deletedIds.add(t.id));
+      localStorage.setItem(STORAGE_DELETED_DIA_BAN_IDS, JSON.stringify(Array.from(deletedIds)));
+
+      // 3. Xóa khỏi records
+      setRecords((prev) => {
+        const updated = prev.filter((r) => !targetIds.has(r.id));
+        localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(updated));
+        return updated;
+      });
+
+      // 4. Xóa các tài liệu liên quan trong kho tài liệu địa bàn
+      setFiles((prev) => {
+        const updated = prev.filter((f) => !targetIds.has(f.don_vi_id));
+        localStorage.setItem(STORAGE_HO_SO_FILES, JSON.stringify(updated));
+        return updated;
+      });
+
+      // 5. Cập nhật các báo cáo tháng
+      setBaoCaoThangList((prev) => {
+        const updated = prev.filter(
+          (b) => !b.danh_sach_don_vi_ids?.some((id) => targetIds.has(id))
+        );
+        localStorage.setItem(STORAGE_BAO_CAO_THANG, JSON.stringify(updated));
+        return updated;
+      });
+
+      // 6. Nếu đang mở modal chi tiết của hồ sơ nằm trong danh sách xóa thì đóng lại
+      if (selectedRecord && targetIds.has(selectedRecord.id)) {
+        setSelectedRecord(null);
+      }
+
+      // 7. Xóa lựa chọn đã chọn & đóng modal
+      setSelectedRecordIds((prev) => {
+        const next = new Set(prev);
+        targets.forEach((t) => next.delete(t.id));
+        return next;
+      });
+      setBatchDeleteRecords([]);
+
+      window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+    } catch (err) {
+      console.error('Lỗi khi xóa nhiều hồ sơ địa bàn:', err);
+    } finally {
+      setIsBatchDeleting(false);
     }
   };
 
@@ -2375,6 +2474,54 @@ export function HoSoDiaBanManager({ user }: Props) {
                 Tổng số: <strong>{filteredRecords.length}</strong> / {records.length} địa bàn
               </div>
             </div>
+
+            {/* ── THANH THAO TÁC HÀNG LOẠT KHI CHỌN NHIỀU HỒ SƠ ĐỊA BÀN ── */}
+            {selectedRecordIds.size > 0 && (
+              <div className="mt-2.5 p-3 bg-gradient-to-r from-blue-50 to-indigo-50/90 border border-blue-200/90 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs animate-in fade-in slide-in-from-top-1 duration-150 shadow-2xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold text-blue-950 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+                    Đã chọn <strong className="text-blue-700 font-mono text-xs px-2 py-0.5 bg-white rounded-md border border-blue-300 font-bold shadow-2xs">{selectedRecordIds.size}</strong> hồ sơ địa bàn
+                  </span>
+
+                  <span className="text-slate-300">|</span>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRecordIds(new Set())}
+                    className="text-slate-600 hover:text-slate-900 underline text-[11px] font-medium cursor-pointer"
+                  >
+                    Bỏ chọn tất cả
+                  </button>
+
+                  {selectedRecordIds.size < filteredRecords.length && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRecordIds(new Set(filteredRecords.map((r) => r.id)))}
+                      className="text-blue-700 hover:text-blue-900 underline text-[11px] font-semibold cursor-pointer"
+                    >
+                      Chọn tất cả {filteredRecords.length} địa bàn
+                    </button>
+                  )}
+                </div>
+
+                {canEdit && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const selected = records.filter((r) => selectedRecordIds.has(r.id));
+                        setBatchDeleteRecords(selected);
+                      }}
+                      className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-sm transition hover:shadow-md"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Xóa {selectedRecordIds.size} hồ sơ địa bàn đã chọn</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* VIEW 1: HIỂN THỊ THEO CĂN CỨ CÁN BỘ ĐƯỢC PHÂN CÔNG (MẶC ĐỊNH) */}
@@ -2473,7 +2620,27 @@ export function HoSoDiaBanManager({ user }: Props) {
                         <table className="w-full text-left border-collapse text-xs">
                           <thead>
                             <tr className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
-                              <th className="py-2.5 px-3.5 w-12 text-center">STT</th>
+                              <th className="py-2.5 px-3 w-10 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    group.records.length > 0 &&
+                                    group.records.every((r) => selectedRecordIds.has(r.id))
+                                  }
+                                  onChange={(e) => {
+                                    const next = new Set(selectedRecordIds);
+                                    if (e.target.checked) {
+                                      group.records.forEach((r) => next.add(r.id));
+                                    } else {
+                                      group.records.forEach((r) => next.delete(r.id));
+                                    }
+                                    setSelectedRecordIds(next);
+                                  }}
+                                  className="rounded border-slate-300 text-[#133863] focus:ring-[#133863] cursor-pointer"
+                                  title="Chọn / Bỏ chọn tất cả địa bàn của cán bộ này"
+                                />
+                              </th>
+                              <th className="py-2.5 px-3 w-12 text-center">STT</th>
                               <th className="py-2.5 px-3.5 min-w-[220px]">Địa bàn / Tổ chức Đảng</th>
                               <th className="py-2.5 px-3.5 min-w-[150px] text-center">Báo cáo tháng (T10)</th>
                               <th className="py-2.5 px-3.5 min-w-[130px] text-center">Vấn đề theo dõi</th>
@@ -2483,8 +2650,21 @@ export function HoSoDiaBanManager({ user }: Props) {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 bg-white">
-                            {group.records.map((item, idx) => (
-                              <tr key={item.id} className="hover:bg-slate-50/70 transition group">
+                            {group.records.map((item, idx) => {
+                              const isChecked = selectedRecordIds.has(item.id);
+                              return (
+                              <tr
+                                key={item.id}
+                                className={`transition group ${isChecked ? 'bg-blue-50/50 hover:bg-blue-50/70' : 'hover:bg-slate-50/70'}`}
+                              >
+                                <td className="py-2.5 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => handleToggleSelectRecord(item.id)}
+                                    className="rounded border-slate-300 text-[#133863] focus:ring-[#133863] cursor-pointer"
+                                  />
+                                </td>
                                 <td className="py-2.5 px-3.5 text-center font-semibold text-slate-400">
                                   {idx + 1}
                                 </td>
@@ -2587,7 +2767,8 @@ export function HoSoDiaBanManager({ user }: Props) {
                                   </div>
                                 </td>
                               </tr>
-                            ))}
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -2604,6 +2785,24 @@ export function HoSoDiaBanManager({ user }: Props) {
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-100/80 text-slate-700 font-bold border-b border-slate-200 uppercase tracking-wider">
+                    <th className="py-3 px-3 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        checked={
+                          filteredRecords.length > 0 &&
+                          filteredRecords.every((r) => selectedRecordIds.has(r.id))
+                        }
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedRecordIds(new Set(filteredRecords.map((r) => r.id)));
+                          } else {
+                            setSelectedRecordIds(new Set());
+                          }
+                        }}
+                        className="rounded border-slate-300 text-[#133863] focus:ring-[#133863] cursor-pointer"
+                        title="Chọn / Bỏ chọn tất cả"
+                      />
+                    </th>
                     <th className="py-3 px-3.5 w-12 text-center">STT</th>
                     <th className="py-3 px-3.5 min-w-[200px]">1. Địa bàn / Tổ chức Đảng</th>
                     <th className="py-3 px-3.5 min-w-[170px]">2. Cán bộ phụ trách hiện tại</th>
@@ -2618,16 +2817,26 @@ export function HoSoDiaBanManager({ user }: Props) {
                 <tbody className="divide-y divide-slate-200 bg-white">
                   {filteredRecords.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-slate-400">
+                      <td colSpan={10} className="py-12 text-center text-slate-400">
                         Không tìm thấy địa bàn nào phù hợp với bộ lọc tìm kiếm.
                       </td>
                     </tr>
                   ) : (
-                    filteredRecords.map((item, index) => (
+                    filteredRecords.map((item, index) => {
+                      const isChecked = selectedRecordIds.has(item.id);
+                      return (
                       <tr
                         key={item.id}
-                        className="hover:bg-slate-50/80 transition group"
+                        className={`transition group ${isChecked ? 'bg-blue-50/50 hover:bg-blue-50/70' : 'hover:bg-slate-50/80'}`}
                       >
+                        <td className="py-3 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => handleToggleSelectRecord(item.id)}
+                            className="rounded border-slate-300 text-[#133863] focus:ring-[#133863] cursor-pointer"
+                          />
+                        </td>
                         {/* STT */}
                         <td className="py-3 px-3.5 text-center font-bold text-slate-400">
                           {index + 1}
@@ -2774,7 +2983,8 @@ export function HoSoDiaBanManager({ user }: Props) {
                           </div>
                         </td>
                       </tr>
-                    ))
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -6130,6 +6340,120 @@ export function HoSoDiaBanManager({ user }: Props) {
                   <span>{isDeletingRecord ? 'Đang xóa...' : 'Xác nhận xóa hồ sơ'}</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ──────────────────────────────────────────────────────────────────────── */}
+      {/* MODAL XÁC NHẬN XÓA HÀNG LOẠT HỒ SƠ ĐỊA BÀN                                */}
+      {/* ──────────────────────────────────────────────────────────────────────── */}
+      {batchDeleteRecords.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-rose-700 to-red-800 px-5 py-4 text-white flex items-center justify-between border-b-2 border-rose-900 shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-white shadow-inner">
+                  <Trash2 className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold uppercase tracking-tight">XÓA HÀNG LOẠT HỒ SƠ ĐỊA BÀN</h3>
+                  <p className="text-xs text-rose-100/80">Xác nhận gỡ bỏ {batchDeleteRecords.length} hồ sơ địa bàn</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isBatchDeleting}
+                onClick={() => setBatchDeleteRecords([])}
+                className="text-white/80 hover:text-white p-1 rounded-md transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Nội dung */}
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 text-xs text-rose-800 space-y-1">
+                <p className="font-bold text-sm text-rose-900 flex items-center space-x-1.5">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>Cảnh báo: Thao tác này không thể hoàn tác!</span>
+                </p>
+                <p>
+                  Bạn có chắc chắn muốn xóa toàn bộ <strong>{batchDeleteRecords.length} hồ sơ địa bàn</strong> đã chọn khỏi danh mục theo dõi của UBKT?
+                </p>
+              </div>
+
+              {/* Danh sách địa bàn sẽ xóa */}
+              <div className="space-y-1.5">
+                <div className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                  <span>Danh sách hồ sơ địa bàn sẽ xóa ({batchDeleteRecords.length}):</span>
+                </div>
+                <div className="border border-slate-200 rounded-xl overflow-hidden max-h-56 overflow-y-auto divide-y divide-slate-100 bg-slate-50/50">
+                  {batchDeleteRecords.map((r, i) => {
+                    const fileCount = files.filter((f) => f.don_vi_id === r.id).length;
+                    return (
+                      <div
+                        key={r.id}
+                        className="p-3 text-xs flex items-center justify-between bg-white hover:bg-slate-50"
+                      >
+                        <div className="flex items-start space-x-2.5 truncate flex-1 pr-2">
+                          <span className="text-slate-400 font-mono text-[11px] w-5 text-right mt-0.5">
+                            {i + 1}.
+                          </span>
+                          <Building2 className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                          <div className="truncate">
+                            <span className="font-bold text-slate-900 block truncate" title={r.ten_dia_ban}>
+                              {r.ten_dia_ban}
+                            </span>
+                            <span className="text-[11px] text-slate-500">
+                              Phụ trách: <strong>{r.can_bo_phu_trach_ten || 'Chưa phân công'}</strong>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                            {fileCount} tệp
+                          </span>
+                          {r.so_van_de_theo_doi > 0 && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                              {r.so_van_de_theo_doi} vấn đề
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-500 italic leading-relaxed">
+                * Thao tác xóa sẽ dọn sạch tài liệu đính kèm, vấn đề theo dõi và chỉ đạo gắn với các hồ sơ địa bàn này trên hệ thống.
+              </p>
+            </div>
+
+            {/* Nút thao tác */}
+            <div className="px-5 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end space-x-2 shrink-0">
+              <button
+                type="button"
+                disabled={isBatchDeleting}
+                onClick={() => setBatchDeleteRecords([])}
+                className="px-4 py-2 text-xs font-semibold bg-white border border-slate-300 rounded-xl hover:bg-slate-100 text-slate-700 cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                disabled={isBatchDeleting}
+                onClick={() => handleConfirmBatchDeleteRecords(batchDeleteRecords)}
+                className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-xl transition shadow-sm flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>
+                  {isBatchDeleting ? 'Đang xóa...' : `Xác nhận xóa ${batchDeleteRecords.length} hồ sơ`}
+                </span>
+              </button>
             </div>
           </div>
         </div>
