@@ -245,6 +245,9 @@ export const OrgImportExcelModal: React.FC<OrgImportExcelModalProps> = ({
                   </span>
                 </button>
               </div>
+            </div>
+          </div>
+
           {/* Khối hướng dẫn Mã cấp trên */}
           <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs space-y-2">
             <div className="font-bold text-blue-900 flex items-center gap-1.5">

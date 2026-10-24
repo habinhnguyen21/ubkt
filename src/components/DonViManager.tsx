@@ -330,6 +330,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
   // 5. Lưu form thêm / sửa tổ chức
   const handleSaveForm = async (data: {
     ten: string;
+    ma?: string;
     don_vi_cha_id: string | null;
     trang_thai: TrangThaiDonVi;
     ghi_chu?: string | null;
@@ -339,6 +340,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
         {
           id: formEditingUnit.id,
           ten: data.ten,
+          ma: data.ma !== undefined ? data.ma : formEditingUnit.ma,
           loai: formEditingUnit.loai || 'CHI_BO',
           don_vi_cha_id: data.don_vi_cha_id,
           trang_thai: data.trang_thai,
@@ -352,6 +354,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
       await api.createDonVi(
         {
           ten: data.ten,
+          ma: data.ma,
           loai: 'CHI_BO',
           don_vi_cha_id: data.don_vi_cha_id,
           trang_thai: data.trang_thai,

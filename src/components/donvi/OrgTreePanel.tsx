@@ -146,6 +146,18 @@ export const OrgTreePanel: React.FC<OrgTreePanelProps> = ({
               {node.ten}
             </span>
 
+            {/* Mã tổ chức */}
+            <span
+              className={`text-[10px] font-mono px-1 rounded shrink-0 ${
+                isSelected
+                  ? 'bg-white/20 text-white'
+                  : 'bg-slate-100 text-slate-500 border border-slate-200'
+              }`}
+              title={`Mã: ${node.ma || 'DU-01'}`}
+            >
+              {node.ma || 'DU-01'}
+            </span>
+
             {/* Số lượng trực thuộc */}
             {hasChildren && (
               <span

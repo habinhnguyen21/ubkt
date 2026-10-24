@@ -18,6 +18,7 @@ interface OrgFormModalProps {
   onClose: () => void;
   onSave: (data: {
     ten: string;
+    ma?: string;
     don_vi_cha_id: string | null;
     trang_thai: TrangThaiDonVi;
     ghi_chu?: string | null;
@@ -34,6 +35,7 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
   onSave,
 }) => {
   const [ten, setTen] = useState('');
+  const [ma, setMa] = useState('');
   const [donViChaId, setDonViChaId] = useState<string>('');
   const [trangThai, setTrangThai] = useState<TrangThaiDonVi>('DANG_HOAT_DONG');
   const [ghiChu, setGhiChu] = useState('');
@@ -47,11 +49,13 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
 
     if (editingUnit) {
       setTen(editingUnit.ten);
+      setMa(editingUnit.ma || '');
       setDonViChaId(editingUnit.don_vi_cha_id || '');
       setTrangThai(editingUnit.trang_thai || 'DANG_HOAT_DONG');
       setGhiChu(editingUnit.ghi_chu || '');
     } else {
       setTen('');
+      setMa('');
       setDonViChaId(defaultParentId || '');
       setTrangThai('DANG_HOAT_DONG');
       setGhiChu('');
@@ -113,10 +117,22 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
       }
     }
 
+    const cleanMa = ma.trim().toUpperCase();
+    if (cleanMa) {
+      const duplicateMa = allUnits.find(
+        (u) => (!editingUnit || u.id !== editingUnit.id) && u.ma && u.ma.toUpperCase() === cleanMa && !u.deleted_at
+      );
+      if (duplicateMa) {
+        setErrorMsg(`Mã tổ chức "${cleanMa}" đã được sử dụng cho "${duplicateMa.ten}". Vui lòng nhập mã khác.`);
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
       await onSave({
         ten: cleanTen,
+        ma: cleanMa || undefined,
         don_vi_cha_id: donViChaId ? donViChaId : null,
         trang_thai: trangThai,
         ghi_chu: ghiChu.trim() ? ghiChu.trim() : null,
@@ -189,6 +205,24 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
                 onChange={(e) => handleTenChange(e.target.value)}
                 placeholder="Ví dụ: Chi bộ Quân sự, Chi bộ Công an, Chi bộ Khu dân cư số 1..."
                 className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-700 uppercase">
+                  Mã tổ chức
+                </label>
+                <span className="text-[11px] text-slate-400">
+                  (Dùng làm Mã cấp trên khi nhập Excel)
+                </span>
+              </div>
+              <input
+                type="text"
+                value={ma}
+                onChange={(e) => setMa(e.target.value.toUpperCase())}
+                placeholder="Ví dụ: DU-01, CB-01 (nếu để trống hệ thống sẽ tự sinh mã)"
+                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-mono"
               />
             </div>
 

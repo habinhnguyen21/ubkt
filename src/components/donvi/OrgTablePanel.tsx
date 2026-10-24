@@ -380,7 +380,12 @@ export const OrgTablePanel: React.FC<OrgTablePanelProps> = ({
                     <td className="p-3 font-bold text-slate-900">
                       <div className="flex items-center gap-2">
                         <Building2 className="w-4 h-4 text-blue-600 shrink-0" />
-                        <span title={unit.ten}>{unit.ten}</span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span title={unit.ten}>{unit.ten}</span>
+                          <span className="font-mono text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200" title={`Mã tổ chức: ${unit.ma || 'DU-01'}`}>
+                            {unit.ma || 'DU-01'}
+                          </span>
+                        </div>
                       </div>
                     </td>
                     <td className="p-3 text-slate-600 text-xs truncate max-w-48" title={parentName}>

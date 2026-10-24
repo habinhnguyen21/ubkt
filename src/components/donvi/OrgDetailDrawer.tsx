@@ -16,6 +16,8 @@ import {
   ChevronRight,
   LogOut,
   Trash2,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 interface OrgDetailDrawerProps {
@@ -57,6 +59,7 @@ export const OrgDetailDrawer: React.FC<OrgDetailDrawerProps> = ({
     history: [],
   });
   const [loadingRelations, setLoadingRelations] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   // Lắng nghe phím ESC để đóng
   useEffect(() => {
@@ -270,6 +273,37 @@ export const OrgDetailDrawer: React.FC<OrgDetailDrawerProps> = ({
             <div className="p-3 flex justify-between items-start gap-4">
               <span className="text-slate-500 font-medium shrink-0">Tên tổ chức:</span>
               <span className="font-bold text-slate-900 text-right">{unit.ten}</span>
+            </div>
+
+            <div className="p-3 flex justify-between items-center gap-4 bg-slate-50/60">
+              <span className="text-slate-500 font-medium shrink-0">Mã tổ chức:</span>
+              <div className="flex items-center gap-2">
+                <span className="font-mono font-bold text-blue-700 bg-blue-100/70 text-xs px-2.5 py-0.5 rounded-md border border-blue-200">
+                  {unit.ma || 'DU-01'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(unit.ma || 'DU-01');
+                    setCopiedCode(true);
+                    setTimeout(() => setCopiedCode(false), 2000);
+                  }}
+                  title="Sao chép mã tổ chức để dùng làm mã cấp trên"
+                  className="px-2 py-0.5 text-slate-500 hover:text-blue-700 hover:bg-white rounded transition border border-slate-200 hover:border-blue-300 cursor-pointer flex items-center gap-1 text-[11px] font-medium bg-white/80 shadow-2xs"
+                >
+                  {copiedCode ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="text-emerald-700 font-semibold text-[10px]">Đã chép</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span className="text-slate-600 text-[10px]">Sao chép mã</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
             <div className="p-3 flex justify-between items-center gap-4">
