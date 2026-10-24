@@ -374,51 +374,453 @@ export const cloudSyncService = {
     }
   },
 
-  // ── ĐỒNG BỘ 2 CHIỀU THÔNG MINH (SMART 2-WAY SYNC) ──────────────────────────
-  async smartSync(onProgress?: (msg: string) => void): Promise<{ success: boolean; action: 'pushed' | 'pulled' | 'merged'; counts: any }> {
+  _autoSyncTimer: null as any,
+  _isSyncing: false,
+
+  // Trạng thái bật/tắt tự động đồng bộ ẩn
+  isAutoSyncEnabled(): boolean {
     try {
-      onProgress?.('Kiểm tra dữ liệu trên Cloud...');
-      const [donViSnap, ctSnap, diaBanSnap] = await Promise.all([
+      return localStorage.getItem('ubkt_cloud_auto_sync_enabled') !== 'false';
+    } catch {
+      return true;
+    }
+  },
+
+  setAutoSyncEnabled(enabled: boolean) {
+    try {
+      localStorage.setItem('ubkt_cloud_auto_sync_enabled', enabled ? 'true' : 'false');
+      window.dispatchEvent(new CustomEvent('ubkt_auto_sync_config_changed', { detail: { enabled } }));
+    } catch {}
+    if (enabled) {
+      this.startAutoSync();
+    } else {
+      this.stopAutoSync();
+    }
+  },
+
+  getAutoSyncInterval(): number {
+    try {
+      const v = localStorage.getItem('ubkt_cloud_auto_sync_interval');
+      const parsed = v ? parseInt(v, 10) : 30;
+      return parsed >= 10 ? parsed : 30;
+    } catch {
+      return 30;
+    }
+  },
+
+  setAutoSyncInterval(seconds: number) {
+    try {
+      localStorage.setItem('ubkt_cloud_auto_sync_interval', String(seconds));
+    } catch {}
+    if (this.isAutoSyncEnabled()) {
+      this.startAutoSync();
+    }
+  },
+
+  // Bắt đầu chu trình tự động đồng bộ ẩn định kỳ (mặc định 30s)
+  startAutoSync() {
+    this.stopAutoSync();
+    if (!this.isAutoSyncEnabled()) return;
+
+    const intervalSec = this.getAutoSyncInterval();
+    console.log(`[CloudSync] Đã kích hoạt tự động đồng bộ 2 chiều ẩn định kỳ mỗi ${intervalSec} giây.`);
+
+    this._autoSyncTimer = setInterval(async () => {
+      // Bỏ qua nếu mất kết nối mạng hoặc đang bận đồng bộ
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      if (this._isSyncing) return;
+
+      try {
+        await this.performTwoWaySync(true);
+      } catch {
+        // Chạy ngầm bỏ qua lỗi tạm thời
+      }
+    }, intervalSec * 1000);
+  },
+
+  stopAutoSync() {
+    if (this._autoSyncTimer) {
+      clearInterval(this._autoSyncTimer);
+      this._autoSyncTimer = null;
+    }
+  },
+
+  // ── ĐỒNG BỘ 2 CHIỀU THỰC SỰ (TRUE 2-WAY MERGE SYNC) ──────────────────────
+  async performTwoWaySync(silent = false, onProgress?: (msg: string) => void): Promise<{
+    success: boolean;
+    error?: string;
+    action: 'merged';
+    counts: any;
+  }> {
+    if (this._isSyncing) {
+      return { success: true, action: 'merged', counts: {} };
+    }
+    this._isSyncing = true;
+    if (silent) {
+      window.dispatchEvent(new CustomEvent('ubkt_silent_sync_start'));
+    }
+
+    try {
+      onProgress?.('Đang kết nối Firestore Cloud...');
+
+      const [
+        donViSnap,
+        ctSnap,
+        diaBanSnap,
+        filesSnap,
+        bcSnap,
+        pdfSnap,
+        donThuSnap,
+        usersSnap,
+        phanCongSnap,
+        gdriveDoc,
+      ] = await Promise.all([
         getDocs(collection(firestoreDb, 'don_vi')),
         getDocs(collection(firestoreDb, 'chuong_trinh')),
         getDocs(collection(firestoreDb, 'ho_so_dia_ban_records')),
+        getDocs(collection(firestoreDb, 'ho_so_dia_ban_files')),
+        getDocs(collection(firestoreDb, 'bao_cao_thang')),
+        getDocs(collection(firestoreDb, 'pdf_files')),
+        getDocs(collection(firestoreDb, 'don_thu')),
+        getDocs(collection(firestoreDb, 'users')),
+        getDocs(collection(firestoreDb, 'phan_cong_dia_ban')),
+        getDoc(doc(firestoreDb, 'system_config', 'google_drive')),
       ]);
 
-      const cloudTotal = donViSnap.size + ctSnap.size + diaBanSnap.size;
+      onProgress?.('Đang hợp nhất dữ liệu 2 chiều...');
 
-      // Đếm dữ liệu cục bộ
-      let localMockDb: any = {};
+      let currentMockDb: any = {};
       try {
         const raw = localStorage.getItem('ubkt_mock_db');
-        if (raw) localMockDb = JSON.parse(raw);
+        if (raw) currentMockDb = JSON.parse(raw);
       } catch {}
 
-      let localDiaBan: any[] = [];
+      let currentDiaBan: any[] = [];
       try {
         const raw = localStorage.getItem('ubkt_ho_so_dia_ban_records');
-        if (raw) localDiaBan = JSON.parse(raw);
+        if (raw) currentDiaBan = JSON.parse(raw);
       } catch {}
 
-      const localTotal =
-        (localMockDb.donViList?.length || 0) +
-        (localMockDb.chuongTrinhList?.length || 0) +
-        (localDiaBan.length || 0);
+      let currentFiles: any[] = [];
+      try {
+        const raw = localStorage.getItem('ubkt_ho_so_dia_ban_files');
+        if (raw) currentFiles = JSON.parse(raw);
+      } catch {}
 
-      // Trường hợp 1: Cloud hoàn toàn trống mà máy này có dữ liệu -> Tự động đẩy lên Cloud
-      if (cloudTotal === 0 && localTotal > 0) {
-        onProgress?.('Phát hiện Cloud trống: Đang tự động tải dữ liệu máy này lên Cloud...');
-        const pushRes = await this.pushAllToCloud(onProgress);
-        return { success: pushRes.success, action: 'pushed', counts: pushRes.counts };
+      let currentBc: any[] = [];
+      try {
+        const raw = localStorage.getItem('ubkt_bao_cao_thang');
+        if (raw) currentBc = JSON.parse(raw);
+      } catch {}
+
+      let currentPhanCong: any[] = [];
+      try {
+        const raw = localStorage.getItem('ubkt_phan_cong_dia_ban');
+        if (raw) currentPhanCong = JSON.parse(raw);
+      } catch {}
+
+      let deletedDvIds = new Set<string>();
+      try {
+        const raw = localStorage.getItem('ubkt_deleted_don_vi_ids');
+        if (raw) deletedDvIds = new Set(JSON.parse(raw));
+      } catch {}
+
+      let deletedCtIds = new Set<string>();
+      try {
+        const raw = localStorage.getItem('ubkt_deleted_chuong_trinh_ids');
+        if (raw) deletedCtIds = new Set(JSON.parse(raw));
+      } catch {}
+
+      const itemsToPushToCloud: { collection: string; id: string; data: any }[] = [];
+
+      // A. ĐƠN VỊ (don_vi)
+      const cloudDonViList = donViSnap.docs.map((d) => d.data() as DonVi);
+      const localDonViList: DonVi[] = currentMockDb.donViList || [];
+      const donViMap = new Map<string, DonVi>();
+
+      localDonViList.forEach((item) => {
+        if (!deletedDvIds.has(item.id) && !item.deleted_at) {
+          donViMap.set(item.id, item);
+        }
+      });
+
+      cloudDonViList.forEach((cloudItem) => {
+        if (deletedDvIds.has(cloudItem.id) || cloudItem.deleted_at) {
+          donViMap.delete(cloudItem.id);
+        } else {
+          const localItem = donViMap.get(cloudItem.id);
+          if (!localItem) {
+            donViMap.set(cloudItem.id, cloudItem);
+          } else {
+            const cloudTime = new Date(cloudItem.updated_at || cloudItem.created_at || 0).getTime();
+            const localTime = new Date(localItem.updated_at || localItem.created_at || 0).getTime();
+            if (cloudTime > localTime) {
+              donViMap.set(cloudItem.id, cloudItem);
+            } else if (localTime > cloudTime) {
+              itemsToPushToCloud.push({ collection: 'don_vi', id: localItem.id, data: localItem });
+            }
+          }
+        }
+      });
+
+      const cloudDvIdSet = new Set(cloudDonViList.map((d) => d.id));
+      localDonViList.forEach((localItem) => {
+        if (!cloudDvIdSet.has(localItem.id) && !deletedDvIds.has(localItem.id) && !localItem.deleted_at) {
+          itemsToPushToCloud.push({ collection: 'don_vi', id: localItem.id, data: localItem });
+        }
+      });
+      currentMockDb.donViList = Array.from(donViMap.values());
+
+      // B. CHƯƠNG TRÌNH KT-GS (chuong_trinh)
+      const cloudCtList = ctSnap.docs.map((d) => d.data() as ChuongTrinhKtGs);
+      const localCtList: ChuongTrinhKtGs[] = currentMockDb.chuongTrinhList || [];
+      const ctMap = new Map<string, ChuongTrinhKtGs>();
+
+      localCtList.forEach((item) => {
+        if (!deletedCtIds.has(item.id)) ctMap.set(item.id, item);
+      });
+
+      cloudCtList.forEach((cloudItem) => {
+        if (deletedCtIds.has(cloudItem.id)) {
+          ctMap.delete(cloudItem.id);
+        } else {
+          const localItem = ctMap.get(cloudItem.id);
+          if (!localItem) {
+            ctMap.set(cloudItem.id, cloudItem);
+          } else {
+            const cloudTime = new Date((cloudItem as any).updated_at || (cloudItem as any).created_at || 0).getTime();
+            const localTime = new Date((localItem as any).updated_at || (localItem as any).created_at || 0).getTime();
+            if (cloudTime > localTime) {
+              ctMap.set(cloudItem.id, cloudItem);
+            } else if (localTime > cloudTime) {
+              itemsToPushToCloud.push({ collection: 'chuong_trinh', id: localItem.id, data: localItem });
+            }
+          }
+        }
+      });
+
+      const cloudCtIdSet = new Set(cloudCtList.map((c) => c.id));
+      localCtList.forEach((localItem) => {
+        if (!cloudCtIdSet.has(localItem.id) && !deletedCtIds.has(localItem.id)) {
+          itemsToPushToCloud.push({ collection: 'chuong_trinh', id: localItem.id, data: localItem });
+        }
+      });
+      currentMockDb.chuongTrinhList = Array.from(ctMap.values());
+
+      // C. HỒ SƠ ĐỊA BÀN (ho_so_dia_ban_records)
+      const cloudDiaBan = diaBanSnap.docs.map((d) => d.data());
+      const diaBanMap = new Map<string, any>();
+      currentDiaBan.forEach((r) => diaBanMap.set(r.id, r));
+      cloudDiaBan.forEach((c) => {
+        const local = diaBanMap.get(c.id);
+        if (!local) {
+          diaBanMap.set(c.id, c);
+        } else {
+          const cTime = new Date(c.updated_at || c.thoi_gian_tao || 0).getTime();
+          const lTime = new Date(local.updated_at || local.thoi_gian_tao || 0).getTime();
+          if (cTime > lTime) {
+            diaBanMap.set(c.id, c);
+          } else if (lTime > cTime) {
+            itemsToPushToCloud.push({ collection: 'ho_so_dia_ban_records', id: local.id, data: local });
+          }
+        }
+      });
+      const cloudDbSet = new Set(cloudDiaBan.map((d) => d.id));
+      currentDiaBan.forEach((r) => {
+        if (!cloudDbSet.has(r.id)) {
+          itemsToPushToCloud.push({ collection: 'ho_so_dia_ban_records', id: r.id, data: r });
+        }
+      });
+      const mergedDiaBan = Array.from(diaBanMap.values());
+      localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(mergedDiaBan));
+
+      // D. FILE ĐỊA BÀN (ho_so_dia_ban_files)
+      const cloudFiles = filesSnap.docs.map((d) => d.data() as HoSoDiaBanFile);
+      const filesMap = new Map<string, any>();
+      currentFiles.forEach((f) => filesMap.set(f.id, f));
+      cloudFiles.forEach((c) => {
+        if (!filesMap.has(c.id)) filesMap.set(c.id, c);
+      });
+      const cloudFilesSet = new Set(cloudFiles.map((f) => f.id));
+      currentFiles.forEach((f) => {
+        if (!cloudFilesSet.has(f.id)) {
+          itemsToPushToCloud.push({ collection: 'ho_so_dia_ban_files', id: f.id, data: f });
+        }
+      });
+      const mergedFiles = Array.from(filesMap.values());
+      localStorage.setItem('ubkt_ho_so_dia_ban_files', JSON.stringify(mergedFiles));
+
+      // E. BÁO CÁO THÁNG (bao_cao_thang)
+      const cloudBc = bcSnap.docs.map((d) => d.data() as BaoCaoThangItem);
+      const bcMap = new Map<string, any>();
+      currentBc.forEach((b) => bcMap.set(b.id, b));
+      cloudBc.forEach((c) => {
+        if (!bcMap.has(c.id)) bcMap.set(c.id, c);
+      });
+      const cloudBcSet = new Set(cloudBc.map((b) => b.id));
+      currentBc.forEach((b) => {
+        if (!cloudBcSet.has(b.id)) {
+          itemsToPushToCloud.push({ collection: 'bao_cao_thang', id: b.id, data: b });
+        }
+      });
+      const mergedBc = Array.from(bcMap.values());
+      localStorage.setItem('ubkt_bao_cao_thang', JSON.stringify(mergedBc));
+
+      // F. KHO PDF (pdf_files)
+      const cloudPdf = pdfSnap.docs.map((d) => d.data() as PdfKhoItem);
+      const localPdf: PdfKhoItem[] = currentMockDb.pdfFiles || [];
+      const pdfMap = new Map<string, PdfKhoItem>();
+      localPdf.forEach((p) => pdfMap.set(p.id, p));
+      cloudPdf.forEach((c) => {
+        if (!pdfMap.has(c.id)) pdfMap.set(c.id, c);
+      });
+      const cloudPdfSet = new Set(cloudPdf.map((p) => p.id));
+      localPdf.forEach((p) => {
+        if (!cloudPdfSet.has(p.id)) {
+          itemsToPushToCloud.push({ collection: 'pdf_files', id: p.id, data: p });
+        }
+      });
+      currentMockDb.pdfFiles = Array.from(pdfMap.values());
+
+      // G. ĐƠN THƯ (don_thu)
+      const cloudDonThu = donThuSnap.docs.map((d) => d.data() as DonThu);
+      const localDonThu: DonThu[] = currentMockDb.donThuList || [];
+      const donThuMap = new Map<string, DonThu>();
+      localDonThu.forEach((d) => donThuMap.set(d.id, d));
+      cloudDonThu.forEach((c) => {
+        if (!donThuMap.has(c.id)) donThuMap.set(c.id, c);
+      });
+      const cloudDonThuSet = new Set(cloudDonThu.map((d) => d.id));
+      localDonThu.forEach((d) => {
+        if (!cloudDonThuSet.has(d.id)) {
+          itemsToPushToCloud.push({ collection: 'don_thu', id: d.id, data: d });
+        }
+      });
+      currentMockDb.donThuList = Array.from(donThuMap.values());
+
+      // H. TÀI KHOẢN (users)
+      const cloudUsers = usersSnap.docs.map((d) => d.data() as User & { mat_khau?: string });
+      const localUsers: (User & { mat_khau?: string })[] = currentMockDb.users || [];
+      const userMap = new Map<string, User & { mat_khau?: string }>();
+      localUsers.forEach((u) => {
+        const k = u.id || u.ten_dang_nhap?.toLowerCase();
+        if (k) userMap.set(k, u);
+      });
+      cloudUsers.forEach((cu) => {
+        const k = cu.id || cu.ten_dang_nhap?.toLowerCase();
+        if (!k) return;
+        const lu = userMap.get(k);
+        if (!lu) {
+          userMap.set(k, cu);
+        } else {
+          if (!cu.mat_khau && lu.mat_khau) {
+            cu.mat_khau = lu.mat_khau;
+          }
+          userMap.set(k, cu);
+        }
+      });
+      const cloudUserKeys = new Set(cloudUsers.map((u) => u.id || u.ten_dang_nhap?.toLowerCase()));
+      localUsers.forEach((lu) => {
+        const k = lu.id || lu.ten_dang_nhap?.toLowerCase();
+        if (k && !cloudUserKeys.has(k)) {
+          itemsToPushToCloud.push({ collection: 'users', id: lu.id, data: lu });
+        }
+      });
+      currentMockDb.users = Array.from(userMap.values());
+
+      // I. PHÂN CÔNG ĐỊA BÀN (phan_cong_dia_ban)
+      const cloudPhanCong = phanCongSnap.docs.map((d) => d.data());
+      const pcMap = new Map<string, any>();
+      currentPhanCong.forEach((p) => {
+        const k = p.id || p.don_vi_id;
+        if (k) pcMap.set(k, p);
+      });
+      cloudPhanCong.forEach((c) => {
+        const k = c.id || c.don_vi_id;
+        if (k && !pcMap.has(k)) pcMap.set(k, c);
+      });
+      const cloudPcKeys = new Set(cloudPhanCong.map((p) => p.id || p.don_vi_id));
+      currentPhanCong.forEach((p) => {
+        const k = p.id || p.don_vi_id;
+        if (k && !cloudPcKeys.has(k)) {
+          itemsToPushToCloud.push({ collection: 'phan_cong_dia_ban', id: p.id || p.don_vi_id, data: p });
+        }
+      });
+      localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(Array.from(pcMap.values())));
+
+      // Cấu hình Google Drive
+      if (gdriveDoc.exists()) {
+        const gcfg = gdriveDoc.data();
+        localStorage.setItem('ubkt_google_drive_config', JSON.stringify(gcfg));
       }
 
-      // Trường hợp 2: Cloud đã có dữ liệu -> Kéo dữ liệu mới nhất từ Cloud về
-      onProgress?.('Đang cập nhật dữ liệu mới nhất từ Cloud về máy này...');
-      const pullRes = await this.pullAllFromCloud(onProgress);
-      return { success: pullRes.success, action: 'pulled', counts: pullRes.counts };
+      // Lưu trữ cơ sở dữ liệu local
+      localStorage.setItem('ubkt_mock_db', JSON.stringify(currentMockDb));
+
+      // Đẩy các mục mới ở máy này lên Cloud
+      if (itemsToPushToCloud.length > 0) {
+        onProgress?.(`Đang đồng bộ ${itemsToPushToCloud.length} mục mới lên Cloud...`);
+        for (const item of itemsToPushToCloud) {
+          await this.saveItemToCloud(item.collection, item.id, item.data);
+        }
+      }
+
+      const syncTime = new Date().toLocaleTimeString('vi-VN');
+      this.setLastSyncedAt(syncTime);
+      localStorage.setItem('ubkt_prod_clean_done', 'true');
+
+      // Phát sự kiện cập nhật
+      window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
+      window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_assignments_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_gdrive_config_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_sync_status_changed', {
+        detail: {
+          isSyncing: false,
+          lastSyncedAt: syncTime,
+          mode: silent ? 'auto' : 'manual',
+          pushedCount: itemsToPushToCloud.length,
+        },
+      }));
+
+      return {
+        success: true,
+        action: 'merged',
+        counts: {
+          donVi: currentMockDb.donViList?.length || 0,
+          chuongTrinh: currentMockDb.chuongTrinhList?.length || 0,
+          hoSoDiaBan: mergedDiaBan.length,
+          hoSoFiles: mergedFiles.length,
+          baoCaoThang: mergedBc.length,
+          pdfFiles: currentMockDb.pdfFiles?.length || 0,
+          donThu: currentMockDb.donThuList?.length || 0,
+          users: currentMockDb.users?.length || 0,
+        },
+      };
     } catch (err: any) {
-      console.error('[CloudSync] Lỗi đồng bộ thông minh:', err);
-      return { success: false, action: 'merged', counts: {} };
+      if (!silent) {
+        console.error('[CloudSync] Lỗi đồng bộ 2 chiều:', err);
+      }
+      return {
+        success: false,
+        error: err.message || String(err),
+        action: 'merged',
+        counts: {},
+      };
+    } finally {
+      this._isSyncing = false;
+      if (silent) {
+        window.dispatchEvent(new CustomEvent('ubkt_silent_sync_end'));
+      }
     }
+  },
+
+  // ── ĐỒNG BỘ 2 CHIỀU THÔNG MINH (SMART 2-WAY SYNC) ──────────────────────────
+  async smartSync(onProgress?: (msg: string) => void): Promise<{ success: boolean; action: 'pushed' | 'pulled' | 'merged'; counts: any }> {
+    return this.performTwoWaySync(false, onProgress);
   },
 
   // Lấy tóm tắt số lượng bản ghi hiện có trên Cloud

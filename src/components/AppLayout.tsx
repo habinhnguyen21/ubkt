@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { AppInfo, User } from '../types';
 import logoUbkt from '../assets/logo-ubkt.jpg';
+import { cloudSyncService } from '../services/cloudSyncService';
 
 type TabKey = 'tong_quan' | 'don_vi' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
 
@@ -53,6 +54,32 @@ export function AppLayout({
 }: LayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [isSilentSyncing, setIsSilentSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => cloudSyncService.getLastSyncedAt());
+
+  useEffect(() => {
+    const handleStart = () => setIsSilentSyncing(true);
+    const handleEnd = () => setIsSilentSyncing(false);
+    const handleStatusChanged = (e: Event) => {
+      const ce = e as CustomEvent<{ lastSyncedAt?: string }>;
+      if (ce.detail?.lastSyncedAt) {
+        setLastSyncTime(ce.detail.lastSyncedAt);
+      } else {
+        setLastSyncTime(cloudSyncService.getLastSyncedAt());
+      }
+      setIsSilentSyncing(false);
+    };
+
+    window.addEventListener('ubkt_silent_sync_start', handleStart);
+    window.addEventListener('ubkt_silent_sync_end', handleEnd);
+    window.addEventListener('ubkt_sync_status_changed', handleStatusChanged);
+
+    return () => {
+      window.removeEventListener('ubkt_silent_sync_start', handleStart);
+      window.removeEventListener('ubkt_silent_sync_end', handleEnd);
+      window.removeEventListener('ubkt_sync_status_changed', handleStatusChanged);
+    };
+  }, []);
 
   const SIDEBAR_W = sidebarCollapsed ? 60 : 220;
 
@@ -220,15 +247,49 @@ export function AppLayout({
           {/* Nút Đồng bộ Cloud Firebase */}
           <button
             onClick={onOpenCloudSync}
-            title="Đồng bộ Đám mây Firebase Firestore (Click để chia sẻ & đồng bộ đa thiết bị)"
+            title={`Đồng bộ Đám mây 2 chiều (Tự động 30s ẩn) - Lần cuối: ${lastSyncTime || 'Chưa rõ'}`}
             style={{
-              background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6,
-              padding: '4px 10px', cursor: 'pointer', color: '#1d4ed8', fontSize: 12,
-              display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600,
+              background: isSilentSyncing ? '#eff6ff' : '#f8fafc',
+              border: isSilentSyncing ? '1.5px solid #3b82f6' : '1px solid #cbd5e1',
+              borderRadius: 6,
+              padding: '4px 10px',
+              cursor: 'pointer',
+              color: isSilentSyncing ? '#1d4ed8' : '#334155',
+              fontSize: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontWeight: 600,
+              boxShadow: isSilentSyncing ? '0 0 8px rgba(59,130,246,0.25)' : 'none',
+              transition: 'all 0.2s ease',
             }}
           >
-            <span style={{ fontSize: 14 }}>☁️</span>
-            <span>Đồng bộ Cloud</span>
+            <span
+              style={{
+                fontSize: 13,
+                display: 'inline-block',
+                animation: isSilentSyncing ? 'spin 1.2s linear infinite' : 'none',
+              }}
+            >
+              ☁️
+            </span>
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: '#10b981',
+                boxShadow: '0 0 6px rgba(16,185,129,0.8)',
+                display: 'inline-block',
+              }}
+            />
+            <span>
+              {isSilentSyncing
+                ? 'Đang đồng bộ ẩn...'
+                : lastSyncTime
+                ? `Đồng bộ ẩn (30s) · ${lastSyncTime}`
+                : 'Đồng bộ ẩn (30s)'}
+            </span>
           </button>
 
           {/* Trạng thái Trực tuyến */}

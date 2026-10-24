@@ -72,12 +72,18 @@ export function App() {
     };
     window.addEventListener('ubkt_data_synced', handleDataSynced);
 
-    // Tự động kiểm tra và đồng bộ Cloud 2 chiều khi khởi động ứng dụng
+    // Khởi chạy vòng lặp tự động đồng bộ 2 chiều ẩn định kỳ mỗi 30s
+    cloudSyncService.startAutoSync();
+
+    // Đồng bộ ban đầu ngay khi vào app
     cloudSyncService.smartSync().catch((err) => {
-      console.warn('[App] Lỗi đồng bộ đám mây tự động:', err);
+      console.warn('[App] Lỗi đồng bộ đám mây ban đầu:', err);
     });
 
-    return () => window.removeEventListener('ubkt_data_synced', handleDataSynced);
+    return () => {
+      window.removeEventListener('ubkt_data_synced', handleDataSynced);
+      cloudSyncService.stopAutoSync();
+    };
   }, [fetchAppInfo]);
 
   // Lắng nghe sự kiện điều hướng tab giữa các phân hệ (vd: link từ Chương trình nhiệm kỳ sang Hồ sơ địa bàn)

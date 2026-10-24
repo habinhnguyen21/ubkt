@@ -32,6 +32,8 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
     pdfFiles: 0,
   });
   const [statusAlert, setStatusAlert] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(() => cloudSyncService.isAutoSyncEnabled());
+  const [autoSyncInterval, setAutoSyncInterval] = useState<number>(() => cloudSyncService.getAutoSyncInterval());
 
   const calculateLocalCounts = () => {
     let mockDb: any = {};
@@ -70,11 +72,18 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
 
   const loadCloudInfo = async () => {
     setLastSynced(cloudSyncService.getLastSyncedAt());
+    setAutoSyncEnabled(cloudSyncService.isAutoSyncEnabled());
+    setAutoSyncInterval(cloudSyncService.getAutoSyncInterval());
     calculateLocalCounts();
     try {
       const summary = await cloudSyncService.getCloudSummary();
       setCloudSummary(summary);
     } catch {}
+  };
+
+  const handleToggleAutoSync = (enabled: boolean) => {
+    cloudSyncService.setAutoSyncEnabled(enabled);
+    setAutoSyncEnabled(enabled);
   };
 
   useEffect(() => {
@@ -222,6 +231,36 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
               <span>Làm mới số liệu</span>
             </button>
           </div>
+        </div>
+
+        {/* Khối Cấu hình Tự động đồng bộ ẩn 2 chiều định kỳ 30s */}
+        <div className="bg-gradient-to-r from-blue-50/80 via-indigo-50/70 to-slate-50 border border-blue-200/80 rounded-xl p-3.5 flex items-center justify-between shadow-xs">
+          <div className="flex items-center space-x-3">
+            <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-white transition ${autoSyncEnabled ? 'bg-blue-600 shadow-xs' : 'bg-slate-400'}`}>
+              <RefreshCw className={`w-4 h-4 ${autoSyncEnabled ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-xs text-slate-800">Tự động đồng bộ 2 chiều ẩn</span>
+                <span className={`px-2 py-0.5 text-[10px] rounded-full font-bold border ${autoSyncEnabled ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-slate-200 text-slate-600 border-slate-300'}`}>
+                  {autoSyncEnabled ? `Mỗi ${autoSyncInterval} giây` : 'Đang tắt'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Hệ thống tự động đồng bộ ngầm mọi thay đổi giữa máy tính này và Cloud định kỳ 30s mà không gián đoạn công việc.
+              </p>
+            </div>
+          </div>
+
+          <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
+            <input
+              type="checkbox"
+              checked={autoSyncEnabled}
+              onChange={(e) => handleToggleAutoSync(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+          </label>
         </div>
 
         {/* Bảng so sánh dữ liệu: Máy này vs Cloud */}
