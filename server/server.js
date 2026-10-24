@@ -219,6 +219,40 @@ function isUnitDescendant(list, parentId, targetChildId) {
   return false;
 }
 
+// Helper tự động sinh mã tổ chức tuần tự không ngẫu nhiên (tránh trùng lặp)
+function getNextSequentialCode(loai, donViList, isRoot) {
+  let prefix = 'CB';
+  const upper = (loai || '').toUpperCase();
+  if (isRoot || upper === 'DANG_BO') prefix = 'DU';
+  else if (upper === 'BCH') prefix = 'BCH';
+  else if (upper === 'BTV') prefix = 'BTV';
+  else if (upper === 'UBKT') prefix = 'UBKT';
+  else if (upper === 'CHI_BO') prefix = 'CB';
+  else prefix = 'TC';
+
+  const activeCodes = (donViList || [])
+    .filter((d) => !d.deleted_at && d.ma)
+    .map((d) => d.ma.trim().toUpperCase());
+
+  let maxNum = 0;
+  const regex = new RegExp(`^${prefix}[-_\\s]?(\\d+)$`, 'i');
+  activeCodes.forEach((c) => {
+    const m = c.match(regex);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (!isNaN(n) && n > maxNum) maxNum = n;
+    }
+  });
+
+  const existingSet = new Set(activeCodes);
+  let next = maxNum + 1;
+  while (true) {
+    const candidate = `${prefix}-${String(next).padStart(2, '0')}`;
+    if (!existingSet.has(candidate)) return candidate;
+    next++;
+  }
+}
+
 app.post('/api/don-vi', (req, res) => {
   const { input, user_id, actor_name } = req.body;
   const db = readDb();
@@ -238,7 +272,7 @@ app.post('/api/don-vi', (req, res) => {
       return res.status(400).json({ message: `Mã tổ chức "${ma}" đã tồn tại trong hệ thống` });
     }
   } else {
-    ma = `TC-${Date.now().toString().slice(-6)}`;
+    ma = getNextSequentialCode(input.loai, db.donViList, !input.don_vi_cha_id);
   }
 
   const newDonVi = {
@@ -591,7 +625,10 @@ app.post('/api/don-vi/batch-import', (req, res) => {
       return;
     }
 
-    const ma = item.ma ? item.ma.trim() : `TC-${Date.now().toString().slice(-4)}-${rowNum}`;
+    const isRoot = !item.don_vi_cha_id && !item.ma_cap_tren;
+    const ma = item.ma
+      ? item.ma.trim()
+      : getNextSequentialCode(item.loai, [...db.donViList, ...imported], isRoot);
     if (existingCodes.has(normalize(ma))) {
       errors.push(`Dòng ${rowNum}: Mã tổ chức "${ma}" đã tồn tại`);
       return;

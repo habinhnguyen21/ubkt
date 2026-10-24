@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import type { DonVi, TrangThaiDonVi, User } from '../../types';
-import { isDescendantUnit } from '../../services/donViService';
+import { isDescendantUnit, generateSequentialOrgCode } from '../../services/donViService';
 import {
   X,
   Building2,
   AlertTriangle,
   CheckCircle2,
   Info,
+  RefreshCw,
 } from 'lucide-react';
 
 interface OrgFormModalProps {
@@ -40,6 +41,7 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
   const [trangThai, setTrangThai] = useState<TrangThaiDonVi>('DANG_HOAT_DONG');
   const [ghiChu, setGhiChu] = useState('');
 
+  const [autoSuggestedCode, setAutoSuggestedCode] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [warningMsg, setWarningMsg] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -50,19 +52,41 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
     if (editingUnit) {
       setTen(editingUnit.ten);
       setMa(editingUnit.ma || '');
+      setAutoSuggestedCode('');
       setDonViChaId(editingUnit.don_vi_cha_id || '');
       setTrangThai(editingUnit.trang_thai || 'DANG_HOAT_DONG');
       setGhiChu(editingUnit.ghi_chu || '');
     } else {
       setTen('');
-      setMa('');
+      const isRoot = !defaultParentId;
+      const nextCode = generateSequentialOrgCode('CHI_BO', allUnits, isRoot);
+      setMa(nextCode);
+      setAutoSuggestedCode(nextCode);
       setDonViChaId(defaultParentId || '');
       setTrangThai('DANG_HOAT_DONG');
       setGhiChu('');
     }
     setErrorMsg(null);
     setWarningMsg(null);
-  }, [isOpen, editingUnit, defaultParentId]);
+  }, [isOpen, editingUnit, defaultParentId, allUnits]);
+
+  const handleParentChange = (newParentId: string) => {
+    setDonViChaId(newParentId);
+    // Nếu đang tạo mới và người dùng chưa gõ mã khác mã tự gợi ý, tự động cập nhật lại mã
+    if (!editingUnit && (!ma || ma === autoSuggestedCode)) {
+      const isRoot = !newParentId;
+      const nextCode = generateSequentialOrgCode('CHI_BO', allUnits, isRoot);
+      setMa(nextCode);
+      setAutoSuggestedCode(nextCode);
+    }
+  };
+
+  const handleRegenerateCode = () => {
+    const isRoot = !donViChaId;
+    const nextCode = generateSequentialOrgCode('CHI_BO', allUnits, isRoot);
+    setMa(nextCode);
+    setAutoSuggestedCode(nextCode);
+  };
 
   // Cảnh báo khi tên tổ chức có khả năng trùng
   const handleTenChange = (val: string) => {
@@ -117,7 +141,11 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
       }
     }
 
-    const cleanMa = ma.trim().toUpperCase();
+    let cleanMa = ma.trim().toUpperCase();
+    if (!cleanMa && !editingUnit) {
+      cleanMa = generateSequentialOrgCode('CHI_BO', allUnits, !donViChaId);
+    }
+
     if (cleanMa) {
       const duplicateMa = allUnits.find(
         (u) => (!editingUnit || u.id !== editingUnit.id) && u.ma && u.ma.toUpperCase() === cleanMa && !u.deleted_at
@@ -210,20 +238,32 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-bold text-slate-700 uppercase">
-                  Mã tổ chức
+                <label className="block text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5">
+                  <span>Mã tổ chức</span>
+                  <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded font-normal">
+                    Tuần tự không trùng
+                  </span>
                 </label>
-                <span className="text-[11px] text-slate-400">
-                  (Dùng làm Mã cấp trên khi nhập Excel)
-                </span>
+                <button
+                  type="button"
+                  onClick={handleRegenerateCode}
+                  title="Tự động lấy mã số tuần tự tiếp theo"
+                  className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 cursor-pointer transition"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Cấp mã tự động</span>
+                </button>
               </div>
               <input
                 type="text"
                 value={ma}
                 onChange={(e) => setMa(e.target.value.toUpperCase())}
-                placeholder="Ví dụ: DU-01, CB-01 (nếu để trống hệ thống sẽ tự sinh mã)"
-                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-mono"
+                placeholder="Ví dụ: DU-01, CB-01 (tự động điền mã tuần tự)"
+                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-mono font-bold"
               />
+              <p className="text-[11px] text-slate-500 mt-1">
+                💡 Mã tổ chức được cấp tuần tự liên tục theo cơ cấu (ví dụ: <strong className="text-slate-700 font-mono">DU-01</strong> cho Đảng bộ/Đảng ủy, <strong className="text-slate-700 font-mono">CB-01...CB-17</strong> cho Chi bộ), đảm bảo không bao giờ bị trùng lặp.
+              </p>
             </div>
 
             <div>
@@ -232,7 +272,7 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
               </label>
               <select
                 value={donViChaId}
-                onChange={(e) => setDonViChaId(e.target.value)}
+                onChange={(e) => handleParentChange(e.target.value)}
                 className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium"
               >
                 <option value="">-- Là tổ chức cấp cao nhất (Gốc) --</option>

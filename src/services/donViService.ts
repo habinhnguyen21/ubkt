@@ -78,31 +78,68 @@ export function calculateUnitLevel(units: DonVi[], unitId: string): number {
 }
 
 /**
- * Đề xuất mã tổ chức tự động dựa trên tên và loại hình
+ * Tạo mã tổ chức tự động tuần tự, khoa học, không ngẫu nhiên (tránh trùng lặp)
+ * - Cấp cao nhất / Đảng bộ: DU-01, DU-02, ...
+ * - Chi bộ trực thuộc: CB-01, CB-02, ..., CB-17, ...
+ * - Ban chấp hành: BCH-01, ...
+ * - Ban thường vụ: BTV-01, ...
+ * - Cơ quan UBKT: UBKT-01, ...
+ * - Khác: TC-01, TC-02, ...
  */
-export function suggestUnitCode(_ten: string, loai: string, existingUnits: DonVi[]): string {
-  const prefixMap: Record<string, string> = {
-    DANG_BO: 'DB',
-    CHI_BO: 'CB',
-    BCH: 'BCH',
-    BTV: 'BTV',
-    UBKT: 'UBKT',
-  };
-  const prefix = prefixMap[loai] || 'TC';
+export function generateSequentialOrgCode(
+  loai: string = 'CHI_BO',
+  existingUnits: DonVi[] = [],
+  isRoot: boolean = false,
+): string {
+  let prefix = 'CB';
+  const upperLoai = (loai || '').toUpperCase();
+  if (isRoot || upperLoai === 'DANG_BO') {
+    prefix = 'DU';
+  } else if (upperLoai === 'BCH') {
+    prefix = 'BCH';
+  } else if (upperLoai === 'BTV') {
+    prefix = 'BTV';
+  } else if (upperLoai === 'UBKT') {
+    prefix = 'UBKT';
+  } else if (upperLoai === 'CHI_BO') {
+    prefix = 'CB';
+  } else {
+    prefix = 'TC';
+  }
 
-  const existingCodes = new Set(
-    existingUnits
-      .filter((u) => !u.deleted_at && u.ma)
-      .map((u) => u.ma!.toUpperCase()),
-  );
+  const activeCodes = (existingUnits || [])
+    .filter((u) => !u.deleted_at && u.ma)
+    .map((u) => u.ma!.trim().toUpperCase());
 
-  for (let i = 1; i <= 999; i++) {
-    const candidate = `${prefix}-${String(i).padStart(2, '0')}`;
-    if (!existingCodes.has(candidate)) {
+  // Tìm số thứ tự lớn nhất hiện có cho tiền tố này
+  let maxNum = 0;
+  const regex = new RegExp(`^${prefix}[-_\\s]?(\\d+)$`, 'i');
+  activeCodes.forEach((code) => {
+    const m = code.match(regex);
+    if (m) {
+      const num = parseInt(m[1], 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+    }
+  });
+
+  const existingSet = new Set(activeCodes);
+  let nextNum = maxNum + 1;
+  while (true) {
+    const candidate = `${prefix}-${String(nextNum).padStart(2, '0')}`;
+    if (!existingSet.has(candidate)) {
       return candidate;
     }
+    nextNum++;
   }
-  return `${prefix}-${Date.now().toString().slice(-4)}`;
+}
+
+/**
+ * Đề xuất mã tổ chức tự động tuần tự
+ */
+export function suggestUnitCode(_ten: string, loai: string, existingUnits: DonVi[]): string {
+  return generateSequentialOrgCode(loai, existingUnits);
 }
 
 /**

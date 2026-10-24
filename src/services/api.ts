@@ -506,7 +506,30 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
           errors.push(`Dòng ${row}: Thiếu tên tổ chức`);
           return;
         }
-        const ma = item.ma ? item.ma.trim() : `TC-${Date.now().toString().slice(-4)}-${row}`;
+
+        // Tạo mã tuần tự nếu tệp không có mã
+        let ma = item.ma ? item.ma.trim() : '';
+        if (!ma) {
+          const isRoot = !item.don_vi_cha_id && !item.ma_cap_tren;
+          const prefix = isRoot || (item.loai || '').toUpperCase() === 'DANG_BO' ? 'DU' : 'CB';
+          let maxN = 0;
+          const reg = new RegExp(`^${prefix}[-_\\s]?(\\d+)$`, 'i');
+          [...db.donViList, ...imported].forEach((d) => {
+            if (!d.deleted_at && d.ma) {
+              const m = d.ma.match(reg);
+              if (m) {
+                const n = parseInt(m[1], 10);
+                if (!isNaN(n) && n > maxN) maxN = n;
+              }
+            }
+          });
+          let nextN = maxN + 1;
+          while (existingCodes.has(`${prefix}-${String(nextN).padStart(2, '0')}`.toLowerCase())) {
+            nextN++;
+          }
+          ma = `${prefix}-${String(nextN).padStart(2, '0')}`;
+        }
+
         if (existingCodes.has(normalize(ma))) {
           errors.push(`Dòng ${row}: Mã "${ma}" đã tồn tại`);
           return;
