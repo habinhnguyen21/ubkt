@@ -544,6 +544,12 @@ export const cloudSyncService = {
         if (raw) deletedDiaBanIds = new Set(JSON.parse(raw));
       } catch {}
 
+      let deletedPdfIds = new Set<string>();
+      try {
+        const raw = localStorage.getItem('ubkt_deleted_pdf_ids');
+        if (raw) deletedPdfIds = new Set(JSON.parse(raw));
+      } catch {}
+
       const itemsToPushToCloud: { collection: string; id: string; data: any }[] = [];
 
       // A. ĐƠN VỊ (don_vi)
@@ -702,17 +708,32 @@ export const cloudSyncService = {
       const cloudPdf = pdfSnap.docs.map((d) => d.data() as PdfKhoItem);
       const localPdf: PdfKhoItem[] = currentMockDb.pdfFiles || [];
       const pdfMap = new Map<string, PdfKhoItem>();
-      localPdf.forEach((p) => pdfMap.set(p.id, p));
-      cloudPdf.forEach((c) => {
-        if (!pdfMap.has(c.id)) pdfMap.set(c.id, c);
+
+      localPdf.forEach((p) => {
+        if (!deletedPdfIds.has(p.id) && !(p.chuong_trinh_id && deletedCtIds.has(p.chuong_trinh_id))) {
+          pdfMap.set(p.id, p);
+        }
       });
+
+      cloudPdf.forEach((c) => {
+        if (deletedPdfIds.has(c.id) || (c.chuong_trinh_id && deletedCtIds.has(c.chuong_trinh_id))) {
+          pdfMap.delete(c.id);
+          deletedPdfIds.add(c.id);
+          // Gỡ bỏ vĩnh viễn khỏi Firestore Cloud
+          this.deleteItemFromCloud('pdf_files', c.id).catch(() => {});
+        } else {
+          if (!pdfMap.has(c.id)) pdfMap.set(c.id, c);
+        }
+      });
+
       const cloudPdfSet = new Set(cloudPdf.map((p) => p.id));
       localPdf.forEach((p) => {
-        if (!cloudPdfSet.has(p.id)) {
+        if (!cloudPdfSet.has(p.id) && !deletedPdfIds.has(p.id) && !(p.chuong_trinh_id && deletedCtIds.has(p.chuong_trinh_id))) {
           itemsToPushToCloud.push({ collection: 'pdf_files', id: p.id, data: p });
         }
       });
       currentMockDb.pdfFiles = Array.from(pdfMap.values());
+      localStorage.setItem('ubkt_deleted_pdf_ids', JSON.stringify(Array.from(deletedPdfIds)));
 
       // G. ĐƠN THƯ (don_thu)
       const cloudDonThu = donThuSnap.docs.map((d) => d.data() as DonThu);

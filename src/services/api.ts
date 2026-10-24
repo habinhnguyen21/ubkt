@@ -87,6 +87,27 @@ export function saveDeletedChuongTrinhId(id: string) {
   }
 }
 
+export const STORAGE_DELETED_PDF_IDS = 'ubkt_deleted_pdf_ids';
+
+export function getDeletedPdfIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_DELETED_PDF_IDS);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveDeletedPdfId(id: string) {
+  try {
+    const set = getDeletedPdfIds();
+    set.add(id);
+    localStorage.setItem(STORAGE_DELETED_PDF_IDS, JSON.stringify(Array.from(set)));
+  } catch (err) {
+    console.error('Lỗi lưu ID PDF đã xóa:', err);
+  }
+}
+
 // Giao thức giao tiếp Trực tuyến (Full Online API Client)
 async function requestApi<T>(
   endpoint: string,
@@ -1622,8 +1643,27 @@ export const api = {
   updateChuongTrinh: (input: UpdateChuongTrinhInput) =>
     requestApi<ChuongTrinhKtGs>(`/api/chuong-trinh/${input.id}`, 'PUT', { input }, 'update_chuong_trinh', { input }),
 
-  deleteChuongTrinh: (id: string) =>
-    requestApi<void>(`/api/chuong-trinh/${id}`, 'DELETE', undefined, 'delete_chuong_trinh', { id }),
+  deleteChuongTrinh: async (id: string) => {
+    saveDeletedChuongTrinhId(id);
+    await cloudSyncService.deleteItemFromCloud('chuong_trinh', id).catch(() => {});
+    // Tự động tìm và xóa các file PDF gắn với chương trình này
+    try {
+      const rawMock = localStorage.getItem(MOCK_STORAGE_KEY);
+      if (rawMock) {
+        const mDb = JSON.parse(rawMock);
+        if (mDb.pdfFiles && Array.isArray(mDb.pdfFiles)) {
+          const toDelete = mDb.pdfFiles.filter((p: any) => p.chuong_trinh_id === id);
+          for (const p of toDelete) {
+            saveDeletedPdfId(p.id);
+            await cloudSyncService.deleteItemFromCloud('pdf_files', p.id).catch(() => {});
+          }
+          mDb.pdfFiles = mDb.pdfFiles.filter((p: any) => p.chuong_trinh_id !== id);
+          localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(mDb));
+        }
+      }
+    } catch {}
+    return requestApi<void>(`/api/chuong-trinh/${id}`, 'DELETE', undefined, 'delete_chuong_trinh', { id });
+  },
 
   addThayDoiBoSung: (input: ThayDoiBoSungKtGs) =>
     requestApi<ThayDoiBoSungKtGs>('/api/thay-doi-bo-sung', 'POST', { input }, 'add_thay_doi_bo_sung', { input }),
@@ -1697,8 +1737,11 @@ export const api = {
   updatePdf: (id: string, input: Partial<PdfKhoItem>) =>
     requestApi<PdfKhoItem>(`/api/pdfs/${id}`, 'PUT', { input }, 'update_pdf', { id, input }),
 
-  deletePdf: (id: string) =>
-    requestApi<void>(`/api/pdfs/${id}`, 'DELETE', undefined, 'delete_pdf', { id }),
+  deletePdf: async (id: string) => {
+    saveDeletedPdfId(id);
+    await cloudSyncService.deleteItemFromCloud('pdf_files', id).catch(() => {});
+    return requestApi<void>(`/api/pdfs/${id}`, 'DELETE', undefined, 'delete_pdf', { id });
+  },
 
   /**
    * Tự động quét toàn diện hệ thống:
