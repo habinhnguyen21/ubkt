@@ -166,9 +166,9 @@ export function downloadUnitImportTemplate() {
   ];
 
   const sampleRows = [
-    ['CB-101', 'Chi bộ Khu dân cư số 1', 'CHI_BO', 'DUP-01', '2020-01-15', '05-QĐ/ĐU', 'DANG_HOAT_DONG', 'Chi bộ địa bàn dân cư'],
-    ['CB-102', 'Chi bộ Khu dân cư số 2', 'CHI_BO', 'DUP-01', '2020-01-15', '06-QĐ/ĐU', 'DANG_HOAT_DONG', 'Chi bộ địa bàn dân cư'],
-    ['DBC-10', 'Đảng bộ Trường Mầm non Ánh Dương', 'DANG_BO', 'DUP-01', '2022-09-01', '12-QĐ/ĐU', 'DANG_HOAT_DONG', 'Đảng bộ trường học'],
+    ['CB-01', 'Chi bộ Quân sự', 'CHI_BO', 'DU-01', '2020-01-15', '05-QĐ/ĐU', 'DANG_HOAT_DONG', 'Chi bộ trực thuộc Đảng ủy'],
+    ['CB-02', 'Chi bộ Công an', 'CHI_BO', 'DU-01', '2020-01-15', '06-QĐ/ĐU', 'DANG_HOAT_DONG', 'Chi bộ trực thuộc Đảng ủy'],
+    ['CB-03', 'Chi bộ Khu dân cư số 1', 'CHI_BO', 'DU-01', '2020-01-15', '07-QĐ/ĐU', 'DANG_HOAT_DONG', 'Chi bộ địa bàn dân cư'],
   ];
 
   const content =
@@ -222,7 +222,13 @@ export function parseAndValidateUnitCsv(
     existingUnits.filter((u) => !u.deleted_at && u.ma).map((u) => u.ma!.toLowerCase()),
   );
   const codeToIdMap = new Map<string, string>();
-  existingUnits.filter((u) => !u.deleted_at && u.ma).forEach((u) => codeToIdMap.set(u.ma!.toLowerCase(), u.id));
+  const nameToIdMap = new Map<string, string>();
+  existingUnits
+    .filter((u) => !u.deleted_at)
+    .forEach((u) => {
+      if (u.ma) codeToIdMap.set(u.ma.toLowerCase(), u.id);
+      if (u.ten) nameToIdMap.set(u.ten.trim().toLowerCase(), u.id);
+    });
 
   const validItems: any[] = [];
   const errors: Array<{ line: number; message: string }> = [];
@@ -287,12 +293,14 @@ export function parseAndValidateUnitCsv(
 
     let parentId: string | undefined = undefined;
     if (maCapTren) {
-      const lowerParent = maCapTren.toLowerCase();
+      const lowerParent = maCapTren.trim().toLowerCase();
       if (codeToIdMap.has(lowerParent)) {
         parentId = codeToIdMap.get(lowerParent);
+      } else if (nameToIdMap.has(lowerParent)) {
+        parentId = nameToIdMap.get(lowerParent);
       } else if (!fileSeenCodes.has(lowerParent)) {
         // Cấp trên không có trong CSDL và cũng không có ở các dòng trước trong tệp
-        errors.push({ line: lineNum, message: `Mã cấp trên "${maCapTren}" không tồn tại` });
+        errors.push({ line: lineNum, message: `Mã hoặc tên cấp trên "${maCapTren}" không tồn tại` });
         continue;
       }
     }

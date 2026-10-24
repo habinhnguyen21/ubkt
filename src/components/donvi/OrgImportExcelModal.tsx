@@ -245,7 +245,36 @@ export const OrgImportExcelModal: React.FC<OrgImportExcelModalProps> = ({
                   </span>
                 </button>
               </div>
+          {/* Khối hướng dẫn Mã cấp trên */}
+          <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs space-y-2">
+            <div className="font-bold text-blue-900 flex items-center gap-1.5">
+              <span>💡</span>
+              <span>Cột "Mã cấp trên" trong tệp Excel lấy ở đâu?</span>
             </div>
+            <div className="text-slate-700 leading-relaxed text-[11px] space-y-1">
+              <p>
+                • <strong>Nếu là Tổ chức Đảng cấp cao nhất (Đảng bộ/Đảng ủy gốc):</strong> <u>Để trống</u> cột <em>Mã cấp trên</em>.
+              </p>
+              <p>
+                • <strong>Nếu là Chi bộ trực thuộc cấp dưới:</strong> Điền <strong>Mã tổ chức</strong> (hoặc điền đúng <strong>Tên tổ chức</strong>) của cấp trên trực tiếp.
+              </p>
+            </div>
+            {allUnits && allUnits.length > 0 && (
+              <div className="pt-2 border-t border-blue-200/60">
+                <span className="font-semibold text-blue-950 text-[11px]">Danh sách mã các tổ chức hiện có trên hệ thống để sao chép vào file Excel:</span>
+                <div className="mt-1.5 flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                  {allUnits.filter(u => !u.deleted_at).map(u => (
+                    <span
+                      key={u.id}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-blue-300 rounded-md text-[11px] text-slate-800 shadow-2xs"
+                    >
+                      <strong className="text-blue-700 font-mono">{u.ma || 'DU-01'}</strong>
+                      <span className="text-slate-600">({u.ten})</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Step 3: Preview and Validation Stats */}

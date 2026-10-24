@@ -433,10 +433,12 @@ app.post('/api/don-vi/batch-import', (req, res) => {
     db.donViList.filter((d) => !d.deleted_at && d.ma).map((d) => d.ma.toLowerCase()),
   );
   const codeToIdMap = new Map();
+  const nameToIdMap = new Map();
   db.donViList
-    .filter((d) => !d.deleted_at && d.ma)
+    .filter((d) => !d.deleted_at)
     .forEach((d) => {
-      codeToIdMap.set(d.ma.toLowerCase(), d.id);
+      if (d.ma) codeToIdMap.set(d.ma.toLowerCase(), d.id);
+      if (d.ten) nameToIdMap.set(d.ten.trim().toLowerCase(), d.id);
     });
 
   const imported = [];
@@ -458,7 +460,8 @@ app.post('/api/don-vi/batch-import', (req, res) => {
 
     let parentId = item.don_vi_cha_id || null;
     if (!parentId && item.ma_cap_tren) {
-      parentId = codeToIdMap.get(item.ma_cap_tren.trim().toLowerCase()) || null;
+      const lowerP = item.ma_cap_tren.trim().toLowerCase();
+      parentId = codeToIdMap.get(lowerP) || nameToIdMap.get(lowerP) || null;
     }
 
     const newId = `dv-${Date.now()}-${index}`;

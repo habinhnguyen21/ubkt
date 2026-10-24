@@ -410,7 +410,13 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       const errors: string[] = [];
       const existingCodes = new Set(db.donViList.filter((d) => !d.deleted_at && d.ma).map((d) => d.ma!.toLowerCase()));
       const codeToIdMap = new Map<string, string>();
-      db.donViList.filter((d) => !d.deleted_at && d.ma).forEach((d) => codeToIdMap.set(d.ma!.toLowerCase(), d.id));
+      const nameToIdMap = new Map<string, string>();
+      db.donViList
+        .filter((d) => !d.deleted_at)
+        .forEach((d) => {
+          if (d.ma) codeToIdMap.set(d.ma.toLowerCase(), d.id);
+          if (d.ten) nameToIdMap.set(d.ten.trim().toLowerCase(), d.id);
+        });
 
       (items || []).forEach((item, idx) => {
         const row = idx + 1;
@@ -426,7 +432,8 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         }
         let parentId = item.don_vi_cha_id || null;
         if (!parentId && item.ma_cap_tren) {
-          parentId = codeToIdMap.get(item.ma_cap_tren.trim().toLowerCase()) || null;
+          const lowerP = item.ma_cap_tren.trim().toLowerCase();
+          parentId = codeToIdMap.get(lowerP) || nameToIdMap.get(lowerP) || null;
         }
         const newUnit: DonVi = {
           id: `dv-${Date.now()}-${idx}`,
