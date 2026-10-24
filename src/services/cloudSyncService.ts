@@ -550,6 +550,12 @@ export const cloudSyncService = {
         if (raw) deletedPdfIds = new Set(JSON.parse(raw));
       } catch {}
 
+      let deletedPdfNames = new Set<string>();
+      try {
+        const raw = localStorage.getItem('ubkt_deleted_pdf_names');
+        if (raw) deletedPdfNames = new Set(JSON.parse(raw));
+      } catch {}
+
       const itemsToPushToCloud: { collection: string; id: string; data: any }[] = [];
 
       // A. ĐƠN VỊ (don_vi)
@@ -675,13 +681,27 @@ export const cloudSyncService = {
       // D. FILE ĐỊA BÀN (ho_so_dia_ban_files)
       const cloudFiles = filesSnap.docs.map((d) => d.data() as HoSoDiaBanFile);
       const filesMap = new Map<string, any>();
-      currentFiles.forEach((f) => filesMap.set(f.id, f));
+      currentFiles.forEach((f) => {
+        if (!deletedPdfNames.has(f.ten_file) && !deletedPdfIds.has(f.id) && !deletedPdfIds.has('hsdb-' + f.id)) {
+          filesMap.set(f.id, f);
+        }
+      });
       cloudFiles.forEach((c) => {
-        if (!filesMap.has(c.id)) filesMap.set(c.id, c);
+        if (deletedPdfNames.has(c.ten_file) || deletedPdfIds.has(c.id) || deletedPdfIds.has('hsdb-' + c.id)) {
+          filesMap.delete(c.id);
+          this.deleteItemFromCloud('ho_so_dia_ban_files', c.id).catch(() => {});
+        } else {
+          if (!filesMap.has(c.id)) filesMap.set(c.id, c);
+        }
       });
       const cloudFilesSet = new Set(cloudFiles.map((f) => f.id));
       currentFiles.forEach((f) => {
-        if (!cloudFilesSet.has(f.id)) {
+        if (
+          !cloudFilesSet.has(f.id) &&
+          !deletedPdfNames.has(f.ten_file) &&
+          !deletedPdfIds.has(f.id) &&
+          !deletedPdfIds.has('hsdb-' + f.id)
+        ) {
           itemsToPushToCloud.push({ collection: 'ho_so_dia_ban_files', id: f.id, data: f });
         }
       });
@@ -710,15 +730,24 @@ export const cloudSyncService = {
       const pdfMap = new Map<string, PdfKhoItem>();
 
       localPdf.forEach((p) => {
-        if (!deletedPdfIds.has(p.id) && !(p.chuong_trinh_id && deletedCtIds.has(p.chuong_trinh_id))) {
+        if (
+          !deletedPdfIds.has(p.id) &&
+          !deletedPdfNames.has(p.ten_file) &&
+          !(p.chuong_trinh_id && deletedCtIds.has(p.chuong_trinh_id))
+        ) {
           pdfMap.set(p.id, p);
         }
       });
 
       cloudPdf.forEach((c) => {
-        if (deletedPdfIds.has(c.id) || (c.chuong_trinh_id && deletedCtIds.has(c.chuong_trinh_id))) {
+        if (
+          deletedPdfIds.has(c.id) ||
+          deletedPdfNames.has(c.ten_file) ||
+          (c.chuong_trinh_id && deletedCtIds.has(c.chuong_trinh_id))
+        ) {
           pdfMap.delete(c.id);
           deletedPdfIds.add(c.id);
+          if (c.ten_file) deletedPdfNames.add(c.ten_file);
           // Gỡ bỏ vĩnh viễn khỏi Firestore Cloud
           this.deleteItemFromCloud('pdf_files', c.id).catch(() => {});
         } else {
@@ -728,12 +757,18 @@ export const cloudSyncService = {
 
       const cloudPdfSet = new Set(cloudPdf.map((p) => p.id));
       localPdf.forEach((p) => {
-        if (!cloudPdfSet.has(p.id) && !deletedPdfIds.has(p.id) && !(p.chuong_trinh_id && deletedCtIds.has(p.chuong_trinh_id))) {
+        if (
+          !cloudPdfSet.has(p.id) &&
+          !deletedPdfIds.has(p.id) &&
+          !deletedPdfNames.has(p.ten_file) &&
+          !(p.chuong_trinh_id && deletedCtIds.has(p.chuong_trinh_id))
+        ) {
           itemsToPushToCloud.push({ collection: 'pdf_files', id: p.id, data: p });
         }
       });
       currentMockDb.pdfFiles = Array.from(pdfMap.values());
       localStorage.setItem('ubkt_deleted_pdf_ids', JSON.stringify(Array.from(deletedPdfIds)));
+      localStorage.setItem('ubkt_deleted_pdf_names', JSON.stringify(Array.from(deletedPdfNames)));
 
       // G. ĐƠN THƯ (don_thu)
       const cloudDonThu = donThuSnap.docs.map((d) => d.data() as DonThu);

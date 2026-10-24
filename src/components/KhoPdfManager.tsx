@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
+import { cloudSyncService } from '../services/cloudSyncService';
 import type { ChuongTrinhKtGs, PdfKhoItem, User, DonVi, HoSoDiaBanFile } from '../types';
 import {
   FileText,
@@ -149,10 +150,16 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
       // Nạp và hợp nhất thêm tệp trực tiếp từ LocalStorage để bảo đảm đồng bộ tức thời
       const seenIds = new Set<string>();
       const combinedList: PdfKhoItem[] = [];
+      const deletedPdfIds = api.getDeletedPdfIds();
+      let deletedPdfNames = new Set<string>();
+      try {
+        const raw = localStorage.getItem('ubkt_deleted_pdf_names');
+        if (raw) deletedPdfNames = new Set(JSON.parse(raw));
+      } catch {}
 
       // 1. Thêm từ api.getAllPdfs
       pdfs.forEach((p) => {
-        if (!seenIds.has(p.id)) {
+        if (!seenIds.has(p.id) && !deletedPdfIds.has(p.id) && !deletedPdfNames.has(p.ten_file)) {
           seenIds.add(p.id);
           combinedList.push(p);
         }
@@ -170,7 +177,7 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
             } else {
               hsdbFiles.forEach((f: HoSoDiaBanFile) => {
                 const fileKey = 'hsdb-' + f.id;
-                if (!seenIds.has(fileKey)) {
+                if (!seenIds.has(fileKey) && !deletedPdfIds.has(fileKey) && !deletedPdfIds.has(f.id) && !deletedPdfNames.has(f.ten_file)) {
                   seenIds.add(fileKey);
                   combinedList.push({
                     id: fileKey,
@@ -445,8 +452,8 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
         }
       }
 
-      // 2. Xóa khỏi cơ sở dữ liệu nội bộ
-      await api.deletePdf(deleteTarget.id);
+      // 2. Xóa khỏi cơ sở dữ liệu nội bộ và Cloud
+      await api.deletePdf(deleteTarget.id, deleteTarget.ten_file);
 
       // 3. Nếu tệp có nguồn gốc từ Hồ sơ địa bàn: Đồng thời gỡ khỏi ubkt_ho_so_dia_ban_files và giảm số lượng tài liệu
       try {
@@ -491,6 +498,49 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
         }
       } catch (err) {
         console.error('Lỗi xóa tệp liên thông báo cáo tháng:', err);
+      }
+
+      // 5. Nếu tệp có liên kết với Chương trình KT-GS: Gỡ tệp khỏi chương trình để không tự động nạp lại
+      try {
+        const ctId = deleteTarget.chuong_trinh_id;
+        const rawDb = localStorage.getItem('ubkt_mock_db');
+        if (rawDb) {
+          const parsed = JSON.parse(rawDb);
+          let ctChanged = false;
+          if (parsed.chuongTrinhList && Array.isArray(parsed.chuongTrinhList)) {
+            parsed.chuongTrinhList.forEach((c: any) => {
+              if (c.id === ctId || c.file_pdf_ten === deleteTarget.ten_file) {
+                c.file_pdf_ten = null;
+                c.file_pdf_url = null;
+                c.file_pdf_dung_luong = null;
+                c.google_drive_id = null;
+                c.google_drive_preview_url = null;
+                c.is_google_drive = false;
+                ctChanged = true;
+              }
+              if (c.danh_sach_thay_doi_bo_sung) {
+                c.danh_sach_thay_doi_bo_sung.forEach((td: any) => {
+                  if (td.file_pdf_ten === deleteTarget.ten_file) {
+                    td.file_pdf_ten = null;
+                    td.file_pdf_url = null;
+                    td.google_drive_id = null;
+                    td.google_drive_preview_url = null;
+                    td.is_google_drive = false;
+                    ctChanged = true;
+                  }
+                });
+              }
+              if (ctChanged) {
+                cloudSyncService.saveItemToCloud('chuong_trinh', c.id, c).catch(() => {});
+              }
+            });
+          }
+          if (ctChanged) {
+            localStorage.setItem('ubkt_mock_db', JSON.stringify(parsed));
+          }
+        }
+      } catch (err) {
+        console.error('Lỗi gỡ tệp khỏi chương trình KT-GS:', err);
       }
 
       window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));

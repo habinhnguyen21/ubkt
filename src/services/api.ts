@@ -88,6 +88,7 @@ export function saveDeletedChuongTrinhId(id: string) {
 }
 
 export const STORAGE_DELETED_PDF_IDS = 'ubkt_deleted_pdf_ids';
+export const STORAGE_DELETED_PDF_NAMES = 'ubkt_deleted_pdf_names';
 
 export function getDeletedPdfIds(): Set<string> {
   try {
@@ -105,6 +106,26 @@ export function saveDeletedPdfId(id: string) {
     localStorage.setItem(STORAGE_DELETED_PDF_IDS, JSON.stringify(Array.from(set)));
   } catch (err) {
     console.error('Lỗi lưu ID PDF đã xóa:', err);
+  }
+}
+
+export function getDeletedPdfNames(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_DELETED_PDF_NAMES);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveDeletedPdfName(name: string) {
+  if (!name) return;
+  try {
+    const set = getDeletedPdfNames();
+    set.add(name);
+    localStorage.setItem(STORAGE_DELETED_PDF_NAMES, JSON.stringify(Array.from(set)));
+  } catch (err) {
+    console.error('Lỗi lưu tên PDF đã xóa:', err);
   }
 }
 
@@ -1010,10 +1031,19 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
     case 'get_all_pdfs': {
       const list: PdfKhoItem[] = [];
       const seenFileKeys = new Set<string>();
+      const deletedPdfIds = getDeletedPdfIds();
+      const deletedPdfNames = getDeletedPdfNames();
+      const deletedCtIds = getDeletedChuongTrinhIds();
 
       // 1. Tệp PDF từ Chương trình kiểm tra, giám sát (Hằng năm & Nhiệm kỳ)
       (db.chuongTrinhList || []).forEach((c) => {
-        if (c.file_pdf_ten) {
+        if (
+          c.file_pdf_ten &&
+          !deletedCtIds.has(c.id) &&
+          !deletedPdfNames.has(c.file_pdf_ten) &&
+          !deletedPdfIds.has('ct-pdf-' + c.id) &&
+          !deletedPdfIds.has(c.id)
+        ) {
           const key = `ct_${c.id}_${c.file_pdf_ten}`;
           if (!seenFileKeys.has(key)) {
             seenFileKeys.add(key);
@@ -1053,7 +1083,13 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         // 2. Tệp PDF từ các lần THAY ĐỔI, BỔ SUNG chương trình nhiệm kỳ
         if (c.danh_sach_thay_doi_bo_sung && Array.isArray(c.danh_sach_thay_doi_bo_sung)) {
           c.danh_sach_thay_doi_bo_sung.forEach((td) => {
-            if (td.file_pdf_ten) {
+            if (
+              td.file_pdf_ten &&
+              !deletedCtIds.has(c.id) &&
+              !deletedPdfNames.has(td.file_pdf_ten) &&
+              !deletedPdfIds.has('td-pdf-' + td.id) &&
+              !deletedPdfIds.has(td.id)
+            ) {
               const tdKey = `td_${td.id}_${td.file_pdf_ten}`;
               if (!seenFileKeys.has(tdKey)) {
                 seenFileKeys.add(tdKey);
@@ -1101,43 +1137,50 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
           const diaBanFiles = JSON.parse(rawDiaBanFiles);
           if (Array.isArray(diaBanFiles)) {
             diaBanFiles.forEach((f: any) => {
-              const dbKey = `db_${f.id}_${f.ten_file}`;
-              if (!seenFileKeys.has(dbKey)) {
-                seenFileKeys.add(dbKey);
-                const driveId = f.google_drive_id || extractGoogleDriveFileId(f.url || f.file_url);
-                const isDrive = Boolean(
-                  f.is_google_drive ||
-                    driveId ||
-                    (f.url && f.url.includes('drive.google.com')) ||
-                    (f.file_url && f.file_url.includes('drive.google.com'))
-                );
-                list.push({
-                  id: 'hsdb-' + f.id,
-                  ten_file: f.ten_file,
-                  dung_luong: f.dung_luong || 320000,
-                  url: f.url || f.file_url || null,
-                  file_url: f.file_url || f.url || null,
-                  loai_file: f.loai_file || (f.ten_file?.toLowerCase().endsWith('.pdf') ? 'pdf' : f.ten_file?.toLowerCase().endsWith('.docx') ? 'docx' : f.ten_file?.toLowerCase().endsWith('.xlsx') ? 'xlsx' : 'doc'),
-                  the_loai_van_ban: f.the_loai_van_ban || 'Tài liệu hồ sơ',
-                  so_van_ban: f.so_van_ban || null,
-                  trich_yeu: f.trich_yeu || f.mo_ta || null,
-                  nguoi_ky: f.nguoi_ky || f.nguoi_tao || null,
-                  chuong_trinh_id: null,
-                  don_vi_id: f.don_vi_id || null,
-                  ten_don_vi: f.ten_don_vi || null,
-                  nguon_goc: 'HO_SO_DIA_BAN',
-                  chu_the: f.ten_don_vi ? `Hồ sơ địa bàn ${f.ten_don_vi}` : 'Hồ sơ địa bàn cơ sở',
-                  doi_tuong: f.ten_don_vi || 'Cơ sở',
-                  nam: new Date().getFullYear(),
-                  ngay_ban_hanh: f.ngay_ban_hanh || (f.ngay_tao ? f.ngay_tao.slice(0, 10) : new Date().toISOString().slice(0, 10)),
-                  ghi_chu: f.loai_tai_lieu || f.trich_yeu || 'Tài liệu hồ sơ địa bàn',
-                  google_drive_id: driveId || null,
-                  google_drive_preview_url:
-                    f.google_drive_preview_url ||
-                    (driveId ? `https://drive.google.com/file/d/${driveId}/preview` : null),
-                  is_google_drive: isDrive,
-                  created_at: f.ngay_tao ? new Date().toISOString() : new Date().toISOString(),
-                });
+              if (
+                f.ten_file &&
+                !deletedPdfNames.has(f.ten_file) &&
+                !deletedPdfIds.has('hsdb-' + f.id) &&
+                !deletedPdfIds.has(f.id)
+              ) {
+                const dbKey = `db_${f.id}_${f.ten_file}`;
+                if (!seenFileKeys.has(dbKey)) {
+                  seenFileKeys.add(dbKey);
+                  const driveId = f.google_drive_id || extractGoogleDriveFileId(f.url || f.file_url);
+                  const isDrive = Boolean(
+                    f.is_google_drive ||
+                      driveId ||
+                      (f.url && f.url.includes('drive.google.com')) ||
+                      (f.file_url && f.file_url.includes('drive.google.com'))
+                  );
+                  list.push({
+                    id: 'hsdb-' + f.id,
+                    ten_file: f.ten_file,
+                    dung_luong: f.dung_luong || 320000,
+                    url: f.url || f.file_url || null,
+                    file_url: f.file_url || f.url || null,
+                    loai_file: f.loai_file || (f.ten_file?.toLowerCase().endsWith('.pdf') ? 'pdf' : f.ten_file?.toLowerCase().endsWith('.docx') ? 'docx' : f.ten_file?.toLowerCase().endsWith('.xlsx') ? 'xlsx' : 'doc'),
+                    the_loai_van_ban: f.the_loai_van_ban || 'Tài liệu hồ sơ',
+                    so_van_ban: f.so_van_ban || null,
+                    trich_yeu: f.trich_yeu || f.mo_ta || null,
+                    nguoi_ky: f.nguoi_ky || f.nguoi_tao || null,
+                    chuong_trinh_id: null,
+                    don_vi_id: f.don_vi_id || null,
+                    ten_don_vi: f.ten_don_vi || null,
+                    nguon_goc: 'HO_SO_DIA_BAN',
+                    chu_the: f.ten_don_vi ? `Hồ sơ địa bàn ${f.ten_don_vi}` : 'Hồ sơ địa bàn cơ sở',
+                    doi_tuong: f.ten_don_vi || 'Cơ sở',
+                    nam: new Date().getFullYear(),
+                    ngay_ban_hanh: f.ngay_ban_hanh || (f.ngay_tao ? f.ngay_tao.slice(0, 10) : new Date().toISOString().slice(0, 10)),
+                    ghi_chu: f.loai_tai_lieu || f.trich_yeu || 'Tài liệu hồ sơ địa bàn',
+                    google_drive_id: driveId || null,
+                    google_drive_preview_url:
+                      f.google_drive_preview_url ||
+                      (driveId ? `https://drive.google.com/file/d/${driveId}/preview` : null),
+                    is_google_drive: isDrive,
+                    created_at: f.ngay_tao ? new Date().toISOString() : new Date().toISOString(),
+                  });
+                }
               }
             });
           }
@@ -1153,7 +1196,12 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
           const baoCaoList = JSON.parse(rawBaoCao);
           if (Array.isArray(baoCaoList)) {
             baoCaoList.forEach((bc: any) => {
-              if (bc.file_ten) {
+              if (
+                bc.file_ten &&
+                !deletedPdfNames.has(bc.file_ten) &&
+                !deletedPdfIds.has('bc-' + bc.id) &&
+                !deletedPdfIds.has(bc.id)
+              ) {
                 const bcKey = `bc_${bc.id}_${bc.file_ten}`;
                 if (!seenFileKeys.has(bcKey)) {
                   seenFileKeys.add(bcKey);
@@ -1203,13 +1251,19 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       // 4. Lấy từ kho PDF độc lập nếu có
       if (db.pdfFiles && Array.isArray(db.pdfFiles)) {
         db.pdfFiles.forEach((p) => {
-          if (!seenFileKeys.has('pdf_' + p.id)) {
-            seenFileKeys.add('pdf_' + p.id);
-            list.push({
-              ...p,
-              nguon_goc: p.nguon_goc || 'KHO_PDF',
-              ngay_ban_hanh: p.ngay_ban_hanh || (p.created_at ? p.created_at.slice(0, 10) : new Date().toISOString().slice(0, 10)),
-            });
+          if (
+            !deletedPdfIds.has(p.id) &&
+            !deletedPdfNames.has(p.ten_file) &&
+            !(p.chuong_trinh_id && deletedCtIds.has(p.chuong_trinh_id))
+          ) {
+            if (!seenFileKeys.has('pdf_' + p.id)) {
+              seenFileKeys.add('pdf_' + p.id);
+              list.push({
+                ...p,
+                nguon_goc: p.nguon_goc || 'KHO_PDF',
+                ngay_ban_hanh: p.ngay_ban_hanh || (p.created_at ? p.created_at.slice(0, 10) : new Date().toISOString().slice(0, 10)),
+              });
+            }
           }
         });
       }
@@ -1368,24 +1422,53 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
     }
 
     case 'delete_pdf': {
-      const { id } = args as { id: string };
+      const { id, ten_file } = args as { id: string; ten_file?: string };
+      if (!db.pdfFiles) db.pdfFiles = [];
+      const targetPdf = db.pdfFiles.find((p) => p.id === id);
+      const targetFileName = ten_file || targetPdf?.ten_file;
+      const targetCtId = targetPdf?.chuong_trinh_id;
 
-      if (id.startsWith('ct-pdf-')) {
-        const ctId = id.replace('ct-pdf-', '');
-        const ct = (db.chuongTrinhList || []).find((c) => c.id === ctId);
-        if (ct) {
-          ct.file_pdf_ten = null;
-          ct.file_pdf_url = null;
-          ct.file_pdf_dung_luong = null;
-          ct.ghi_chu_pdf = null;
-          (ct as any).google_drive_id = null;
-          (ct as any).google_drive_preview_url = null;
-          (ct as any).is_google_drive = false;
-          ct.updated_at = new Date().toISOString();
-        }
-      } else if (id.startsWith('td-pdf-')) {
+      saveDeletedPdfId(id);
+      if (targetFileName) saveDeletedPdfName(targetFileName);
+      cloudSyncService.deleteItemFromCloud('pdf_files', id).catch(() => {});
+
+      if (id.startsWith('ct-pdf-') || targetCtId || targetFileName) {
+        const ctId = id.startsWith('ct-pdf-') ? id.replace('ct-pdf-', '') : targetCtId;
+        (db.chuongTrinhList || []).forEach((c) => {
+          let updated = false;
+          if (c.id === ctId || (targetFileName && c.file_pdf_ten === targetFileName)) {
+            c.file_pdf_ten = null;
+            c.file_pdf_url = null;
+            c.file_pdf_dung_luong = null;
+            c.ghi_chu_pdf = null;
+            (c as any).google_drive_id = null;
+            (c as any).google_drive_preview_url = null;
+            (c as any).is_google_drive = false;
+            c.updated_at = new Date().toISOString();
+            updated = true;
+          }
+          if (c.danh_sach_thay_doi_bo_sung) {
+            c.danh_sach_thay_doi_bo_sung.forEach((td) => {
+              if (targetFileName && td.file_pdf_ten === targetFileName) {
+                td.file_pdf_ten = null;
+                td.file_pdf_url = null;
+                (td as any).google_drive_id = null;
+                (td as any).google_drive_preview_url = null;
+                (td as any).is_google_drive = false;
+                updated = true;
+              }
+            });
+          }
+          if (updated) {
+            cloudSyncService.saveItemToCloud('chuong_trinh', c.id, c).catch(() => {});
+          }
+        });
+      }
+
+      if (id.startsWith('td-pdf-')) {
         const tdId = id.replace('td-pdf-', '');
         (db.chuongTrinhList || []).forEach((c) => {
+          let updated = false;
           if (c.danh_sach_thay_doi_bo_sung) {
             c.danh_sach_thay_doi_bo_sung.forEach((td) => {
               if (td.id === tdId || tdId.endsWith(td.id)) {
@@ -1394,19 +1477,29 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
                 (td as any).google_drive_id = null;
                 (td as any).google_drive_preview_url = null;
                 (td as any).is_google_drive = false;
+                updated = true;
               }
             });
           }
+          if (updated) {
+            cloudSyncService.saveItemToCloud('chuong_trinh', c.id, c).catch(() => {});
+          }
         });
-      } else if (id.startsWith('hsdb-')) {
-        const rawFileId = id.replace('hsdb-', '');
+      }
+
+      if (id.startsWith('hsdb-') || targetFileName) {
+        const rawFileId = id.startsWith('hsdb-') ? id.replace('hsdb-', '') : null;
         try {
           const rawFiles = localStorage.getItem('ubkt_ho_so_dia_ban_files');
           if (rawFiles) {
             const files = JSON.parse(rawFiles);
-            const targetFile = files.find((f: any) => f.id === rawFileId);
-            const filtered = files.filter((f: any) => f.id !== rawFileId);
+            const targetFile = files.find((f: any) => (rawFileId && f.id === rawFileId) || (targetFileName && f.ten_file === targetFileName));
+            const filtered = files.filter((f: any) => (!rawFileId || f.id !== rawFileId) && (!targetFileName || f.ten_file !== targetFileName));
             localStorage.setItem('ubkt_ho_so_dia_ban_files', JSON.stringify(filtered));
+
+            if (targetFile?.id) {
+              cloudSyncService.deleteItemFromCloud('ho_so_dia_ban_files', targetFile.id).catch(() => {});
+            }
 
             if (targetFile?.don_vi_id) {
               const rawRecs = localStorage.getItem('ubkt_ho_so_dia_ban_records');
@@ -1424,22 +1517,28 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         } catch (e) {
           console.error('Lỗi xóa tệp liên thông hồ sơ địa bàn trong delete_pdf:', e);
         }
-      } else if (id.startsWith('bc-')) {
-        const rawBcId = id.replace('bc-', '');
+      }
+
+      if (id.startsWith('bc-') || targetFileName) {
+        const rawBcId = id.startsWith('bc-') ? id.replace('bc-', '') : null;
         try {
           const rawBc = localStorage.getItem('ubkt_bao_cao_thang');
           if (rawBc) {
             const bcList = JSON.parse(rawBc);
-            const targetBc = bcList.find((b: any) => b.id === rawBcId);
-            const filteredBc = bcList.filter((b: any) => b.id !== rawBcId);
+            const targetBc = bcList.find((b: any) => (rawBcId && b.id === rawBcId) || (targetFileName && b.file_ten === targetFileName));
+            const filteredBc = bcList.filter((b: any) => (!rawBcId || b.id !== rawBcId) && (!targetFileName || b.file_ten !== targetFileName));
             localStorage.setItem('ubkt_bao_cao_thang', JSON.stringify(filteredBc));
+
+            if (targetBc?.id) {
+              cloudSyncService.deleteItemFromCloud('bao_cao_thang', targetBc.id).catch(() => {});
+            }
 
             if (targetBc?.file_ten) {
               const rawFiles = localStorage.getItem('ubkt_ho_so_dia_ban_files');
               if (rawFiles) {
                 const files = JSON.parse(rawFiles);
                 const filteredFiles = files.filter(
-                  (f: any) => f.ten_file !== targetBc.file_ten && !f.id.includes(rawBcId)
+                  (f: any) => f.ten_file !== targetBc.file_ten && (!rawBcId || !f.id.includes(rawBcId))
                 );
                 localStorage.setItem('ubkt_ho_so_dia_ban_files', JSON.stringify(filteredFiles));
               }
@@ -1450,8 +1549,7 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         }
       }
 
-      if (!db.pdfFiles) db.pdfFiles = [];
-      db.pdfFiles = db.pdfFiles.filter((p) => p.id !== id);
+      db.pdfFiles = db.pdfFiles.filter((p) => p.id !== id && (!targetFileName || p.ten_file !== targetFileName));
       saveMockDb(db);
 
       // Kích hoạt đồng bộ sự kiện tức thì
@@ -1737,10 +1835,14 @@ export const api = {
   updatePdf: (id: string, input: Partial<PdfKhoItem>) =>
     requestApi<PdfKhoItem>(`/api/pdfs/${id}`, 'PUT', { input }, 'update_pdf', { id, input }),
 
-  deletePdf: async (id: string) => {
+  getDeletedPdfIds,
+  getDeletedPdfNames,
+
+  deletePdf: async (id: string, ten_file?: string) => {
     saveDeletedPdfId(id);
+    if (ten_file) saveDeletedPdfName(ten_file);
     await cloudSyncService.deleteItemFromCloud('pdf_files', id).catch(() => {});
-    return requestApi<void>(`/api/pdfs/${id}`, 'DELETE', undefined, 'delete_pdf', { id });
+    return requestApi<void>(`/api/pdfs/${id}`, 'DELETE', undefined, 'delete_pdf', { id, ten_file });
   },
 
   /**
@@ -1769,6 +1871,9 @@ export const api = {
     const db = getMockDb();
     const gdriveCfg = getGoogleDriveConfig();
     const isDriveEnabled = isGoogleDriveConfigured();
+    const deletedPdfIds = getDeletedPdfIds();
+    const deletedPdfNames = getDeletedPdfNames();
+    const deletedCtIds = getDeletedChuongTrinhIds();
 
     interface ScannedItem {
       ten_file: string;
@@ -2026,6 +2131,15 @@ export const api = {
     // 6. Thực hiện tổng hợp vào Kho và đẩy lên Google Drive
     for (let i = 0; i < scannedItems.length; i++) {
       const item = scannedItems[i];
+      // Nếu tệp đã bị người dùng xóa hoặc thuộc chương trình đã xóa, bỏ qua không tổng hợp lại
+      if (
+        deletedPdfNames.has(item.ten_file) ||
+        (item.chuong_trinh_id && deletedCtIds.has(item.chuong_trinh_id)) ||
+        (item.chuong_trinh_id && deletedPdfIds.has('ct-pdf-' + item.chuong_trinh_id))
+      ) {
+        continue;
+      }
+
       onProgress?.({
         current: i + 1,
         total: scannedItems.length,
