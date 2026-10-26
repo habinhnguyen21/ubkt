@@ -26,6 +26,8 @@ export type DonViLoai = 'DANG_BO' | 'CHI_BO' | 'BTV' | 'BCH' | 'UBKT';
 
 export type TrangThaiDonVi = 'DANG_HOAT_DONG' | 'TAM_NGUNG' | 'CHAM_DUT';
 
+export type CapToChuc = 'CAP_TREN' | 'CO_SO' | 'TRUC_THUOC';
+
 export interface LoaiHinhToChuc {
   ma: string;
   ten: string;
@@ -39,6 +41,7 @@ export interface DonVi {
   ten: string;
   loai: DonViLoai | string;
   don_vi_cha_id: string | null;
+  cap_to_chuc?: CapToChuc;
   ma: string | null;
   thu_tu: number;
   ghi_chu: string | null;
@@ -131,6 +134,8 @@ export interface NhatKy {
 export type LoaiHinhKtGs = 'KIEM_TRA' | 'GIAM_SAT';
 export type TrangThaiKtGs = 'CHUA_THUC_HIEN' | 'DANG_THUC_HIEN' | 'DA_HOAN_THANH' | 'QUA_HAN';
 export type LoaiChuongTrinh = 'HANG_NAM' | 'NHIEM_KY';
+export type ChuTheLoai = 'BCH' | 'BTV' | 'UBKT' | 'UBKT_CO_SO' | 'CHI_BO' | 'KHAC';
+export type CapChuThe = 'PHUONG' | 'CO_SO';
 
 export interface ThayDoiBoSungKtGs {
   id: string;
@@ -166,12 +171,17 @@ export interface ChuongTrinhKtGs {
   chu_the_ap_dung?: string | null; // Ví dụ: 'Toàn Đảng bộ', 'Chi bộ Quân sự', 'Chi bộ Công an'
   thoi_gian_loai?: 'CA_NHIEM_KY' | 'KHOANG_THOI_GIAN';
   chu_the: string;
+  chu_the_loai?: ChuTheLoai;
+  cap_chu_the?: CapChuThe;
+  chu_the_don_vi_id?: string | null;
   don_vi_id: string | null;
   ten_don_vi: string | null;
   chi_dang_bo_id?: string | null; // ID chi, đảng bộ được lưu/áp dụng
   ten_chi_dang_bo?: string | null; // Tên chi, đảng bộ (hoặc 'Toàn Đảng bộ')
   loai_hinh?: LoaiHinhKtGs | null; // Đối với chương trình nhiệm kỳ có thể bỏ/không bắt buộc
-  doi_tuong?: string | null; // Đối với chương trình nhiệm kỳ có thể bỏ/không bắt buộc
+  doi_tuong?: string | null; // Tên hiển thị đối tượng
+  doi_tuong_loai?: 'TO_CHUC' | 'DANG_VIEN';
+  doi_tuong_don_vi_id?: string | null; // Khóa ngoại chuẩn hóa đến danh mục DonVi duy nhất
   noi_dung: string;
   noi_dung_van_ban?: string | null; // Nội dung chi tiết văn bản đính kèm theo
   ngay_bat_dau: string | null;
@@ -203,12 +213,17 @@ export interface CreateChuongTrinhInput {
   chu_the_ap_dung?: string | null;
   thoi_gian_loai?: 'CA_NHIEM_KY' | 'KHOANG_THOI_GIAN';
   chu_the: string;
+  chu_the_loai?: ChuTheLoai;
+  cap_chu_the?: CapChuThe;
+  chu_the_don_vi_id?: string | null;
   don_vi_id?: string | null;
   ten_don_vi?: string | null;
   chi_dang_bo_id?: string | null;
   ten_chi_dang_bo?: string | null;
   loai_hinh?: LoaiHinhKtGs | null;
   doi_tuong?: string | null;
+  doi_tuong_loai?: 'TO_CHUC' | 'DANG_VIEN';
+  doi_tuong_don_vi_id?: string | null; // Khóa ngoại chuẩn hóa đến danh mục DonVi duy nhất
   linh_vuc?: string | null;
   noi_dung: string;
   noi_dung_van_ban?: string | null;
@@ -281,9 +296,15 @@ export interface HoSoDiaBanFile {
 }
 
 export interface PhanCongDiaBan {
+  id?: string;
   user_id: string;
   user_name: string;
   don_vi_ids: string[];
+  loai_phan_cong?: 'THUONG_XUYEN' | 'DOAN_KIEM_TRA';
+  tu_ngay?: string;
+  den_ngay?: string | null;
+  so_quyet_dinh?: string | null;
+  trang_thai?: 'DANG_PHU_TRACH' | 'DA_CHUYEN_GIAO';
   ghi_chu?: string;
   updated_at: string;
 }
@@ -376,6 +397,7 @@ export interface DiaBanRecord {
   id: string; // don_vi_id
   ten_dia_ban: string;
   loai_to_chuc: string;
+  trang_thai_to_chuc?: TrangThaiDonVi;
   can_bo_phu_trach_id?: string;
   can_bo_phu_trach_ten?: string;
   can_bo_chuc_vu?: string;

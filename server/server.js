@@ -80,6 +80,9 @@ function getInitialData() {
     donThuList,
     auditLogs,
     pdfFiles: [],
+    diaBanRecords: [],
+    hoSoDiaBanFiles: [],
+    phanCongDiaBan: [],
   };
 }
 
@@ -96,7 +99,15 @@ function readDb() {
     if (!parsed.donThuList || !Array.isArray(parsed.donThuList) || parsed.donThuList.length === 0) {
       const initial = getInitialData();
       parsed.donThuList = initial.donThuList;
-      fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+    }
+    if (!parsed.diaBanRecords || !Array.isArray(parsed.diaBanRecords)) {
+      parsed.diaBanRecords = [];
+    }
+    if (!parsed.hoSoDiaBanFiles || !Array.isArray(parsed.hoSoDiaBanFiles)) {
+      parsed.hoSoDiaBanFiles = [];
+    }
+    if (!parsed.phanCongDiaBan || !Array.isArray(parsed.phanCongDiaBan)) {
+      parsed.phanCongDiaBan = [];
     }
     return parsed;
   } catch (err) {
@@ -297,6 +308,32 @@ app.post('/api/don-vi', (req, res) => {
   };
 
   db.donViList.push(newDonVi);
+
+  // Tự động khởi tạo Hồ sơ địa bàn tương ứng cho tổ chức mới (1-1 bằng ID bất biến)
+  if (!db.diaBanRecords) db.diaBanRecords = [];
+  if (!db.diaBanRecords.some((r) => r.id === newDonVi.id)) {
+    db.diaBanRecords.push({
+      id: newDonVi.id,
+      ten_dia_ban: newDonVi.ten,
+      loai_to_chuc: newDonVi.loai,
+      can_bo_phu_trach_id: null,
+      can_bo_phu_trach_ten: 'Chưa phân công',
+      can_bo_chuc_vu: '',
+      thoi_gian_phan_cong: 'Chưa có',
+      van_ban_phan_cong: 'Chưa ban hành',
+      tinh_trang_bao_cao_thang: 'CHUA_NOP',
+      thang_hien_tai: 'T10/2026',
+      so_van_de_theo_doi: 0,
+      danh_sach_van_de: [],
+      so_chi_dao_chua_hoan_thanh: 0,
+      danh_sach_chi_dao: [],
+      thoi_diem_cap_nhat_gan_nhat: new Date().toISOString(),
+      nguoi_cap_nhat_gan_nhat: actor_name || 'Hệ thống',
+      so_luong_tai_lieu: 0,
+      trang_thai_ho_so: 'DANG_THEO_DOI',
+    });
+  }
+
   db.auditLogs.unshift({
     id: `log-${Date.now()}`,
     nguoi_dung_id: user_id || null,
@@ -365,6 +402,25 @@ app.put('/api/don-vi/:id', (req, res) => {
   item.nguoi_cap_nhat_id = user_id || null;
   item.version = (item.version || 1) + 1;
   item.updated_at = new Date().toISOString();
+
+  // Đồng bộ cascade tên và loại sang hồ sơ địa bàn, tệp tài liệu và chương trình KT-GS
+  if (!db.diaBanRecords) db.diaBanRecords = [];
+  const dbRecord = db.diaBanRecords.find((r) => r.id === item.id);
+  if (dbRecord) {
+    dbRecord.ten_dia_ban = ten;
+    dbRecord.loai_to_chuc = item.loai;
+    dbRecord.thoi_diem_cap_nhat_gan_nhat = new Date().toISOString();
+  }
+  if (db.hoSoDiaBanFiles) {
+    db.hoSoDiaBanFiles.filter((f) => f.don_vi_id === item.id).forEach((f) => {
+      f.ten_don_vi = ten;
+    });
+  }
+  if (db.chuongTrinhList) {
+    db.chuongTrinhList.filter((c) => c.doi_tuong_don_vi_id === item.id).forEach((c) => {
+      c.doi_tuong = ten;
+    });
+  }
 
   db.auditLogs.unshift({
     id: `log-${Date.now()}`,
@@ -717,6 +773,121 @@ app.get('/api/don-vi/:id/relations', (req, res) => {
 
 
 
+// Helper nhận diện và phân loại chủ thể chuẩn xác: phân biệt rõ cấp Đảng ủy phường và cơ sở trực thuộc (trường học, chi bộ)
+function detectChuThe(str, chuTheDonViId, donViList) {
+  if (!str && !chuTheDonViId) {
+    return {
+      chuTheLoai: 'KHAC',
+      capChuThe: 'CO_SO',
+      chuTheDonViId: null,
+    };
+  }
+
+  const s = (str || '').toLowerCase().trim();
+  const activeUnits = (donViList || []).filter((d) => !d.deleted_at);
+  const rootUnit = activeUnits.find((d) => !d.don_vi_cha_id);
+  const rootId = rootUnit ? rootUnit.id : null;
+
+  // 1. Nếu có ID đơn vị chủ thể cụ thể được truyền vào
+  if (chuTheDonViId) {
+    const found = activeUnits.find((d) => d.id === chuTheDonViId);
+    if (found) {
+      if (found.id === rootId) {
+        if (s.includes('thường vụ') || s.includes('btv')) {
+          return { chuTheLoai: 'BTV', capChuThe: 'PHUONG', chuTheDonViId: found.id };
+        }
+        if (s.includes('kiểm tra') || s.includes('ubkt')) {
+          return { chuTheLoai: 'UBKT', capChuThe: 'PHUONG', chuTheDonViId: found.id };
+        }
+        return { chuTheLoai: 'BCH', capChuThe: 'PHUONG', chuTheDonViId: found.id };
+      } else {
+        if (s.includes('kiểm tra') || s.includes('ubkt')) {
+          return { chuTheLoai: 'UBKT_CO_SO', capChuThe: 'CO_SO', chuTheDonViId: found.id };
+        }
+        if (found.loai === 'CHI_BO') {
+          return { chuTheLoai: 'CHI_BO', capChuThe: 'CO_SO', chuTheDonViId: found.id };
+        }
+        return { chuTheLoai: 'BCH', capChuThe: 'CO_SO', chuTheDonViId: found.id };
+      }
+    }
+  }
+
+  // 2. Kiểm tra xem tên chủ thể có chứa tên của một tổ chức đảng trực thuộc (trường học, chi bộ) hay không
+  const childUnits = activeUnits.filter((d) => d.don_vi_cha_id);
+  for (const cu of childUnits) {
+    const cuName = cu.ten.toLowerCase().trim();
+    const cleanName = cuName.replace(/^(chi bộ|đảng bộ|đảng ủy|ủy ban kiểm tra|ubkt)\s+/i, '').trim();
+    if (cleanName.length >= 3 && s.includes(cleanName)) {
+      if (s.includes('kiểm tra') || s.includes('ubkt')) {
+        return { chuTheLoai: 'UBKT_CO_SO', capChuThe: 'CO_SO', chuTheDonViId: cu.id };
+      }
+      if (cu.loai === 'CHI_BO') {
+        return { chuTheLoai: 'CHI_BO', capChuThe: 'CO_SO', chuTheDonViId: cu.id };
+      }
+      return { chuTheLoai: 'BCH', capChuThe: 'CO_SO', chuTheDonViId: cu.id };
+    }
+  }
+
+  // 3. Kiểm tra các từ khóa đặc thù trường học / chi bộ cấp dưới
+  const isSchoolOrSubunit =
+    s.includes('trường') ||
+    s.includes('thcs') ||
+    s.includes('thpt') ||
+    s.includes('mầm non') ||
+    s.includes('cao đẳng') ||
+    s.includes('tiểu học') ||
+    s.includes('doanh nghiệp') ||
+    s.includes('hợp tác xã') ||
+    s.includes('công an') ||
+    s.includes('quân sự') ||
+    s.includes('khu dân cư') ||
+    s.includes('tổ dân phố') ||
+    s.includes('tdp ');
+  if (isSchoolOrSubunit) {
+    if (s.includes('kiểm tra') || s.includes('ubkt')) {
+      return { chuTheLoai: 'UBKT_CO_SO', capChuThe: 'CO_SO', chuTheDonViId: null };
+    }
+    return { chuTheLoai: 'BCH', capChuThe: 'CO_SO', chuTheDonViId: null };
+  }
+
+  // 4. Nếu là chủ thể cấp Đảng ủy phường (Ban Chấp hành, Ban Thường vụ, UBKT Đảng ủy phường)
+  if (s.includes('thường vụ') || s.includes('btv')) {
+    return { chuTheLoai: 'BTV', capChuThe: 'PHUONG', chuTheDonViId: rootId };
+  }
+  if (s.includes('kiểm tra') || s.includes('ubkt')) {
+    return { chuTheLoai: 'UBKT', capChuThe: 'PHUONG', chuTheDonViId: rootId };
+  }
+  if (
+    s.includes('chấp hành') ||
+    s.includes('bch') ||
+    s.includes('đảng bộ phường') ||
+    s.includes('đảng ủy phường')
+  ) {
+    return { chuTheLoai: 'BCH', capChuThe: 'PHUONG', chuTheDonViId: rootId };
+  }
+
+  if (s.includes('chi bộ')) {
+    return { chuTheLoai: 'CHI_BO', capChuThe: 'CO_SO', chuTheDonViId: null };
+  }
+
+  return { chuTheLoai: 'KHAC', capChuThe: 'CO_SO', chuTheDonViId: null };
+}
+
+// Helper đối chiếu đối tượng với danh mục tổ chức Đảng duy nhất
+function resolveTargetDonVi(targetStr, targetId, donViList) {
+  if (targetId) {
+    const found = donViList.find((d) => !d.deleted_at && d.id === targetId);
+    if (found) return { id: found.id, ten: found.ten, loai: 'TO_CHUC' };
+  }
+  if (!targetStr) return { id: null, ten: '', loai: 'TO_CHUC' };
+  const s = targetStr.trim().toLowerCase();
+  const found = donViList.find(
+    (d) => !d.deleted_at && (d.ten.toLowerCase() === s || (d.ma && d.ma.toLowerCase() === s))
+  );
+  if (found) return { id: found.id, ten: found.ten, loai: 'TO_CHUC' };
+  return { id: null, ten: targetStr.trim(), loai: 'DANG_VIEN' };
+}
+
 // ── Chuong Trinh KT-GS ──────────────────────────────────────────────────────
 app.get('/api/chuong-trinh', (req, res) => {
   const db = readDb();
@@ -726,9 +897,22 @@ app.get('/api/chuong-trinh', (req, res) => {
 app.post('/api/chuong-trinh', (req, res) => {
   const { input } = req.body;
   const db = readDb();
+
+  const resolved = resolveTargetDonVi(input.doi_tuong, input.doi_tuong_don_vi_id, db.donViList || []);
+  const detected = detectChuThe(input.chu_the, input.chu_the_don_vi_id, db.donViList || []);
+  const chuTheLoai = input.chu_the_loai || detected.chuTheLoai;
+  const capChuThe = input.cap_chu_the || detected.capChuThe;
+  const chuTheDonViId = input.chu_the_don_vi_id || detected.chuTheDonViId;
+
   const newItem = {
     ...input,
     id: `ct-${Date.now()}`,
+    chu_the_loai: chuTheLoai,
+    cap_chu_the: capChuThe,
+    chu_the_don_vi_id: chuTheDonViId,
+    doi_tuong: resolved.ten || input.doi_tuong,
+    doi_tuong_loai: input.doi_tuong_loai || resolved.loai,
+    doi_tuong_don_vi_id: resolved.id || input.doi_tuong_don_vi_id || null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     danh_sach_thay_doi_bo_sung: input.danh_sach_thay_doi_bo_sung || [],
@@ -748,9 +932,30 @@ app.put('/api/chuong-trinh/:id', (req, res) => {
     return res.status(404).json({ message: 'Không tìm thấy chương trình' });
   }
 
+  const existing = db.chuongTrinhList[idx];
+  const resolved = resolveTargetDonVi(
+    input.doi_tuong || existing.doi_tuong,
+    input.doi_tuong_don_vi_id !== undefined ? input.doi_tuong_don_vi_id : existing.doi_tuong_don_vi_id,
+    db.donViList || []
+  );
+  const detected = detectChuThe(
+    input.chu_the || existing.chu_the,
+    input.chu_the_don_vi_id !== undefined ? input.chu_the_don_vi_id : existing.chu_the_don_vi_id,
+    db.donViList || []
+  );
+  const chuTheLoai = input.chu_the_loai || existing.chu_the_loai || detected.chuTheLoai;
+  const capChuThe = input.cap_chu_the || existing.cap_chu_the || detected.capChuThe;
+  const chuTheDonViId = input.chu_the_don_vi_id !== undefined ? input.chu_the_don_vi_id : (existing.chu_the_don_vi_id || detected.chuTheDonViId);
+
   db.chuongTrinhList[idx] = {
-    ...db.chuongTrinhList[idx],
+    ...existing,
     ...input,
+    chu_the_loai: chuTheLoai,
+    cap_chu_the: capChuThe,
+    chu_the_don_vi_id: chuTheDonViId,
+    doi_tuong: resolved.ten || input.doi_tuong || existing.doi_tuong,
+    doi_tuong_loai: input.doi_tuong_loai || resolved.loai,
+    doi_tuong_don_vi_id: resolved.id,
     updated_at: new Date().toISOString(),
   };
 
@@ -799,6 +1004,12 @@ app.post('/api/chuong-trinh/batch-import', (req, res) => {
       return false;
     });
 
+    const resolved = resolveTargetDonVi(input.doi_tuong, input.doi_tuong_don_vi_id, db.donViList || []);
+    const detected = detectChuThe(input.chu_the, input.chu_the_don_vi_id, db.donViList || []);
+    const chuTheLoai = input.chu_the_loai || detected.chuTheLoai;
+    const capChuThe = input.cap_chu_the || detected.capChuThe;
+    const chuTheDonViId = input.chu_the_don_vi_id || detected.chuTheDonViId;
+
     if (existingIdx >= 0) {
       if (duplicateAction === 'SKIP') {
         skippedCount++;
@@ -809,11 +1020,16 @@ app.post('/api/chuong-trinh/batch-import', (req, res) => {
         const existing = db.chuongTrinhList[existingIdx];
         existing.nam = input.nam;
         existing.chu_the = input.chu_the;
+        existing.chu_the_loai = chuTheLoai;
+        existing.cap_chu_the = capChuThe;
+        existing.chu_the_don_vi_id = chuTheDonViId;
         existing.co_quan_ban_hanh = input.co_quan_ban_hanh || input.chu_the;
         existing.chu_the_ap_dung = input.chu_the_ap_dung || input.doi_tuong || 'Toàn Đảng bộ';
         existing.loai_hinh = input.loai_hinh || 'KIEM_TRA';
         existing.linh_vuc = input.linh_vuc || 'Công tác xây dựng Đảng';
-        existing.doi_tuong = input.doi_tuong?.trim() || '';
+        existing.doi_tuong = resolved.ten || input.doi_tuong?.trim() || '';
+        existing.doi_tuong_don_vi_id = resolved.id || input.doi_tuong_don_vi_id || null;
+        existing.doi_tuong_loai = input.doi_tuong_loai || resolved.loai;
         existing.noi_dung = input.noi_dung.trim();
         existing.ten_chuong_trinh = input.ten_chuong_trinh || existing.ten_chuong_trinh;
         existing.ngay_bat_dau = input.ngay_bat_dau || existing.ngay_bat_dau;
@@ -845,12 +1061,18 @@ app.post('/api/chuong-trinh/batch-import', (req, res) => {
       chu_the_ap_dung: input.chu_the_ap_dung?.trim() || input.doi_tuong || 'Toàn Đảng bộ',
       thoi_gian_loai: input.thoi_gian_loai || (input.ngay_bat_dau ? 'KHOANG_THOI_GIAN' : 'CA_NHIEM_KY'),
       chu_the: input.chu_the,
-      don_vi_id: input.don_vi_id || null,
-      ten_don_vi: input.ten_don_vi || null,
-      chi_dang_bo_id: input.chi_dang_bo_id || null,
-      ten_chi_dang_bo: input.ten_chi_dang_bo || null,
+      chu_the_loai: chuTheLoai,
+      cap_chu_the: capChuThe,
+      chu_the_don_vi_id: chuTheDonViId,
+      don_vi_id: resolved.id || input.don_vi_id || null,
+      ten_don_vi: resolved.ten || input.ten_don_vi || null,
+      chi_dang_bo_id: resolved.id || input.chi_dang_bo_id || null,
+      ten_chi_dang_bo: resolved.ten || input.ten_chi_dang_bo || null,
       loai_hinh: isNhiemKy ? (input.loai_hinh || null) : (input.loai_hinh || 'KIEM_TRA'),
-      doi_tuong: input.doi_tuong?.trim() || '',
+      doi_tuong: resolved.ten || input.doi_tuong?.trim() || '',
+      doi_tuong_don_vi_id: resolved.id || input.doi_tuong_don_vi_id || null,
+      doi_tuong_loai: input.doi_tuong_loai || resolved.loai,
+      linh_vuc: input.linh_vuc || 'Công tác xây dựng Đảng',
       noi_dung: input.noi_dung.trim(),
       noi_dung_van_ban: input.noi_dung_van_ban?.trim() || null,
       ngay_bat_dau: input.ngay_bat_dau || null,
@@ -881,6 +1103,208 @@ app.post('/api/chuong-trinh/batch-import', (req, res) => {
     totalProcessed: (items || []).length,
     errors,
   });
+});
+
+// ── Endpoints Hồ Sơ Địa Bàn & Phân Công Địa Bàn Chuẩn Hóa ──────────────────
+app.get('/api/dia-ban', (req, res) => {
+  const db = readDb();
+  const activeUnits = (db.donViList || []).filter((d) => !d.deleted_at);
+  const unitMap = new Map(activeUnits.map((u) => [u.id, u]));
+  if (!db.diaBanRecords) db.diaBanRecords = [];
+
+  // Đảm bảo 1-1 với DonVi và tự động kế thừa tên mới nhất từ master danh mục
+  const recordsMap = new Map(db.diaBanRecords.map((r) => [r.id, r]));
+  activeUnits.forEach((u) => {
+    const existing = recordsMap.get(u.id);
+    if (existing) {
+      existing.ten_dia_ban = u.ten;
+      existing.loai_to_chuc = u.loai;
+    } else {
+      recordsMap.set(u.id, {
+        id: u.id,
+        ten_dia_ban: u.ten,
+        loai_to_chuc: u.loai,
+        can_bo_phu_trach_id: null,
+        can_bo_phu_trach_ten: 'Chưa phân công',
+        can_bo_chuc_vu: '',
+        thoi_gian_phan_cong: 'Chưa có',
+        van_ban_phan_cong: 'Chưa ban hành',
+        tinh_trang_bao_cao_thang: 'CHUA_NOP',
+        thang_hien_tai: 'T10/2026',
+        so_van_de_theo_doi: 0,
+        danh_sach_van_de: [],
+        so_chi_dao_chua_hoan_thanh: 0,
+        danh_sach_chi_dao: [],
+        thoi_diem_cap_nhat_gan_nhat: new Date().toISOString(),
+        nguoi_cap_nhat_gan_nhat: 'Hệ thống',
+        so_luong_tai_lieu: 0,
+        trang_thai_ho_so: u.trang_thai === 'CHAM_DUT' ? 'DA_KET_THUC' : 'DANG_THEO_DOI',
+      });
+    }
+  });
+
+  db.diaBanRecords = Array.from(recordsMap.values()).filter((r) => unitMap.has(r.id));
+  writeDb(db);
+  res.json(db.diaBanRecords);
+});
+
+app.post('/api/dia-ban', (req, res) => {
+  const db = readDb();
+  const { records } = req.body;
+  if (Array.isArray(records)) {
+    db.diaBanRecords = records;
+    writeDb(db);
+    return res.json({ success: true, count: records.length });
+  }
+  res.status(400).json({ message: 'Dữ liệu không hợp lệ' });
+});
+
+app.put('/api/dia-ban/:id', (req, res) => {
+  const db = readDb();
+  const { record } = req.body;
+  const id = req.params.id;
+  if (!db.diaBanRecords) db.diaBanRecords = [];
+  const idx = db.diaBanRecords.findIndex((r) => r.id === id);
+  if (idx >= 0) {
+    db.diaBanRecords[idx] = { ...db.diaBanRecords[idx], ...record, id };
+  } else {
+    db.diaBanRecords.push({ ...record, id });
+  }
+  writeDb(db);
+  res.json(db.diaBanRecords.find((r) => r.id === id));
+});
+
+app.get('/api/phan-cong-dia-ban', (req, res) => {
+  const db = readDb();
+  res.json(db.phanCongDiaBan || []);
+});
+
+app.post('/api/phan-cong-dia-ban', (req, res) => {
+  const db = readDb();
+  const { assignments, user_id, actor_name } = req.body;
+  if (!Array.isArray(assignments)) {
+    return res.status(400).json({ message: 'Danh sách phân công không hợp lệ' });
+  }
+
+  db.phanCongDiaBan = assignments;
+
+  // Tự động đồng bộ sang diaBanRecords và ghi lịch sử phân công
+  if (!db.diaBanRecords) db.diaBanRecords = [];
+  const now = new Date().toISOString();
+  const userMap = new Map((db.users || []).map((u) => [u.id, u]));
+
+  const unitToAssign = new Map();
+  assignments.forEach((as) => {
+    const u = userMap.get(as.user_id);
+    (as.don_vi_ids || []).forEach((uId) => {
+      unitToAssign.set(uId, {
+        userId: as.user_id,
+        userName: u ? `Đ/c ${u.ho_ten}` : as.user_name || 'Cán bộ UBKT',
+        chucVu: u?.chuc_danh || (u?.vai_tro === 'ADMIN' ? 'Chủ nhiệm UBKT' : 'Chuyên viên UBKT'),
+        vanBan: as.so_quyet_dinh || as.ghi_chu || 'Quyết định phân công của UBKT',
+      });
+    });
+  });
+
+  db.diaBanRecords.forEach((r) => {
+    const assignInfo = unitToAssign.get(r.id);
+    if (assignInfo) {
+      if (r.can_bo_phu_trach_id && r.can_bo_phu_trach_id !== assignInfo.userId) {
+        if (!r.lich_su_phu_trach) r.lich_su_phu_trach = [];
+        r.lich_su_phu_trach.unshift({
+          id: `ls-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          can_bo_id: r.can_bo_phu_trach_id,
+          can_bo_ten: r.can_bo_phu_trach_ten || 'Chưa rõ',
+          can_bo_chuc_vu: r.can_bo_chuc_vu || '',
+          tu_ngay: r.thoi_gian_phan_cong || 'Trước đó',
+          den_ngay: new Date().toLocaleDateString('vi-VN'),
+          van_ban_phan_cong: r.van_ban_phan_cong || '',
+          ly_do_thay_doi: 'Điều chỉnh phân công địa bàn công tác',
+          nguoi_thuc_hien: actor_name || 'Quản trị viên',
+          created_at: now,
+        });
+      }
+      r.can_bo_phu_trach_id = assignInfo.userId;
+      r.can_bo_phu_trach_ten = assignInfo.userName;
+      r.can_bo_chuc_vu = assignInfo.chucVu;
+      r.thoi_gian_phan_cong = new Date().toLocaleDateString('vi-VN');
+      r.van_ban_phan_cong = assignInfo.vanBan;
+    } else {
+      if (r.can_bo_phu_trach_id) {
+        if (!r.lich_su_phu_trach) r.lich_su_phu_trach = [];
+        r.lich_su_phu_trach.unshift({
+          id: `ls-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          can_bo_id: r.can_bo_phu_trach_id,
+          can_bo_ten: r.can_bo_phu_trach_ten || 'Chưa rõ',
+          can_bo_chuc_vu: r.can_bo_chuc_vu || '',
+          tu_ngay: r.thoi_gian_phan_cong || 'Trước đó',
+          den_ngay: new Date().toLocaleDateString('vi-VN'),
+          van_ban_phan_cong: r.van_ban_phan_cong || '',
+          ly_do_thay_doi: 'Rút phân công địa bàn',
+          nguoi_thuc_hien: actor_name || 'Quản trị viên',
+          created_at: now,
+        });
+        r.can_bo_phu_trach_id = null;
+        r.can_bo_phu_trach_ten = 'Chưa phân công';
+        r.can_bo_chuc_vu = '';
+      }
+    }
+  });
+
+  writeDb(db);
+  res.json({ success: true, assignments: db.phanCongDiaBan });
+});
+
+app.get('/api/ho-so-files', (req, res) => {
+  const db = readDb();
+  const donViId = req.query.don_vi_id;
+  let files = db.hoSoDiaBanFiles || [];
+  if (donViId) {
+    files = files.filter((f) => f.don_vi_id === donViId);
+  }
+  res.json(files);
+});
+
+app.post('/api/ho-so-files', (req, res) => {
+  const db = readDb();
+  const file = req.body;
+  if (!file || !file.don_vi_id) {
+    return res.status(400).json({ message: 'Tệp phải gắn với mã đơn vị (don_vi_id) cụ thể' });
+  }
+  if (!db.hoSoDiaBanFiles) db.hoSoDiaBanFiles = [];
+  const newFile = {
+    id: file.id || `file-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    ...file,
+    created_at: file.created_at || new Date().toISOString(),
+  };
+  db.hoSoDiaBanFiles.unshift(newFile);
+
+  if (db.diaBanRecords) {
+    const diaBan = db.diaBanRecords.find((r) => r.id === file.don_vi_id);
+    if (diaBan) {
+      diaBan.so_luong_tai_lieu = db.hoSoDiaBanFiles.filter((f) => f.don_vi_id === file.don_vi_id).length;
+    }
+  }
+
+  writeDb(db);
+  res.json(newFile);
+});
+
+app.delete('/api/ho-so-files/:id', (req, res) => {
+  const db = readDb();
+  if (!db.hoSoDiaBanFiles) db.hoSoDiaBanFiles = [];
+  const file = db.hoSoDiaBanFiles.find((f) => f.id === req.params.id);
+  db.hoSoDiaBanFiles = db.hoSoDiaBanFiles.filter((f) => f.id !== req.params.id);
+
+  if (file && db.diaBanRecords) {
+    const diaBan = db.diaBanRecords.find((r) => r.id === file.don_vi_id);
+    if (diaBan) {
+      diaBan.so_luong_tai_lieu = db.hoSoDiaBanFiles.filter((f) => f.don_vi_id === file.don_vi_id).length;
+    }
+  }
+
+  writeDb(db);
+  res.json({ success: true });
 });
 
 // ── Thay Doi Bo Sung ────────────────────────────────────────────────────────

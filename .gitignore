@@ -27,5 +27,8 @@ Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
-*.sln
 *.sw?
+
+# Scratch & Backups
+scratch/
+server/data/backup_*.json

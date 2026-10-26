@@ -388,7 +388,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
           zIndex: 3,
         }}
       >
-        v1.0.0 · UBKT Đảng ủy phường Ái Quốc
+        v1.0.0 · Phần mềm Quản lý kiểm tra, giám sát Đảng
       </div>
 
       <style>{`

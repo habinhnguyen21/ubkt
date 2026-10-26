@@ -1,14 +1,106 @@
 import * as XLSX from 'xlsx';
-import type { ChuongTrinhKtGs, CreateChuongTrinhInput, LoaiHinhKtGs, TrangThaiKtGs } from '../types';
+import type { ChuongTrinhKtGs, CreateChuongTrinhInput, DonVi, LoaiHinhKtGs, TrangThaiKtGs, ChuTheLoai, CapChuThe } from '../types';
 
 export const DANH_MUC_LINH_VUC_CHUAN = [
   'Công tác xây dựng Đảng',
   'Quản lý đất đai, trật tự xây dựng',
-  'Tài chính, ngân sách',
-  'Phòng, chống tham nhũng',
+  'Tài chính - ngân sách',
+  'Phòng, chống tham nhũng, lãng phí',
   'Chính trị tư tưởng, đạo đức lối sống',
+  'Công tác cán bộ',
+  'Thực hiện nhiệm vụ chính trị',
+  'Dân chủ ở cơ sở',
   'Lĩnh vực khác',
 ];
+
+/**
+ * Chuẩn hóa linh hoạt lĩnh vực kiểm tra, giám sát từ mọi biến thể (dấu phẩy, gạch ngang, en-dash, từ khóa...)
+ */
+export function normalizeLinhVuc(raw?: string | null): string {
+  if (!raw) return 'Công tác xây dựng Đảng';
+  const clean = raw.trim();
+  const lower = clean.toLowerCase();
+
+  // 1. Tài chính - ngân sách (hỗ trợ mọi định dạng: phẩy, gạch nối, en-dash, đảng phí, quỹ...)
+  if (
+    lower.includes('tài chính') ||
+    lower.includes('ngân sách') ||
+    lower.includes('đảng phí') ||
+    lower.includes('kinh phí') ||
+    lower.includes('quỹ')
+  ) {
+    return 'Tài chính - ngân sách';
+  }
+
+  // 2. Quản lý đất đai, trật tự xây dựng
+  if (
+    lower.includes('đất đai') ||
+    lower.includes('trật tự xây dựng') ||
+    lower.includes('xây dựng đô thị') ||
+    lower.includes('môi trường') ||
+    lower.includes('đô thị') ||
+    lower.includes('giải tỏa')
+  ) {
+    return 'Quản lý đất đai, trật tự xây dựng';
+  }
+
+  // 3. Phòng, chống tham nhũng, lãng phí
+  if (
+    lower.includes('tham nhũng') ||
+    lower.includes('lãng phí') ||
+    lower.includes('tiêu cực') ||
+    lower.includes('kê khai tài sản')
+  ) {
+    return 'Phòng, chống tham nhũng, lãng phí';
+  }
+
+  // 4. Chính trị tư tưởng, đạo đức lối sống
+  if (
+    lower.includes('chính trị tư tưởng') ||
+    lower.includes('đạo đức') ||
+    lower.includes('lối sống') ||
+    lower.includes('nêu gương') ||
+    lower.includes('tư tưởng')
+  ) {
+    return 'Chính trị tư tưởng, đạo đức lối sống';
+  }
+
+  // 5. Công tác cán bộ
+  if (lower.includes('cán bộ') || lower.includes('quy hoạch') || lower.includes('bổ nhiệm')) {
+    return 'Công tác cán bộ';
+  }
+
+  // 6. Dân chủ ở cơ sở
+  if (lower.includes('dân chủ') || lower.includes('quy chế dân chủ')) {
+    return 'Dân chủ ở cơ sở';
+  }
+
+  // 7. Thực hiện nhiệm vụ chính trị
+  if (lower.includes('nhiệm vụ chính trị') || lower.includes('phát triển kinh tế')) {
+    return 'Thực hiện nhiệm vụ chính trị';
+  }
+
+  // 8. Công tác xây dựng Đảng
+  if (
+    lower.includes('xây dựng đảng') ||
+    lower.includes('phát triển đảng') ||
+    lower.includes('đảng viên') ||
+    lower.includes('sinh hoạt chi bộ')
+  ) {
+    return 'Công tác xây dựng Đảng';
+  }
+
+  // So sánh chuẩn hóa không phân biệt dấu gạch nối, en-dash, phẩy
+  const normalizedUser = lower.replace(/[-–—,._/]/g, ' ').replace(/\s+/g, ' ').trim();
+  for (const std of DANH_MUC_LINH_VUC_CHUAN) {
+    const normalizedStd = std.toLowerCase().replace(/[-–—,._/]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (normalizedStd === normalizedUser || normalizedStd.includes(normalizedUser) || normalizedUser.includes(normalizedStd)) {
+      return std;
+    }
+  }
+
+  return clean;
+}
 
 export interface ImportRowData {
   rowNumber: number;
@@ -93,7 +185,7 @@ export const EXCEL_SAMPLE_DATA: Array<Array<string | number>> = [
     '12-KH/ĐU',
     'Đảng ủy phường',
     'Kiểm tra',
-    'Tài chính, ngân sách',
+    'Tài chính - ngân sách',
     'Chi bộ Công an',
     'Kiểm tra công tác thu nộp, quản lý và sử dụng đảng phí theo quy định của Đảng',
     '01/06/2026',
@@ -371,6 +463,7 @@ export function parseDateRange(
 export async function parseAndValidateChuongTrinhFile(
   file: File,
   existingList: ChuongTrinhKtGs[] = [],
+  donViList: DonVi[] = [],
 ): Promise<ParseResult> {
   let rawRows: any[][] = [];
 
@@ -526,19 +619,10 @@ export async function parseAndValidateChuongTrinhFile(
     let linhVuc = 'Công tác xây dựng Đảng';
     if (colLinhVuc >= 0 && r[colLinhVuc]) {
       const lvVal = String(r[colLinhVuc]).trim();
-      if (lvVal) linhVuc = lvVal;
+      if (lvVal) linhVuc = normalizeLinhVuc(lvVal);
     } else {
-      // Tự động nhận diện theo từ khóa
-      const lowerNd = noiDung.toLowerCase();
-      if (lowerNd.includes('đất đai') || lowerNd.includes('xây dựng') || lowerNd.includes('môi trường') || lowerNd.includes('đô thị')) {
-        linhVuc = 'Quản lý đất đai, trật tự xây dựng';
-      } else if (lowerNd.includes('tài chính') || lowerNd.includes('ngân sách') || lowerNd.includes('đảng phí') || lowerNd.includes('quỹ')) {
-        linhVuc = 'Tài chính, ngân sách';
-      } else if (lowerNd.includes('đạo đức') || lowerNd.includes('lối sống') || lowerNd.includes('nêu gương') || lowerNd.includes('chính trị')) {
-        linhVuc = 'Chính trị tư tưởng, đạo đức lối sống';
-      } else if (lowerNd.includes('tham nhũng') || lowerNd.includes('tiêu cực') || lowerNd.includes('lãng phí')) {
-        linhVuc = 'Phòng, chống tham nhũng';
-      }
+      // Tự động nhận diện theo từ khóa trong nội dung
+      linhVuc = normalizeLinhVuc(noiDung);
     }
 
     // 7. Thời gian: Từ ngày - Đến ngày
@@ -606,21 +690,93 @@ export async function parseAndValidateChuongTrinhFile(
 
     const tenChuongTrinh = `Kế hoạch ${loaiHinh === 'KIEM_TRA' ? 'kiểm tra' : 'giám sát'} năm ${parsedNam} đối với ${doiTuong}`;
 
+    // Tìm kiếm tổ chức đảng tương ứng trong danh mục chung DonVi
+    const cleanDoiTuong = doiTuong.trim().toLowerCase();
+    const matchedDonVi = (donViList || []).find(
+      (d) =>
+        d.ten.trim().toLowerCase() === cleanDoiTuong ||
+        (d.ma && d.ma.trim().toLowerCase() === cleanDoiTuong),
+    );
+
+    // Xác định phân loại chủ thể thực hiện và cấp chủ thể chuẩn xác
+    let chuTheLoai: ChuTheLoai = 'KHAC';
+    let capChuThe: CapChuThe = 'CO_SO';
+    let chuTheDonViId: string | null = null;
+
+    const lowerCq = (coQuan || '').toLowerCase().trim();
+    const activeUnits = (donViList || []).filter((d) => !d.deleted_at);
+    const rootUnit = activeUnits.find((d) => !d.don_vi_cha_id);
+    const rootId = rootUnit ? rootUnit.id : null;
+
+    // 1. Kiểm tra nếu tên cơ quan thuộc về một tổ chức đảng trực thuộc (trường học, chi bộ)
+    const childUnits = activeUnits.filter((d) => d.don_vi_cha_id);
+    let matchedChild: DonVi | undefined;
+    for (const cu of childUnits) {
+      const cuClean = cu.ten.toLowerCase().replace(/^(chi bộ|đảng bộ)\s+/i, '').trim();
+      if (cuClean.length >= 3 && lowerCq.includes(cuClean)) {
+        matchedChild = cu;
+        break;
+      }
+    }
+
+    const isSchoolOrSub =
+      lowerCq.includes('trường') ||
+      lowerCq.includes('thcs') ||
+      lowerCq.includes('thpt') ||
+      lowerCq.includes('mầm non') ||
+      lowerCq.includes('cao đẳng') ||
+      lowerCq.includes('tiểu học');
+
+    if (matchedChild || isSchoolOrSub) {
+      capChuThe = 'CO_SO';
+      chuTheDonViId = matchedChild ? matchedChild.id : null;
+      if (lowerCq.includes('kiểm tra') || lowerCq.includes('ubkt')) {
+        chuTheLoai = 'UBKT_CO_SO';
+      } else if (matchedChild?.loai === 'CHI_BO' || lowerCq.includes('chi bộ')) {
+        chuTheLoai = 'CHI_BO';
+      } else {
+        chuTheLoai = 'BCH';
+      }
+    } else {
+      // Cơ quan cấp Đảng ủy phường
+      capChuThe = 'PHUONG';
+      chuTheDonViId = rootId;
+      if (lowerCq.includes('thường vụ') || lowerCq.includes('btv')) {
+        chuTheLoai = 'BTV';
+      } else if (lowerCq.includes('kiểm tra') || lowerCq.includes('ubkt')) {
+        chuTheLoai = 'UBKT';
+      } else if (
+        lowerCq.includes('chấp hành') ||
+        lowerCq.includes('bch') ||
+        lowerCq.includes('đảng bộ') ||
+        lowerCq.includes('đảng ủy')
+      ) {
+        chuTheLoai = 'BCH';
+      } else {
+        chuTheLoai = 'KHAC';
+      }
+    }
+
     const rawPayload: CreateChuongTrinhInput = {
       nam: parsedNam,
       loai_chuong_trinh: 'HANG_NAM',
       nhiem_ky: null,
       has_nhiem_ky: false,
       chu_the: coQuan,
+      chu_the_loai: chuTheLoai,
+      cap_chu_the: capChuThe,
+      chu_the_don_vi_id: chuTheDonViId,
       co_quan_ban_hanh: coQuan,
       chu_the_ap_dung: doiTuong,
-      don_vi_id: null,
-      ten_don_vi: null,
-      chi_dang_bo_id: null,
-      ten_chi_dang_bo: null,
+      don_vi_id: matchedDonVi ? matchedDonVi.id : null,
+      ten_don_vi: matchedDonVi ? matchedDonVi.ten : null,
+      chi_dang_bo_id: matchedDonVi ? matchedDonVi.id : null,
+      ten_chi_dang_bo: matchedDonVi ? matchedDonVi.ten : null,
       loai_hinh: loaiHinh,
       linh_vuc: linhVuc,
-      doi_tuong: doiTuong,
+      doi_tuong: matchedDonVi ? matchedDonVi.ten : doiTuong,
+      doi_tuong_loai: 'TO_CHUC',
+      doi_tuong_don_vi_id: matchedDonVi ? matchedDonVi.id : null,
       noi_dung: noiDung,
       ten_chuong_trinh: tenChuongTrinh,
       noi_dung_van_ban: null,

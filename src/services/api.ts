@@ -15,6 +15,8 @@ import type {
   TrangThaiDonVi,
   HoSoDiaBanFile,
   BaoCaoThangItem,
+  DiaBanRecord,
+  PhanCongDiaBan,
 } from '../types';
 import {
   isGoogleDriveConfigured,
@@ -170,6 +172,9 @@ interface MockDb {
   auditLogs: NhatKy[];
   pdfFiles?: PdfKhoItem[];
   donThuList?: DonThu[];
+  diaBanRecords?: DiaBanRecord[];
+  hoSoDiaBanFiles?: HoSoDiaBanFile[];
+  phanCongDiaBan?: PhanCongDiaBan[];
 }
 
 function getInitialProductionDb(): MockDb {
@@ -818,7 +823,7 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
           c.trang_thai = 'DANG_THUC_HIEN';
           c.ten_chuong_trinh = c.ten_chuong_trinh || 'Kiểm tra, giám sát theo Quyết định/Kế hoạch số ...';
         } else if (c.id === 'ct-nk-001') {
-          c.co_quan_ban_hanh = 'BCH Đảng bộ phường Ái Quốc';
+          c.co_quan_ban_hanh = 'Ban Chấp hành Đảng bộ';
           c.chu_the_ap_dung = 'Toàn Đảng bộ';
           c.so_van_ban = '01-CTr/ĐU';
           c.trang_thai = 'DANG_THUC_HIEN';
@@ -884,12 +889,18 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         chu_the_ap_dung: input.chu_the_ap_dung?.trim() || input.ten_chi_dang_bo || 'Toàn Đảng bộ',
         thoi_gian_loai: input.thoi_gian_loai || (input.ngay_bat_dau ? 'KHOANG_THOI_GIAN' : 'CA_NHIEM_KY'),
         chu_the: input.chu_the,
+        chu_the_loai: input.chu_the_loai,
+        cap_chu_the: input.cap_chu_the,
+        chu_the_don_vi_id: input.chu_the_don_vi_id || null,
         don_vi_id: input.don_vi_id || null,
         ten_don_vi: input.ten_don_vi || null,
         chi_dang_bo_id: input.chi_dang_bo_id || null,
         ten_chi_dang_bo: input.ten_chi_dang_bo || null,
         loai_hinh: isNhiemKy ? (input.loai_hinh || null) : (input.loai_hinh || 'KIEM_TRA'),
         doi_tuong: isNhiemKy ? (input.doi_tuong?.trim() || input.chu_the_ap_dung || input.ten_chi_dang_bo || 'Toàn Đảng bộ') : (input.doi_tuong?.trim() || ''),
+        doi_tuong_don_vi_id: input.doi_tuong_don_vi_id || null,
+        doi_tuong_loai: input.doi_tuong_loai || 'TO_CHUC',
+        linh_vuc: input.linh_vuc || null,
         noi_dung: input.noi_dung.trim(),
         noi_dung_van_ban: input.noi_dung_van_ban?.trim() || null,
         ngay_bat_dau: input.ngay_bat_dau || null,
@@ -932,12 +943,18 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       if (input.chu_the_ap_dung !== undefined) item.chu_the_ap_dung = input.chu_the_ap_dung;
       if (input.thoi_gian_loai !== undefined) item.thoi_gian_loai = input.thoi_gian_loai;
       item.chu_the = input.chu_the;
+      if (input.chu_the_loai !== undefined) item.chu_the_loai = input.chu_the_loai;
+      if (input.cap_chu_the !== undefined) item.cap_chu_the = input.cap_chu_the;
+      if (input.chu_the_don_vi_id !== undefined) item.chu_the_don_vi_id = input.chu_the_don_vi_id;
       item.don_vi_id = input.don_vi_id || null;
       item.ten_don_vi = input.ten_don_vi || null;
       if (input.chi_dang_bo_id !== undefined) item.chi_dang_bo_id = input.chi_dang_bo_id;
       if (input.ten_chi_dang_bo !== undefined) item.ten_chi_dang_bo = input.ten_chi_dang_bo;
       if (input.loai_hinh !== undefined) item.loai_hinh = input.loai_hinh;
       if (input.doi_tuong !== undefined) item.doi_tuong = input.doi_tuong?.trim() || null;
+      if (input.doi_tuong_don_vi_id !== undefined) item.doi_tuong_don_vi_id = input.doi_tuong_don_vi_id;
+      if (input.doi_tuong_loai !== undefined) item.doi_tuong_loai = input.doi_tuong_loai;
+      if (input.linh_vuc !== undefined) item.linh_vuc = input.linh_vuc;
       item.noi_dung = input.noi_dung.trim();
       if (input.noi_dung_van_ban !== undefined) item.noi_dung_van_ban = input.noi_dung_van_ban;
       item.ngay_bat_dau = input.ngay_bat_dau || null;
@@ -1811,6 +1828,138 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       return undefined as T;
     }
 
+    // ── Fallback Quản lý Hồ sơ Địa bàn & Phân công ─────────────────────────────
+    case 'get_dia_ban_records': {
+      try {
+        const raw = localStorage.getItem('ubkt_ho_so_dia_ban_records');
+        const list: DiaBanRecord[] = raw ? JSON.parse(raw) : [];
+        const activeUnits = (db.donViList || []).filter((d) => !d.deleted_at);
+        const unitMap = new Map(activeUnits.map((u) => [u.id, u]));
+
+        // Đồng bộ 1-1 với DonVi và tự động lấy tên mới nhất
+        const map = new Map(list.map((r) => [r.id, r]));
+        activeUnits.forEach((u) => {
+          const ex = map.get(u.id);
+          if (ex) {
+            ex.ten_dia_ban = u.ten;
+            ex.loai_to_chuc = u.loai;
+          } else {
+            map.set(u.id, {
+              id: u.id,
+              ten_dia_ban: u.ten,
+              loai_to_chuc: u.loai,
+              can_bo_phu_trach_id: undefined,
+              can_bo_phu_trach_ten: 'Chưa phân công',
+              can_bo_chuc_vu: '',
+              thoi_gian_phan_cong: 'Chưa có',
+              van_ban_phan_cong: 'Chưa ban hành',
+              tinh_trang_bao_cao_thang: 'CHUA_NOP',
+              thang_hien_tai: 'T10/2026',
+              so_van_de_theo_doi: 0,
+              danh_sach_van_de: [],
+              so_chi_dao_chua_hoan_thanh: 0,
+              danh_sach_chi_dao: [],
+              thoi_diem_cap_nhat_gan_nhat: new Date().toISOString(),
+              nguoi_cap_nhat_gan_nhat: 'Hệ thống',
+              so_luong_tai_lieu: 0,
+              trang_thai_ho_so: u.trang_thai === 'CHAM_DUT' ? 'DA_KET_THUC' : 'DANG_THEO_DOI',
+            });
+          }
+        });
+        const synced = Array.from(map.values()).filter((r) => unitMap.has(r.id));
+        localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(synced));
+        return synced as T;
+      } catch {
+        return [] as T;
+      }
+    }
+
+    case 'save_dia_ban_records': {
+      const { records } = args as { records: DiaBanRecord[] };
+      localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(records || []));
+      for (const r of records || []) {
+        await centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r);
+      }
+      return { success: true, count: (records || []).length } as T;
+    }
+
+    case 'update_dia_ban_record': {
+      const { record } = args as { record: DiaBanRecord };
+      try {
+        const raw = localStorage.getItem('ubkt_ho_so_dia_ban_records');
+        let list: DiaBanRecord[] = raw ? JSON.parse(raw) : [];
+        const idx = list.findIndex((r) => r.id === record.id);
+        if (idx >= 0) list[idx] = { ...list[idx], ...record };
+        else list.push(record);
+        localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(list));
+        await centralDataService.saveDoc('ho_so_dia_ban_records', record.id, record);
+        return record as T;
+      } catch {
+        return record as T;
+      }
+    }
+
+    case 'get_phan_cong_dia_ban': {
+      try {
+        const raw = localStorage.getItem('ubkt_phan_cong_dia_ban');
+        return (raw ? JSON.parse(raw) : []) as T;
+      } catch {
+        return [] as T;
+      }
+    }
+
+    case 'save_phan_cong_dia_ban': {
+      const { assignments } = args as { assignments: PhanCongDiaBan[] };
+      localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(assignments || []));
+      for (const as of assignments || []) {
+        await centralDataService.saveDoc('phan_cong_dia_ban', as.user_id, {
+          ...as,
+          id: as.id || as.user_id,
+        });
+      }
+      return { success: true } as T;
+    }
+
+    case 'get_ho_so_files': {
+      const { don_vi_id } = (args || {}) as { don_vi_id?: string };
+      try {
+        const raw = localStorage.getItem('ubkt_ho_so_dia_ban_files');
+        let files: HoSoDiaBanFile[] = raw ? JSON.parse(raw) : [];
+        if (don_vi_id) files = files.filter((f) => f.don_vi_id === don_vi_id);
+        return files as T;
+      } catch {
+        return [] as T;
+      }
+    }
+
+    case 'add_ho_so_file': {
+      const file = (args as unknown) as HoSoDiaBanFile;
+      try {
+        const raw = localStorage.getItem('ubkt_ho_so_dia_ban_files');
+        let files: HoSoDiaBanFile[] = raw ? JSON.parse(raw) : [];
+        files.unshift(file);
+        localStorage.setItem('ubkt_ho_so_dia_ban_files', JSON.stringify(files));
+        await centralDataService.saveDoc('ho_so_dia_ban_files', file.id, file);
+        return file as T;
+      } catch {
+        return file as T;
+      }
+    }
+
+    case 'delete_ho_so_file': {
+      const { id } = args as { id: string };
+      try {
+        const raw = localStorage.getItem('ubkt_ho_so_dia_ban_files');
+        let files: HoSoDiaBanFile[] = raw ? JSON.parse(raw) : [];
+        files = files.filter((f) => f.id !== id);
+        localStorage.setItem('ubkt_ho_so_dia_ban_files', JSON.stringify(files));
+        await centralDataService.deleteDoc('ho_so_dia_ban_files', id);
+        return { success: true } as T;
+      } catch {
+        return { success: true } as T;
+      }
+    }
+
     default:
       throw new Error(`Command not recognized: ${cmd}`);
   }
@@ -2016,6 +2165,67 @@ export const api = {
     await cloudSyncService.deleteItemFromCloud('pdf_files', id).catch(() => {});
     return requestApi<void>(`/api/pdfs/${id}`, 'DELETE', undefined, 'delete_pdf', { id, ten_file });
   },
+
+  // ── Chuẩn hóa APIs Hồ Sơ Địa Bàn & Phân Công Địa Bàn ───────────────────────
+  getDiaBanRecords: () =>
+    requestApi<DiaBanRecord[]>('/api/dia-ban', 'GET', undefined, 'get_dia_ban_records'),
+
+  saveDiaBanRecords: (records: DiaBanRecord[]) =>
+    requestApi<{ success: boolean; count: number }>(
+      '/api/dia-ban',
+      'POST',
+      { records },
+      'save_dia_ban_records',
+      { records }
+    ),
+
+  updateDiaBanRecord: (record: DiaBanRecord) =>
+    requestApi<DiaBanRecord>(
+      `/api/dia-ban/${record.id}`,
+      'PUT',
+      { record },
+      'update_dia_ban_record',
+      { record }
+    ),
+
+  getPhanCongDiaBan: () =>
+    requestApi<PhanCongDiaBan[]>('/api/phan-cong-dia-ban', 'GET', undefined, 'get_phan_cong_dia_ban'),
+
+  savePhanCongDiaBan: (assignments: PhanCongDiaBan[], actor_name?: string, user_id?: string) =>
+    requestApi<{ success: boolean }>(
+      '/api/phan-cong-dia-ban',
+      'POST',
+      { assignments, actor_name, user_id },
+      'save_phan_cong_dia_ban',
+      { assignments, actor_name, user_id }
+    ),
+
+  getHoSoDiaBanFiles: (don_vi_id?: string) =>
+    requestApi<HoSoDiaBanFile[]>(
+      don_vi_id ? `/api/ho-so-files?don_vi_id=${encodeURIComponent(don_vi_id)}` : '/api/ho-so-files',
+      'GET',
+      undefined,
+      'get_ho_so_files',
+      { don_vi_id }
+    ),
+
+  addHoSoDiaBanFile: (file: HoSoDiaBanFile) =>
+    requestApi<HoSoDiaBanFile>(
+      '/api/ho-so-files',
+      'POST',
+      file as unknown as Record<string, unknown>,
+      'add_ho_so_file',
+      file as unknown as Record<string, unknown>
+    ),
+
+  deleteHoSoDiaBanFile: (id: string) =>
+    requestApi<{ success: boolean }>(
+      `/api/ho-so-files/${id}`,
+      'DELETE',
+      undefined,
+      'delete_ho_so_file',
+      { id }
+    ),
 
   /**
    * Tự động quét toàn diện hệ thống:

@@ -198,14 +198,27 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [tree, flat, users] = await Promise.all([
+      const [tree, flat, users, savedAssignments, savedDiaBan] = await Promise.all([
         api.getDonViTree(),
         api.getAllDonVi(),
         api.getAllUsers().catch(() => []),
+        api.getPhanCongDiaBan().catch(() => []),
+        api.getDiaBanRecords().catch(() => []),
       ]);
       setTreeData(tree);
       setAllDonVi(flat);
       setUsersList(users);
+
+      if (Array.isArray(savedAssignments) && savedAssignments.length > 0) {
+        const sanitized = sanitizeStrictAssignments(savedAssignments);
+        setAssignments(sanitized);
+        localStorage.setItem(STORAGE_PHAN_CONG, JSON.stringify(sanitized));
+      }
+
+      if (Array.isArray(savedDiaBan) && savedDiaBan.length > 0) {
+        setDiaBanRecords(savedDiaBan);
+        localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(savedDiaBan));
+      }
 
       // Nếu chưa chọn đơn vị nào, chọn đơn vị đầu tiên
       if (!selectedUnitId && flat.length > 0) {
@@ -530,6 +543,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
     const sanitized = sanitizeStrictAssignments(newAssignments);
     setAssignments(sanitized);
     localStorage.setItem(STORAGE_PHAN_CONG, JSON.stringify(sanitized));
+    api.savePhanCongDiaBan(sanitized, user.ho_ten, user.id).catch(console.error);
 
     // Đồng bộ sang Hồ sơ địa bàn
     try {
@@ -616,6 +630,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
           });
           localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(updated));
           setDiaBanRecords(updated);
+          api.saveDiaBanRecords(updated).catch(console.error);
           window.dispatchEvent(
             new CustomEvent('ubkt_diaban_records_updated', { detail: updated }),
           );

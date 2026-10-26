@@ -13,9 +13,20 @@ export const OrgStatsCards: React.FC<OrgStatsCardsProps> = ({
   selectedFilter,
   onFilterChange,
 }) => {
-  const activeUnits = units.filter((u) => !u.deleted_at);
+  // Lọc danh mục các tổ chức đảng trực thuộc (không tính đơn vị cấp trên root và cơ quan BCH/BTV/UBKT phường)
+  const isSubordinateOrg = (u: DonVi): boolean => {
+    if (u.deleted_at) return false;
+    // Loại trừ đơn vị cấp trên root (Đảng bộ phường)
+    if (!u.don_vi_cha_id) return false;
+    // Loại trừ các cơ quan ban ngành/BCH/BTV cấp phường
+    if (u.loai === 'BCH' || u.loai === 'BTV') return false;
+    if (u.loai === 'UBKT' && u.ten.toLowerCase().includes('đảng ủy phường')) return false;
+    return true;
+  };
 
-  // 1. Tổng số
+  const activeUnits = units.filter(isSubordinateOrg);
+
+  // 1. Tổng số tổ chức đảng trực thuộc
   const totalCount = activeUnits.length;
 
   // 2. Đang hoạt động
@@ -32,9 +43,9 @@ export const OrgStatsCards: React.FC<OrgStatsCardsProps> = ({
   const cards = [
     {
       key: 'ALL',
-      title: 'Tổng số tổ chức',
+      title: 'Tổ chức đảng trực thuộc',
       value: totalCount,
-      subtitle: 'Toàn bộ danh mục đơn vị',
+      subtitle: 'Đảng bộ trường học & các Chi bộ',
       icon: Building2,
       bgColor: 'bg-blue-50',
       textColor: 'text-blue-700',

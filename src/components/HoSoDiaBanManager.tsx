@@ -497,30 +497,90 @@ export function HoSoDiaBanManager({ user }: Props) {
   };
 
   useEffect(() => {
-    Promise.all([api.getAllDonVi(), api.getAllUsers()])
-      .then(([dvs, usrs]) => {
+    Promise.all([
+      api.getAllDonVi(),
+      api.getAllUsers(),
+      api.getDiaBanRecords().catch(() => []),
+      api.getPhanCongDiaBan().catch(() => []),
+    ])
+      .then(([dvs, usrs, serverRecords, serverAssignments]) => {
         syncUsersAndRecords(usrs);
 
-        // Đồng bộ các đơn vị chưa có trong hồ sơ địa bàn (không nạp lại các địa bàn đã bị xóa)
         setRecords((prev) => {
           const deletedIds = getDeletedDiaBanIds();
           const dvIdSet = new Set(dvs.map((d) => d.id));
-          // Lọc bỏ các bản ghi đã xóa hoặc đơn vị không còn tồn tại
-          const validPrev = prev.filter((r) => !deletedIds.has(r.id) && (dvs.length === 0 || dvIdSet.has(r.id)));
+          const dvMap = new Map(dvs.map((d) => [d.id, d]));
+
+          // Ưu tiên nạp từ server nếu có
+          const baseRecords = Array.isArray(serverRecords) && serverRecords.length > 0 ? serverRecords : prev;
+
+          // Lọc bỏ các bản ghi đã xóa
+          const validPrev = baseRecords.filter((r) => !deletedIds.has(r.id) && (dvs.length === 0 || dvIdSet.has(r.id)));
           const existingIds = new Set(validPrev.map((r) => r.id));
           const newRecords: DiaBanRecord[] = [];
 
+          // 1. Cập nhật tên địa bàn mới nhất từ danh mục DonVi gốc cho các bản ghi hiện có
+          const updatedPrev = validPrev.map((r) => {
+            const org = dvMap.get(r.id);
+            if (!org) return r;
+
+            // Kiểm tra phân công từ serverAssignments nếu có
+            let canBoId = r.can_bo_phu_trach_id;
+            let canBoTen = r.can_bo_phu_trach_ten;
+            let canBoChucVu = r.can_bo_chuc_vu;
+            if (Array.isArray(serverAssignments) && serverAssignments.length > 0) {
+              const assigned = serverAssignments.find((a) => a.don_vi_ids?.includes(r.id));
+              if (assigned) {
+                canBoId = assigned.user_id;
+                canBoTen = assigned.user_name || r.can_bo_phu_trach_ten;
+                const usr = usrs.find((u) => u.id === assigned.user_id);
+                if (usr) {
+                  canBoTen = `Đ/c ${usr.ho_ten}`;
+                  canBoChucVu = usr.chuc_danh || canBoChucVu;
+                }
+              }
+            }
+
+            return {
+              ...r,
+              ten_dia_ban: org.ten, // Luôn đồng bộ tên mới nhất từ danh mục chung
+              loai_to_chuc: org.loai,
+              trang_thai_to_chuc: org.trang_thai,
+              can_bo_phu_trach_id: canBoId,
+              can_bo_phu_trach_ten: canBoTen,
+              can_bo_chuc_vu: canBoChucVu,
+            };
+          });
+
+          // 2. Tự động thêm hồ sơ địa bàn cho các đơn vị mới bổ sung trong danh mục chung
           dvs.forEach((dv) => {
             if (!existingIds.has(dv.id) && !deletedIds.has(dv.id)) {
+              let canBoId: string | undefined;
+              let canBoTen = 'Chưa phân công';
+              let canBoChucVu = '';
+              if (Array.isArray(serverAssignments) && serverAssignments.length > 0) {
+                const assigned = serverAssignments.find((a) => a.don_vi_ids?.includes(dv.id));
+                if (assigned) {
+                  canBoId = assigned.user_id;
+                  canBoTen = assigned.user_name || 'Chưa phân công';
+                  const usr = usrs.find((u) => u.id === assigned.user_id);
+                  if (usr) {
+                    canBoTen = `Đ/c ${usr.ho_ten}`;
+                    canBoChucVu = usr.chuc_danh || '';
+                  }
+                }
+              }
+
               newRecords.push({
                 id: dv.id,
                 ten_dia_ban: dv.ten,
                 loai_to_chuc: dv.loai,
-                can_bo_phu_trach_id: undefined,
-                can_bo_phu_trach_ten: 'Chưa phân công',
-                can_bo_chuc_vu: '',
-                thoi_gian_phan_cong: 'Chưa có',
-                van_ban_phan_cong: 'Chưa ban hành',
+                trang_thai_to_chuc: dv.trang_thai,
+                can_bo_phu_trach_id: canBoId,
+                can_bo_phu_trach_ten: canBoTen,
+                can_bo_chuc_vu: canBoChucVu,
+                thoi_gian_phan_cong: canBoId ? new Date().toLocaleDateString('vi-VN') : 'Chưa có',
+                van_ban_phan_cong: canBoId ? 'Quyết định phân công' : 'Chưa ban hành',
                 tinh_trang_bao_cao_thang: 'CHUA_NOP',
                 thang_hien_tai: 'T10/2026',
                 so_van_de_theo_doi: 0,
@@ -534,12 +594,10 @@ export function HoSoDiaBanManager({ user }: Props) {
             }
           });
 
-          if (newRecords.length > 0 || validPrev.length !== prev.length) {
-            const combined = [...validPrev, ...newRecords];
-            localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(combined));
-            return combined;
-          }
-          return prev;
+          const combined = [...updatedPrev, ...newRecords];
+          localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(combined));
+          api.saveDiaBanRecords(combined).catch(() => {});
+          return combined;
         });
       })
       .catch((err) => console.error('Lỗi nạp dữ liệu hồ sơ địa bàn:', err));
@@ -694,6 +752,7 @@ export function HoSoDiaBanManager({ user }: Props) {
   const saveRecords = (newRecords: DiaBanRecord[]) => {
     setRecords(newRecords);
     localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(newRecords));
+    api.saveDiaBanRecords(newRecords).catch(console.error);
     newRecords.forEach((r) => {
       centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r).catch(() => {});
     });
@@ -2091,7 +2150,7 @@ export function HoSoDiaBanManager({ user }: Props) {
 
   // Tải về tệp
   const handleDownloadFile = (fileName: string) => {
-    const dummy = `TÀI LIỆU HỒ SƠ ĐỊA BÀN - UBKT ĐẢNG ỦY PHƯỜNG ÁI QUỐC\nTên tệp: ${fileName}\nNgày xuất: ${new Date().toLocaleDateString('vi-VN')}`;
+    const dummy = `TÀI LIỆU HỒ SƠ ĐỊA BÀN - ỦY BAN KIỂM TRA ĐẢNG ỦY\nTên tệp: ${fileName}\nNgày xuất: ${new Date().toLocaleDateString('vi-VN')}`;
     const blob = new Blob([dummy], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

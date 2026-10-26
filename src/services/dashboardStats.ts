@@ -190,8 +190,9 @@ export function computeDashboardStats(
 
   // 7. Lọc danh sách chương trình KT-GS
   let filteredTasks = (chuongTrinhList || []).filter((c) => {
+    const targetUnitId = c.doi_tuong_don_vi_id || c.don_vi_id || c.chi_dang_bo_id;
     // Thuộc phạm vi quyền truy cập của người dùng
-    if (c.don_vi_id && !accessibleUnitIds.has(c.don_vi_id)) {
+    if (targetUnitId && !accessibleUnitIds.has(targetUnitId) && c.don_vi_id && !accessibleUnitIds.has(c.don_vi_id)) {
       return false;
     }
     // Lọc theo năm
@@ -199,10 +200,12 @@ export function computeDashboardStats(
       return false;
     }
     // Lọc theo đơn vị / khối
-    if (filters.donViId !== 'ALL' && c.don_vi_id !== filters.donViId) {
-      return false;
+    if (filters.donViId !== 'ALL') {
+      const matchTarget = targetUnitId === filters.donViId;
+      const matchSubject = c.chu_the_don_vi_id === filters.donViId;
+      if (!matchTarget && !matchSubject) return false;
     }
-    if (filters.scopeType !== 'ALL' && c.don_vi_id && !filteredUnitIds.has(c.don_vi_id)) {
+    if (filters.scopeType !== 'ALL' && targetUnitId && !filteredUnitIds.has(targetUnitId)) {
       return false;
     }
     // Lọc theo lĩnh vực
@@ -213,7 +216,10 @@ export function computeDashboardStats(
   });
 
   // 8. Tính toán 4 Thẻ chỉ tiêu chính
-  const tongCoQuan = filteredUnits.length;
+  const tongCoQuan =
+    filters.donViId === 'ALL' && filters.scopeType === 'ALL'
+      ? filteredUnits.filter((u) => u.don_vi_cha_id !== null).length
+      : filteredUnits.length;
   const soCuocKiemTra = filteredTasks.filter((t) => t.loai_hinh === 'KIEM_TRA').length;
   const soCuocGiamSat = filteredTasks.filter((t) => t.loai_hinh === 'GIAM_SAT').length;
   const tongNhiemVu = filteredTasks.length;

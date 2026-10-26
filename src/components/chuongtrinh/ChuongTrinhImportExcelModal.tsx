@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import type { ChuongTrinhKtGs } from '../../types';
+import type { ChuongTrinhKtGs, DonVi } from '../../types';
 import {
   downloadChuongTrinhImportTemplate,
   parseAndValidateChuongTrinhFile,
@@ -24,6 +24,7 @@ import {
 interface ChuongTrinhImportExcelModalProps {
   isOpen: boolean;
   existingList: ChuongTrinhKtGs[];
+  donViList?: DonVi[];
   onClose: () => void;
   onImportSuccess: (result: {
     createdCount: number;
@@ -46,6 +47,7 @@ interface ChuongTrinhImportExcelModalProps {
 export const ChuongTrinhImportExcelModal: React.FC<ChuongTrinhImportExcelModalProps> = ({
   isOpen,
   existingList,
+  donViList = [],
   onClose,
   onImportSuccess,
   onBatchImport,
@@ -80,7 +82,7 @@ export const ChuongTrinhImportExcelModal: React.FC<ChuongTrinhImportExcelModalPr
     setImportResult(null);
 
     try {
-      const result = await parseAndValidateChuongTrinhFile(selected, existingList);
+      const result = await parseAndValidateChuongTrinhFile(selected, existingList, donViList);
       setRows(result.rows);
       setValidCount(result.validRows.length);
       setInvalidCount(result.invalidRows.length);

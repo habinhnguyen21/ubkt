@@ -51,6 +51,7 @@ import {
   RefreshCw,
   FileSpreadsheet,
   ShieldAlert,
+  ShieldCheck,
   ListChecks,
   Settings,
   Cloud,
@@ -59,10 +60,11 @@ import {
   Upload,
   ChevronDown,
   SlidersHorizontal,
+  FolderOpen,
 } from 'lucide-react';
 import { ChuongTrinhImportExcelModal } from './chuongtrinh/ChuongTrinhImportExcelModal';
 import { ChinhTienDoNamModal } from './chuongtrinh/ChinhTienDoNamModal';
-import { exportChuongTrinhToExcel } from '../services/chuongTrinhExcelService';
+import { exportChuongTrinhToExcel, normalizeLinhVuc } from '../services/chuongTrinhExcelService';
 
 // Chuyển đổi an toàn Base64 Data URL sang Blob URL để xem trực tiếp trong iframe và mở tab mới
 const getBlobUrlFromDataUrl = (dataUrl?: string | null): string | null => {
@@ -99,17 +101,20 @@ const formatFileSize = (bytes?: number | null): string => {
 
 export const DANH_MUC_LINH_VUC = [
   'Công tác xây dựng Đảng',
+  'Quản lý đất đai, trật tự xây dựng',
+  'Tài chính - ngân sách',
+  'Phòng, chống tham nhũng, lãng phí',
+  'Chính trị tư tưởng, đạo đức lối sống',
   'Công tác cán bộ',
-  'Tài chính – ngân sách',
   'Thực hiện nhiệm vụ chính trị',
   'Dân chủ ở cơ sở',
   'Lĩnh vực khác',
 ] as const;
 
 export const DEFAULT_CUSTOM_CO_QUAN = [
-  'Ban Thường vụ Đảng ủy phường',
-  'Ban Chấp hành Đảng bộ phường',
-  'Ủy ban Kiểm tra Đảng ủy phường',
+  'Ban Thường vụ Đảng ủy',
+  'Ban Chấp hành Đảng bộ',
+  'Ủy ban Kiểm tra Đảng ủy',
   'Chi bộ, cơ quan khác',
 ] as const;
 
@@ -136,13 +141,13 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
   const [searchQuery, setSearchQuery] = useState('');
 
-  // 4 Cơ quan ban hành có thể tùy chỉnh theo yêu cầu người dùng
+  // Danh sách Cơ quan ban hành tùy chỉnh linh hoạt không giới hạn số lượng
   const [customCoQuanList, setCustomCoQuanList] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('ubkt_custom_co_quan_list');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length === 4) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch {
       // ignore
@@ -155,7 +160,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       const saved = localStorage.getItem('ubkt_custom_co_quan_list');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length === 4) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch {
       // ignore
@@ -168,8 +173,8 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   const [filterThoiGian, setFilterThoiGian] = useState<string>('ALL');
   const [filterLoaiChuongTrinh, setFilterLoaiChuongTrinh] = useState<string>('ALL');
 
-  // Bộ lọc cho Phần Hàng năm (6 phần A, B, C, D, E, F)
-  const [filterNam, setFilterNam] = useState<string>('ALL');
+  // Bộ lọc cho Phần Hàng năm: MẶC ĐỊNH LÀ NĂM CÔNG TÁC HIỆN TẠI
+  const [filterNam, setFilterNam] = useState<string>(() => new Date().getFullYear().toString());
   const [filterHnChuThe, setFilterHnChuThe] = useState<string>('ALL');
   const [filterHnLoaiHinh, setFilterHnLoaiHinh] = useState<string>('ALL');
   const [filterHnTrangThai, setFilterHnTrangThai] = useState<string>('ALL');
@@ -246,7 +251,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   const [formTermStartYear, setFormTermStartYear] = useState<number>(2025);
   const [formTermEndYear, setFormTermEndYear] = useState<number>(2030);
   const [formSoVanBan, setFormSoVanBan] = useState<string>('01-CTr/ĐU');
-  const [formCoQuanBanHanh, setFormCoQuanBanHanh] = useState<string>('BCH Đảng bộ phường Ái Quốc');
+  const [formCoQuanBanHanh, setFormCoQuanBanHanh] = useState<string>('Ban Chấp hành Đảng bộ');
   const [formChuTheApDung, setFormChuTheApDung] = useState<string>('Toàn Đảng bộ');
   const [formNoiDung, setFormNoiDung] = useState<string>(
     'Kiểm tra, giám sát theo Quyết định/Kế hoạch số ...: Kiểm tra việc lãnh đạo, chỉ đạo và tổ chức thực hiện nhiệm vụ chính trị, công tác xây dựng Đảng, giữ gìn đoàn kết nội bộ.'
@@ -613,6 +618,172 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     return 1;
   };
 
+  // Helper nhận diện và phân loại chủ thể chuẩn xác: phân biệt Cấp phường và Cấp cơ sở trực thuộc (trường học, chi bộ)
+  const getAgencyIdentifier = (agencyName: string, donViList: DonVi[]) => {
+    const s = (agencyName || '').toLowerCase().trim();
+    const activeUnits = (donViList || []).filter((d) => !d.deleted_at);
+    const rootUnit = activeUnits.find((d) => !d.don_vi_cha_id);
+    const rootId = rootUnit ? rootUnit.id : null;
+
+    // 1. Kiểm tra đối chiếu với danh mục các tổ chức đảng trực thuộc cấp dưới
+    const childUnits = activeUnits.filter((d) => d.don_vi_cha_id);
+    for (const cu of childUnits) {
+      const cuClean = cu.ten.toLowerCase().replace(/^(chi bộ|đảng bộ)\s+/i, '').trim();
+      if (cuClean.length >= 3 && s.includes(cuClean)) {
+        if (s.includes('kiểm tra') || s.includes('ubkt')) {
+          return {
+            type: 'UBKT_CO_SO' as const,
+            capChuThe: 'CO_SO' as const,
+            donViId: cu.id,
+            ten: `UBKT ${cu.ten}`,
+          };
+        }
+        return {
+          type: (cu.loai === 'CHI_BO' ? 'CHI_BO' : 'DANG_BO_CO_SO') as any,
+          capChuThe: 'CO_SO' as const,
+          donViId: cu.id,
+          ten: cu.ten,
+        };
+      }
+    }
+
+    // 2. Kiểm tra từ khóa trường học / chi bộ cấp dưới
+    const isSchoolOrSub =
+      s.includes('trường') ||
+      s.includes('thcs') ||
+      s.includes('thpt') ||
+      s.includes('mầm non') ||
+      s.includes('cao đẳng') ||
+      s.includes('tiểu học');
+    if (isSchoolOrSub) {
+      if (s.includes('kiểm tra') || s.includes('ubkt')) {
+        return {
+          type: 'UBKT_CO_SO' as const,
+          capChuThe: 'CO_SO' as const,
+          donViId: null,
+          ten: agencyName.trim(),
+        };
+      }
+      return {
+        type: 'DANG_BO_CO_SO' as const,
+        capChuThe: 'CO_SO' as const,
+        donViId: null,
+        ten: agencyName.trim(),
+      };
+    }
+
+    // 3. Cơ quan lãnh đạo, kiểm tra cấp Đảng ủy phường
+    if (s.includes('thường vụ') || s.includes('btv')) {
+      return {
+        type: 'BTV_PHUONG' as const,
+        capChuThe: 'PHUONG' as const,
+        donViId: rootId,
+        ten: 'Ban Thường vụ Đảng ủy',
+      };
+    }
+    if (s.includes('kiểm tra') || s.includes('ubkt')) {
+      return {
+        type: 'UBKT_PHUONG' as const,
+        capChuThe: 'PHUONG' as const,
+        donViId: rootId,
+        ten: 'Ủy ban Kiểm tra Đảng ủy',
+      };
+    }
+    if (
+      s.includes('chấp hành') ||
+      s.includes('bch') ||
+      s.includes('đảng bộ phường') ||
+      s.includes('đảng ủy phường') ||
+      s.includes('đảng bộ')
+    ) {
+      return {
+        type: 'BCH_PHUONG' as const,
+        capChuThe: 'PHUONG' as const,
+        donViId: rootId,
+        ten: 'Ban Chấp hành Đảng bộ',
+      };
+    }
+
+    if (s.includes('chi bộ')) {
+      return {
+        type: 'CHI_BO' as const,
+        capChuThe: 'CO_SO' as const,
+        donViId: null,
+        ten: agencyName.trim(),
+      };
+    }
+
+    return {
+      type: 'KHAC' as const,
+      capChuThe: 'CO_SO' as const,
+      donViId: null,
+      ten: agencyName.trim(),
+    };
+  };
+
+  // Helper so khớp chương trình với cơ quan được chọn chính xác tuyệt đối theo mã định danh & cấp chủ thể
+  const matchProgramWithAgency = (
+    item: ChuongTrinhKtGs,
+    filterAgency: string,
+    customList: string[],
+    donViList: DonVi[],
+  ): boolean => {
+    if (filterAgency === 'ALL') return true;
+
+    const itemAgency = (item.chu_the || item.co_quan_ban_hanh || '').trim();
+    const itemLower = itemAgency.toLowerCase().trim();
+    const filterLower = filterAgency.toLowerCase().trim();
+
+    if (itemLower === filterLower) return true;
+
+    const filterInfo = getAgencyIdentifier(filterAgency, donViList);
+    const itemInfo = getAgencyIdentifier(itemAgency, donViList);
+
+    if (filterAgency === 'Cơ quan khác') {
+      for (const cq of customList) {
+        if (matchProgramWithAgency(item, cq, [], donViList)) return false;
+      }
+      return true;
+    }
+
+    // 1. Nếu lọc UBKT Đảng ủy phường
+    if (filterInfo.type === 'UBKT_PHUONG') {
+      if (item.cap_chu_the === 'CO_SO' || item.chu_the_loai === 'UBKT_CO_SO') return false;
+      return itemInfo.type === 'UBKT_PHUONG';
+    }
+
+    // 2. Nếu lọc UBKT Đảng bộ cơ sở / trường học
+    if (filterInfo.type === 'UBKT_CO_SO') {
+      if (itemInfo.type !== 'UBKT_CO_SO' && item.chu_the_loai !== 'UBKT_CO_SO') return false;
+      if (filterInfo.donViId && (item.chu_the_don_vi_id || itemInfo.donViId)) {
+        return (item.chu_the_don_vi_id || itemInfo.donViId) === filterInfo.donViId;
+      }
+      return itemLower.includes(filterLower) || filterLower.includes(itemLower);
+    }
+
+    // 3. Nếu lọc Ban Thường vụ Đảng ủy phường
+    if (filterInfo.type === 'BTV_PHUONG') {
+      if (item.cap_chu_the === 'CO_SO') return false;
+      return itemInfo.type === 'BTV_PHUONG';
+    }
+
+    // 4. Nếu lọc Ban Chấp hành Đảng bộ phường
+    if (filterInfo.type === 'BCH_PHUONG') {
+      if (item.cap_chu_the === 'CO_SO') return false;
+      return itemInfo.type === 'BCH_PHUONG';
+    }
+
+    // 5. Nếu lọc đơn vị cơ sở cụ thể (Đảng bộ trường học, Chi bộ)
+    if (filterInfo.type === 'DON_VI_CO_SO' || filterInfo.type === 'CHI_BO' || filterInfo.type === 'DANG_BO_CO_SO') {
+      if (filterInfo.donViId && (item.chu_the_don_vi_id || itemInfo.donViId)) {
+        return (item.chu_the_don_vi_id || itemInfo.donViId) === filterInfo.donViId;
+      }
+      return itemLower.includes(filterLower) || filterLower.includes(itemLower);
+    }
+
+    return itemLower === filterLower;
+  };
+
   // Thống kê toàn diện cho Chương trình Hàng năm (Phần A & B & E)
   const statsHangNam = useMemo(() => {
     const hnItems = list.filter((i) => (i.loai_chuong_trinh || 'HANG_NAM') === 'HANG_NAM');
@@ -628,42 +799,47 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     const quaHan = filteredByYear.filter((i) => isChamTienDoQuaHan(i)).length;
     const tyLeHoanThanh = total > 0 ? Math.round((daHoanThanh / total) * 100) : 0;
 
-    // Thống kê theo 4 Cơ quan ban hành có thể tùy chỉnh
+    // Thống kê theo Cơ quan ban hành linh hoạt tùy chỉnh (chính xác tuyệt đối)
     const theoCoQuan: Record<string, number> = {};
+    const theoCoQuanChiTiet: Record<string, { count: number; uniqueDonVi: number }> = {};
     customCoQuanList.forEach((cq) => {
-      theoCoQuan[cq] = 0;
-    });
-
-    filteredByYear.forEach((item) => {
-      const cq = (item.chu_the || item.co_quan_ban_hanh || '').trim();
-      const foundIdx = customCoQuanList.findIndex((customName, idx) => {
-        if (idx === 3) return false;
-        const cLower = customName.toLowerCase().trim();
-        const itemLower = cq.toLowerCase().trim();
-        if (itemLower === cLower) return true;
-        if (cLower.includes('thường vụ') && itemLower.includes('thường vụ')) return true;
-        if ((cLower.includes('chấp hành') || cLower.includes('đảng bộ phường')) && (itemLower.includes('chấp hành') || itemLower.includes('đảng bộ phường'))) return true;
-        if ((cLower.includes('kiểm tra') || cLower.includes('ubkt')) && (itemLower.includes('kiểm tra') || itemLower.includes('ubkt'))) return true;
-        return itemLower.includes(cLower) || cLower.includes(itemLower);
+      const items = filteredByYear.filter((item) => matchProgramWithAgency(item, cq, [], allDonVi));
+      const uniqueSet = new Set<string>();
+      items.forEach((i) => {
+        const k = i.doi_tuong_don_vi_id || i.doi_tuong?.trim().toLowerCase();
+        if (k) uniqueSet.add(k);
       });
-
-      if (foundIdx >= 0) {
-        theoCoQuan[customCoQuanList[foundIdx]]++;
-      } else {
-        const fourthCq = customCoQuanList[3] || 'Chi bộ, cơ quan khác';
-        theoCoQuan[fourthCq] = (theoCoQuan[fourthCq] || 0) + 1;
-      }
+      theoCoQuan[cq] = items.length;
+      theoCoQuanChiTiet[cq] = {
+        count: items.length,
+        uniqueDonVi: uniqueSet.size,
+      };
     });
 
-    // Thống kê theo Lĩnh vực (6 lĩnh vực)
+    const fallbackAgency = 'Cơ quan khác';
+    const otherItems = filteredByYear.filter(
+      (item) => !customCoQuanList.some((cq) => matchProgramWithAgency(item, cq, [], allDonVi)),
+    );
+    const uniqueOtherSet = new Set<string>();
+    otherItems.forEach((i) => {
+      const k = i.doi_tuong_don_vi_id || i.doi_tuong?.trim().toLowerCase();
+      if (k) uniqueOtherSet.add(k);
+    });
+    theoCoQuan[fallbackAgency] = otherItems.length;
+    theoCoQuanChiTiet[fallbackAgency] = {
+      count: otherItems.length,
+      uniqueDonVi: uniqueOtherSet.size,
+    };
+
+    // Thống kê theo Lĩnh vực (chuẩn hóa toàn diện để không bị lệch Tài chính - ngân sách)
     const theoLinhVuc: Record<string, number> = {};
     DANH_MUC_LINH_VUC.forEach((lv) => {
       theoLinhVuc[lv] = 0;
     });
     filteredByYear.forEach((item) => {
-      const lv = item.linh_vuc || 'Công tác xây dựng Đảng';
-      if (theoLinhVuc[lv] !== undefined) {
-        theoLinhVuc[lv]++;
+      const lvNorm = normalizeLinhVuc(item.linh_vuc || item.noi_dung);
+      if (theoLinhVuc[lvNorm] !== undefined) {
+        theoLinhVuc[lvNorm]++;
       } else {
         theoLinhVuc['Lĩnh vực khác'] = (theoLinhVuc['Lĩnh vực khác'] || 0) + 1;
       }
@@ -719,8 +895,81 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       thieuVanBan: filteredByYear.filter(isThieuVanBan).length,
     };
 
+    // Phân loại chủ thể thực hiện chính xác, tách bạch rạch ròi cấp Đảng ủy phường và cấp cơ sở (trường học)
+    const bchList = filteredByYear.filter((i) => {
+      if (i.cap_chu_the === 'CO_SO') return false;
+      if (i.chu_the_loai === 'BCH') return true;
+      return getAgencyIdentifier(i.chu_the || i.co_quan_ban_hanh || '', allDonVi).type === 'BCH_PHUONG';
+    });
+    const btvList = filteredByYear.filter((i) => {
+      if (i.cap_chu_the === 'CO_SO') return false;
+      if (i.chu_the_loai === 'BTV') return true;
+      return getAgencyIdentifier(i.chu_the || i.co_quan_ban_hanh || '', allDonVi).type === 'BTV_PHUONG';
+    });
+    const ubktList = filteredByYear.filter((i) => {
+      if (i.cap_chu_the === 'CO_SO' || i.chu_the_loai === 'UBKT_CO_SO') return false;
+      if (i.chu_the_loai === 'UBKT') return true;
+      return getAgencyIdentifier(i.chu_the || i.co_quan_ban_hanh || '', allDonVi).type === 'UBKT_PHUONG';
+    });
+    const ubktCoSoList = filteredByYear.filter((i) => {
+      if (i.chu_the_loai === 'UBKT_CO_SO') return true;
+      return getAgencyIdentifier(i.chu_the || i.co_quan_ban_hanh || '', allDonVi).type === 'UBKT_CO_SO';
+    });
+    const khacList = filteredByYear.filter(
+      (i) =>
+        !bchList.includes(i) &&
+        !btvList.includes(i) &&
+        !ubktList.includes(i) &&
+        !ubktCoSoList.includes(i),
+    );
+
+    const countUniqueUnits = (items: ChuongTrinhKtGs[]) => {
+      const set = new Set<string>();
+      items.forEach((i) => {
+        const k = i.doi_tuong_don_vi_id || i.doi_tuong?.trim().toLowerCase();
+        if (k) set.add(k);
+      });
+      return set.size;
+    };
+
+    const soToChucDuyNhat = countUniqueUnits(filteredByYear);
+
+    const statsTheoChuTheChuan = {
+      bch: {
+        total: bchList.length,
+        uniqueDonVi: countUniqueUnits(bchList),
+        daHoanThanh: bchList.filter((i) => i.trang_thai === 'DA_HOAN_THANH').length,
+      },
+      btv: {
+        total: btvList.length,
+        uniqueDonVi: countUniqueUnits(btvList),
+        daHoanThanh: btvList.filter((i) => i.trang_thai === 'DA_HOAN_THANH').length,
+      },
+      ubkt: {
+        total: ubktList.length,
+        uniqueDonVi: countUniqueUnits(ubktList),
+        daHoanThanh: ubktList.filter((i) => i.trang_thai === 'DA_HOAN_THANH').length,
+      },
+      ubktCoSo: {
+        total: ubktCoSoList.length,
+        uniqueDonVi: countUniqueUnits(ubktCoSoList),
+        daHoanThanh: ubktCoSoList.filter((i) => i.trang_thai === 'DA_HOAN_THANH').length,
+      },
+      khac: {
+        total: khacList.length,
+        uniqueDonVi: countUniqueUnits(khacList),
+        daHoanThanh: khacList.filter((i) => i.trang_thai === 'DA_HOAN_THANH').length,
+      },
+      toanDangBo: {
+        totalCuoc: total,
+        totalToChucDuyNhat: soToChucDuyNhat,
+      },
+    };
+
     return {
       total,
+      soToChucDuyNhat,
+      statsTheoChuTheChuan,
       kiemTra,
       giamSat,
       daHoanThanh,
@@ -729,13 +978,14 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       quaHan,
       tyLeHoanThanh,
       theoCoQuan,
+      theoCoQuanChiTiet,
       theoLinhVuc,
       theoDonVi,
       tienDoQuy,
       tienDoThang,
       tienDoChiTiet,
     };
-  }, [list, filterNam, currentMonth, currentYear, customCoQuanList]);
+  }, [list, filterNam, currentMonth, currentYear, customCoQuanList, allDonVi]);
 
   // Danh sách Hàng năm đã lọc theo Năm, Loại hình, Chủ thể, Lĩnh vực, Đơn vị, Trạng thái, Cảnh báo tiến độ E, Tìm kiếm D
   const filteredHangNamList = useMemo(() => {
@@ -743,11 +993,11 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     return list.filter((item) => {
       if ((item.loai_chuong_trinh || 'HANG_NAM') !== 'HANG_NAM') return false;
       if (filterNam !== 'ALL' && item.nam !== Number(filterNam)) return false;
-      if (filterHnChuThe !== 'ALL' && item.chu_the !== filterHnChuThe) return false;
+      if (filterHnChuThe !== 'ALL' && !matchProgramWithAgency(item, filterHnChuThe, customCoQuanList, allDonVi)) return false;
       if (filterHnLoaiHinh !== 'ALL' && item.loai_hinh !== filterHnLoaiHinh) return false;
       if (filterHnTrangThai !== 'ALL' && item.trang_thai !== filterHnTrangThai) return false;
       if (filterHnLinhVuc !== 'ALL') {
-        const itemLv = item.linh_vuc || 'Công tác xây dựng Đảng';
+        const itemLv = normalizeLinhVuc(item.linh_vuc || item.noi_dung);
         if (itemLv !== filterHnLinhVuc) return false;
       }
       if (filterHnDonVi !== 'ALL' && item.doi_tuong !== filterHnDonVi) return false;
@@ -796,6 +1046,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     searchQuery,
     currentMonth,
     currentYear,
+    customCoQuanList,
   ]);
 
   const renderLoaiHinhBadge = (loaiHinh?: LoaiHinhKtGs | null) => {
@@ -1035,21 +1286,44 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         }
       }
 
+      // Tìm tổ chức đảng chuẩn hóa trong allDonVi
+      const cleanDoiTuong = hnDoiTuong.trim().toLowerCase();
+      const matchedDoiTuongDv = allDonVi.find(
+        (d) =>
+          d.ten.trim().toLowerCase() === cleanDoiTuong ||
+          (d.ma && d.ma.trim().toLowerCase() === cleanDoiTuong)
+      );
+
+      // Phân loại chủ thể ban hành (BCH, BTV, UBKT, KHAC)
+      let chuTheLoai: 'BCH' | 'BTV' | 'UBKT' | 'KHAC' = 'KHAC';
+      const lowerChuThe = hnChuThe.toLowerCase();
+      if (lowerChuThe.includes('thường vụ') || lowerChuThe.includes('btv')) {
+        chuTheLoai = 'BTV';
+      } else if (lowerChuThe.includes('kiểm tra') || lowerChuThe.includes('ubkt')) {
+        chuTheLoai = 'UBKT';
+      } else if (lowerChuThe.includes('chấp hành') || lowerChuThe.includes('bch') || lowerChuThe.includes('đảng bộ')) {
+        chuTheLoai = 'BCH';
+      }
+
       const payload: CreateChuongTrinhInput = {
         nam: Number(hnNam),
         loai_chuong_trinh: 'HANG_NAM',
         nhiem_ky: null,
         has_nhiem_ky: false,
         chu_the: hnChuThe,
+        chu_the_loai: chuTheLoai,
+        chu_the_don_vi_id: finalDonViId,
         don_vi_id: finalDonViId,
         ten_don_vi: null,
-        chi_dang_bo_id: null,
-        ten_chi_dang_bo: null,
+        chi_dang_bo_id: matchedDoiTuongDv ? matchedDoiTuongDv.id : null,
+        ten_chi_dang_bo: matchedDoiTuongDv ? matchedDoiTuongDv.ten : null,
         loai_hinh: hnLoaiHinh,
         linh_vuc: hnLinhVuc || DANH_MUC_LINH_VUC[0],
-        doi_tuong: hnDoiTuong.trim(),
+        doi_tuong: matchedDoiTuongDv ? matchedDoiTuongDv.ten : hnDoiTuong.trim(),
+        doi_tuong_loai: 'TO_CHUC',
+        doi_tuong_don_vi_id: matchedDoiTuongDv ? matchedDoiTuongDv.id : null,
         noi_dung: hnNoiDung.trim(),
-        ten_chuong_trinh: `Kế hoạch ${hnLoaiHinh === 'KIEM_TRA' ? 'kiểm tra' : 'giám sát'} năm ${hnNam} đối với ${hnDoiTuong.trim()}`,
+        ten_chuong_trinh: `Kế hoạch ${hnLoaiHinh === 'KIEM_TRA' ? 'kiểm tra' : 'giám sát'} năm ${hnNam} đối với ${matchedDoiTuongDv ? matchedDoiTuongDv.ten : hnDoiTuong.trim()}`,
         noi_dung_van_ban: hnNoiDungVanBan.trim() || null,
         ngay_bat_dau: hnNgayBatDau || null,
         ngay_ket_thuc: hnNgayKetThuc || null,
@@ -1216,7 +1490,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         setFormTermStartYear(first.term_start_year || (first.nhiem_ky ? parseInt(first.nhiem_ky.split('-')[0]?.trim() || '2025', 10) : 2025));
         setFormTermEndYear(first.term_end_year || (first.nhiem_ky ? parseInt(first.nhiem_ky.split('-')[1]?.trim() || '2030', 10) : 2030));
         setFormSoVanBan(first.so_van_ban || '');
-        setFormCoQuanBanHanh(first.co_quan_ban_hanh || first.chu_the || 'BCH Đảng bộ phường Ái Quốc');
+        setFormCoQuanBanHanh(first.co_quan_ban_hanh || first.chu_the || 'Ban Chấp hành Đảng bộ');
         setFormChuTheApDung(first.chu_the_ap_dung || first.ten_chi_dang_bo || 'Toàn Đảng bộ');
         setFormNoiDung(first.noi_dung || '');
         setFormNoiDungVanBan(first.noi_dung_van_ban || '');
@@ -1241,7 +1515,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     setFormTermStartYear(item.term_start_year || (item.nhiem_ky ? parseInt(item.nhiem_ky.split('-')[0]?.trim() || '2025', 10) : 2025));
     setFormTermEndYear(item.term_end_year || (item.nhiem_ky ? parseInt(item.nhiem_ky.split('-')[1]?.trim() || '2030', 10) : 2030));
     setFormSoVanBan(item.so_van_ban || '');
-    setFormCoQuanBanHanh(item.co_quan_ban_hanh || item.chu_the || 'BCH Đảng bộ phường Ái Quốc');
+    setFormCoQuanBanHanh(item.co_quan_ban_hanh || item.chu_the || 'Ban Chấp hành Đảng bộ');
     setFormChuTheApDung(item.chu_the_ap_dung || item.ten_chi_dang_bo || 'Toàn Đảng bộ');
     setFormNoiDung(item.noi_dung || '');
     setFormNoiDungVanBan(item.noi_dung_van_ban || '');
@@ -1265,7 +1539,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     setFormTermStartYear(2025);
     setFormTermEndYear(2030);
     setFormSoVanBan('');
-    setFormCoQuanBanHanh('BCH Đảng bộ phường Ái Quốc');
+    setFormCoQuanBanHanh('Ban Chấp hành Đảng bộ');
     setFormChuTheApDung('Toàn Đảng bộ');
     setFormNoiDung('');
     setFormNoiDungVanBan('');
@@ -2436,12 +2710,9 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                     onChange={(e) => setFormCoQuanBanHanh(e.target.value)}
                     className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-600"
                   >
-                    <option value="BCH Đảng bộ phường Ái Quốc">BCH Đảng bộ phường Ái Quốc</option>
-                    <option value="Ban Thường vụ Đảng ủy phường">Ban Thường vụ Đảng ủy phường</option>
-                    <option value="UBKT Đảng ủy phường">UBKT Đảng ủy phường</option>
-                    <option value="Chi bộ Quân sự">Chi bộ Quân sự</option>
-                    <option value="Chi bộ Công an">Chi bộ Công an</option>
-                    <option value="Đảng bộ Trường THCS Ái Quốc">Đảng bộ Trường THCS Ái Quốc</option>
+                    <option value="Ban Chấp hành Đảng bộ">Ban Chấp hành Đảng bộ</option>
+                    <option value="Ban Thường vụ Đảng ủy">Ban Thường vụ Đảng ủy</option>
+                    <option value="Ủy ban Kiểm tra Đảng ủy">Ủy ban Kiểm tra Đảng ủy</option>
                     {allDonVi.map((d) => (
                       <option key={d.id} value={d.ten}>
                         {d.ten}
@@ -2999,14 +3270,21 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-600">Tổng số CT</span>
+                  <span className="text-[11px] font-semibold text-slate-700">Tổng số cuộc KT-GS</span>
                   <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-600 flex items-center justify-center">
                     <Calendar className="w-3.5 h-3.5" />
                   </div>
                 </div>
                 <div className="mt-2 flex items-baseline justify-between">
-                  <span className="text-2xl font-black text-slate-800">{statsHangNam.total}</span>
-                  <span className="text-[10.5px] text-slate-500">nhiệm vụ</span>
+                  <div>
+                    <span className="text-2xl font-black text-slate-800">{statsHangNam.total}</span>
+                    <span className="text-[10px] text-slate-500 ml-1">lượt</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                      {statsHangNam.soToChucDuyNhat} TC
+                    </span>
+                  </div>
                 </div>
               </button>
 
@@ -3220,6 +3498,92 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                 </div>
               )}
             </div>
+
+            {/* Phân định rạch ròi 3 chủ thể cấp Đảng ủy phường và chủ thể cấp cơ sở */}
+            <div className="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 shrink-0">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Số liệu theo chủ thể:</span>
+              </span>
+
+              {/* BCH Đảng bộ phường */}
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterHnChuThe(filterHnChuThe === 'Ban Chấp hành Đảng bộ' ? 'ALL' : 'Ban Chấp hành Đảng bộ');
+                  setCurrentPageHn(1);
+                }}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                  filterHnChuThe === 'Ban Chấp hành Đảng bộ'
+                    ? 'bg-blue-100/90 border-blue-400 text-blue-950 font-bold shadow-2xs'
+                    : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                }`}
+                title="Các cuộc KT-GS do Ban Chấp hành Đảng bộ phường thực hiện"
+              >
+                <span>BCH Đảng bộ phường:</span>
+                <strong className="text-blue-700">{statsHangNam.statsTheoChuTheChuan.bch.total}</strong>
+                <span className="text-[10px] text-slate-400 font-normal">({statsHangNam.statsTheoChuTheChuan.bch.uniqueDonVi} TC)</span>
+              </button>
+
+              {/* BTV Đảng ủy phường */}
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterHnChuThe(filterHnChuThe === 'Ban Thường vụ Đảng ủy' ? 'ALL' : 'Ban Thường vụ Đảng ủy');
+                  setCurrentPageHn(1);
+                }}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                  filterHnChuThe === 'Ban Thường vụ Đảng ủy'
+                    ? 'bg-emerald-100/90 border-emerald-400 text-emerald-950 font-bold shadow-2xs'
+                    : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                }`}
+                title="Các cuộc KT-GS do Ban Thường vụ Đảng ủy phường thực hiện"
+              >
+                <span>BTV Đảng ủy phường:</span>
+                <strong className="text-emerald-700">{statsHangNam.statsTheoChuTheChuan.btv.total}</strong>
+                <span className="text-[10px] text-slate-400 font-normal">({statsHangNam.statsTheoChuTheChuan.btv.uniqueDonVi} TC)</span>
+              </button>
+
+              {/* UBKT Đảng ủy phường */}
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterHnChuThe(filterHnChuThe === 'Ủy ban Kiểm tra Đảng ủy' ? 'ALL' : 'Ủy ban Kiểm tra Đảng ủy');
+                  setCurrentPageHn(1);
+                }}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                  filterHnChuThe === 'Ủy ban Kiểm tra Đảng ủy'
+                    ? 'bg-purple-100/90 border-purple-400 text-purple-950 font-bold shadow-2xs'
+                    : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                }`}
+                title="Các cuộc KT-GS chuyên trách do Cơ quan UBKT Đảng ủy phường thực hiện (tách biệt hoàn toàn với UBKT trường học)"
+              >
+                <span>UBKT Đảng ủy phường:</span>
+                <strong className="text-purple-700">{statsHangNam.statsTheoChuTheChuan.ubkt.total}</strong>
+                <span className="text-[10px] text-slate-400 font-normal">({statsHangNam.statsTheoChuTheChuan.ubkt.uniqueDonVi} TC)</span>
+              </button>
+
+              {/* UBKT Đảng bộ cơ sở / Trường học (nếu có cuộc thực tế) */}
+              {statsHangNam.statsTheoChuTheChuan.ubktCoSo.total > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterHnChuThe(filterHnChuThe === 'UBKT cơ sở' ? 'ALL' : 'UBKT cơ sở');
+                    setCurrentPageHn(1);
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                    filterHnChuThe === 'UBKT cơ sở'
+                      ? 'bg-amber-100/90 border-amber-400 text-amber-950 font-bold shadow-2xs'
+                    : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                  }`}
+                  title="Các cuộc do UBKT thuộc tổ chức đảng cơ sở (trường học) thực hiện"
+                >
+                  <span className="text-amber-900">UBKT trường học / cơ sở:</span>
+                  <strong className="text-amber-800">{statsHangNam.statsTheoChuTheChuan.ubktCoSo.total}</strong>
+                  <span className="text-[10px] text-slate-400 font-normal">({statsHangNam.statsTheoChuTheChuan.ubktCoSo.uniqueDonVi} TC)</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* ══════════════════════════════════════════════════════════════════════════════
@@ -3284,12 +3648,12 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                 </div>
               </div>
 
-              {/* B2. Theo Cơ quan ban hành (4 CƠ QUAN CÓ THỂ TÙY CHỈNH) */}
+              {/* B2. Theo Cơ quan ban hành (TÙY CHỈNH LINH HOẠT) */}
               <div className="p-3 bg-slate-50/60 rounded-xl border border-slate-200 flex flex-col justify-between">
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-bold text-slate-700 text-[11.5px] flex items-center gap-1.5">
                     <Building2 className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Theo Cơ quan ban hành</span>
+                    <span>Theo Cơ quan ban hành ({customCoQuanList.length})</span>
                   </span>
                   <button
                     type="button"
@@ -3299,36 +3663,65 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                       setIsEditingCoQuanModalOpen(true);
                     }}
                     className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10.5px] font-semibold text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 border border-slate-200 transition cursor-pointer"
-                    title="Bấm để tùy chỉnh tên 4 cơ quan ban hành"
+                    title="Bấm để tùy chỉnh thêm, bớt hoặc đổi tên cơ quan ban hành"
                   >
                     <Settings className="w-3 h-3 text-slate-500" />
                     <span>Tùy chỉnh</span>
                   </button>
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1 max-h-[175px] overflow-y-auto pr-0.5">
                   {customCoQuanList.map((cq) => {
-                    const count = statsHangNam.theoCoQuan[cq] || 0;
+                    const info = statsHangNam.theoCoQuanChiTiet?.[cq] || { count: statsHangNam.theoCoQuan[cq] || 0, uniqueDonVi: 0 };
+                    const isSelected = filterHnChuThe === cq;
                     return (
                       <div
                         key={cq}
                         onClick={() => {
-                          setFilterHnChuThe(cq);
+                          setFilterHnChuThe(isSelected ? 'ALL' : cq);
                           setCurrentPageHn(1);
                         }}
                         className={`flex items-center justify-between p-1.5 rounded-lg border transition cursor-pointer text-[11.5px] ${
-                          filterHnChuThe === cq
-                            ? 'bg-emerald-100/70 border-emerald-300 font-bold text-emerald-950'
+                          isSelected
+                            ? 'bg-emerald-100/70 border-emerald-300 font-bold text-emerald-950 shadow-xs'
                             : 'bg-white hover:bg-slate-100/70 border-slate-200 text-slate-700'
                         }`}
                         title={cq}
                       >
-                        <span className="truncate max-w-[170px]">{cq.replace(' phường', '')}</span>
-                        <strong className="px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-[11px]">
-                          {count}
-                        </strong>
+                        <span className="truncate max-w-[155px]">{cq.replace(' phường', '')}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {info.uniqueDonVi > 0 && (
+                            <span className="px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 text-[10px] font-medium" title={`${info.uniqueDonVi} tổ chức đảng được KT/GS`}>
+                              {info.uniqueDonVi} TC
+                            </span>
+                          )}
+                          <strong className="px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-[11px]">
+                            {info.count}
+                          </strong>
+                        </div>
                       </div>
                     );
                   })}
+
+                  {/* Hiển thị cơ quan khác nếu có mục nào chưa nằm trong danh mục cấu hình */}
+                  {(statsHangNam.theoCoQuanChiTiet?.['Cơ quan khác']?.count || 0) > 0 && (
+                    <div
+                      onClick={() => {
+                        setFilterHnChuThe(filterHnChuThe === 'Cơ quan khác' ? 'ALL' : 'Cơ quan khác');
+                        setCurrentPageHn(1);
+                      }}
+                      className={`flex items-center justify-between p-1.5 rounded-lg border transition cursor-pointer text-[11.5px] ${
+                        filterHnChuThe === 'Cơ quan khác'
+                          ? 'bg-amber-100/70 border-amber-300 font-bold text-amber-950 shadow-xs'
+                          : 'bg-white hover:bg-slate-100/70 border-slate-200 text-slate-700'
+                      }`}
+                      title="Các cơ quan ban hành khác chưa phân nhóm"
+                    >
+                      <span className="truncate max-w-[155px] italic text-amber-900">Cơ quan khác</span>
+                      <strong className="px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[11px]">
+                        {statsHangNam.theoCoQuanChiTiet?.['Cơ quan khác']?.count || 0}
+                      </strong>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -3521,7 +3914,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                       className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-600 cursor-pointer"
                     >
                       <option value="ALL">Tất cả cơ quan</option>
-                      <optgroup label="4 Cơ quan ban hành cấu hình">
+                      <optgroup label="Cơ quan ban hành tùy chỉnh">
                         {customCoQuanList.map((cq) => (
                           <option key={cq} value={cq}>
                             {cq}
@@ -3746,10 +4139,29 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                                   <div className="font-semibold text-slate-900 text-xs">
                                     {item.doi_tuong || 'Chi bộ trực thuộc'}
                                   </div>
-                                  <div className="mt-1">
+                                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                     <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50/80 text-amber-900 border border-amber-200">
                                       {item.linh_vuc || 'Công tác xây dựng Đảng'}
                                     </span>
+                                    {(() => {
+                                      const targetDv =
+                                        (item.doi_tuong_don_vi_id && allDonVi.find((d) => d.id === item.doi_tuong_don_vi_id)) ||
+                                        allDonVi.find((d) => d.ten.toLowerCase() === (item.doi_tuong || '').toLowerCase());
+                                      if (targetDv) {
+                                        return (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleLinkToDiaBan(targetDv.id, targetDv.ten)}
+                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition cursor-pointer"
+                                            title={`Mở hồ sơ địa bàn của ${targetDv.ten}`}
+                                          >
+                                            <FolderOpen className="w-2.5 h-2.5 text-blue-600" />
+                                            <span>Hồ sơ địa bàn</span>
+                                          </button>
+                                        );
+                                      }
+                                      return null;
+                                    })()}
                                   </div>
                                 </td>
 
@@ -4206,22 +4618,22 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         </div>
       )}
 
-      {/* ── MODAL TÙY CHỈNH 4 CƠ QUAN BAN HÀNH (PHẦN B) ───────────────────────── */}
+      {/* ── MODAL TÙY CHỈNH CƠ QUAN BAN HÀNH (PHẦN B) ───────────────────────── */}
       {isEditingCoQuanModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150 max-h-[90vh]">
             {/* Header */}
-            <div className="bg-slate-900 px-5 py-3.5 text-white flex items-center justify-between">
+            <div className="bg-slate-900 px-5 py-3.5 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2.5">
                 <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center">
                   <Building2 className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider">
-                    Tùy chỉnh 4 Cơ quan ban hành
+                    Tùy chỉnh Cơ quan ban hành
                   </h3>
                   <p className="text-[10px] text-slate-300">
-                    Cấu hình tên 4 cơ quan hiển thị ở Phần B và bộ lọc theo tổ chức của bạn
+                    Cấu hình danh sách cơ quan hiển thị ở Phần B và bộ lọc theo tổ chức của bạn
                   </p>
                 </div>
               </div>
@@ -4234,27 +4646,75 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
               </button>
             </div>
 
+            {/* Quick Actions Bar */}
+            <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <span className="text-[11px] font-semibold text-slate-600">
+                Danh sách ({tempCoQuanList.length} cơ quan):
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const detected = new Set<string>();
+                    list.forEach((i) => {
+                      const c = (i.chu_the || i.co_quan_ban_hanh || '').trim();
+                      if (c) detected.add(c);
+                    });
+                    const merged = [...tempCoQuanList];
+                    detected.forEach((cq) => {
+                      if (!merged.some((m) => m.toLowerCase().trim() === cq.toLowerCase().trim())) {
+                        merged.push(cq);
+                      }
+                    });
+                    setTempCoQuanList(merged);
+                  }}
+                  className="inline-flex items-center space-x-1 px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-[11px] font-medium transition cursor-pointer shadow-2xs"
+                  title="Quét toàn bộ cơ quan thực tế có trong danh sách chương trình"
+                >
+                  <Search className="w-3 h-3 text-slate-500" />
+                  <span>Quét từ dữ liệu</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTempCoQuanList([...tempCoQuanList, '']);
+                  }}
+                  className="inline-flex items-center space-x-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold transition cursor-pointer shadow-2xs"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>+ Thêm cơ quan</span>
+                </button>
+              </div>
+            </div>
+
             {/* Body */}
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                const cleaned = tempCoQuanList.map((c, i) => c.trim() || DEFAULT_CUSTOM_CO_QUAN[i]);
-                setCustomCoQuanList(cleaned);
+                const cleaned = Array.from(
+                  new Set(
+                    tempCoQuanList
+                      .map((c) => c.trim())
+                      .filter((c) => c.length > 0)
+                  )
+                );
+                const finalList = cleaned.length > 0 ? cleaned : [...DEFAULT_CUSTOM_CO_QUAN];
+                setCustomCoQuanList(finalList);
                 try {
-                  localStorage.setItem('ubkt_custom_co_quan_list', JSON.stringify(cleaned));
+                  localStorage.setItem('ubkt_custom_co_quan_list', JSON.stringify(finalList));
                 } catch {
                   // ignore
                 }
                 setIsEditingCoQuanModalOpen(false);
               }}
-              className="p-5 space-y-3.5 text-xs"
+              className="p-5 space-y-4 text-xs overflow-y-auto flex-1"
             >
               <div className="space-y-2.5">
                 {tempCoQuanList.map((item, idx) => (
-                  <div key={idx} className="space-y-1">
-                    <label className="block text-[11px] font-bold text-slate-700">
-                      Cơ quan {idx + 1}:
-                    </label>
+                  <div key={idx} className="flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[10.5px] font-bold shrink-0">
+                      {idx + 1}
+                    </span>
                     <input
                       type="text"
                       value={item}
@@ -4264,46 +4724,69 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                         setTempCoQuanList(next);
                       }}
                       placeholder={`Nhập tên cơ quan ${idx + 1}...`}
-                      required
-                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
                     />
+                    <button
+                      type="button"
+                      disabled={tempCoQuanList.length <= 1}
+                      onClick={() => {
+                        if (tempCoQuanList.length > 1) {
+                          setTempCoQuanList(tempCoQuanList.filter((_, i) => i !== idx));
+                        }
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer shrink-0"
+                      title="Xóa cơ quan này"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 ))}
               </div>
 
               {/* Gợi ý từ Cơ cấu tổ chức */}
               {allDonVi.length > 0 && (
-                <div className="pt-2 border-t border-slate-100">
+                <div className="pt-3 border-t border-slate-100">
                   <span className="text-[10.5px] font-semibold text-slate-500 block mb-1.5">
-                    Gợi ý tên từ cơ cấu tổ chức (nhấp để sao chép vào cơ quan đang chọn):
+                    Gợi ý nhanh từ danh mục cơ cấu tổ chức (nhấp để thêm vào danh sách):
                   </span>
-                  <div className="flex flex-wrap gap-1">
-                    {allDonVi.slice(0, 6).map((d) => (
-                      <button
-                        key={d.id}
-                        type="button"
-                        onClick={() => {
-                          const next = [...tempCoQuanList];
-                          // Điền vào ô còn trống hoặc ô thứ 4
-                          const emptyIdx = next.findIndex((n) => !n.trim());
-                          if (emptyIdx >= 0) {
-                            next[emptyIdx] = d.ten;
-                          } else {
-                            next[3] = d.ten;
-                          }
-                          setTempCoQuanList(next);
-                        }}
-                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[10.5px] transition cursor-pointer"
-                      >
-                        + {d.ten}
-                      </button>
-                    ))}
+                  <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto pr-1">
+                    {allDonVi.map((d) => {
+                      const alreadyAdded = tempCoQuanList.some(
+                        (t) => t.trim().toLowerCase() === d.ten.trim().toLowerCase()
+                      );
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          disabled={alreadyAdded}
+                          onClick={() => {
+                            if (!alreadyAdded) {
+                              const emptyIdx = tempCoQuanList.findIndex((t) => !t.trim());
+                              if (emptyIdx >= 0) {
+                                const next = [...tempCoQuanList];
+                                next[emptyIdx] = d.ten;
+                                setTempCoQuanList(next);
+                              } else {
+                                setTempCoQuanList([...tempCoQuanList, d.ten]);
+                              }
+                            }
+                          }}
+                          className={`px-2 py-0.8 rounded text-[10.5px] transition cursor-pointer ${
+                            alreadyAdded
+                              ? 'bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed'
+                              : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          }`}
+                        >
+                          + {d.ten}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
               {/* Footer */}
-              <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-between pt-3 border-t border-slate-100 shrink-0">
                 <button
                   type="button"
                   onClick={() => setTempCoQuanList([...DEFAULT_CUSTOM_CO_QUAN])}
@@ -5089,7 +5572,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
             {/* Modal Footer */}
             <div className="px-6 py-3.5 bg-slate-100 border-t border-slate-200 flex items-center justify-between">
               <span className="text-xs text-slate-500">
-                Ủy ban Kiểm tra Đảng ủy phường Ái Quốc — Hệ thống theo dõi & đối chiếu chương trình KT-GS
+                Ủy ban Kiểm tra Đảng ủy — Hệ thống theo dõi & đối chiếu chương trình KT-GS
               </span>
               <button
                 type="button"
@@ -5118,7 +5601,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                     {editingHnItem ? 'CHỈNH SỬA CHƯƠNG TRÌNH CÔNG TÁC HÀNG NĂM' : 'THÊM MỚI CHƯƠNG TRÌNH CÔNG TÁC HÀNG NĂM'}
                   </h3>
                   <p className="text-xs text-emerald-200">
-                    Ủy ban Kiểm tra Đảng ủy phường Ái Quốc — Kế hoạch kiểm tra, giám sát thường niên
+                    Ủy ban Kiểm tra Đảng ủy — Kế hoạch kiểm tra, giám sát thường niên
                   </p>
                 </div>
               </div>
@@ -5468,6 +5951,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       <ChuongTrinhImportExcelModal
         isOpen={isHnImportExcelOpen}
         existingList={list}
+        donViList={allDonVi}
         onClose={() => setIsHnImportExcelOpen(false)}
         onImportSuccess={async () => {
           await loadData();
