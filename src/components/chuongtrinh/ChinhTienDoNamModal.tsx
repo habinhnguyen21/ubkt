@@ -359,43 +359,6 @@ export const ChinhTienDoNamModal: React.FC<ChinhTienDoNamModalProps> = ({
                   </option>
                 ))}
               </select>
-
-              {/* Nút chọn nhanh năm */}
-              <div className="hidden md:inline-flex items-center space-x-1 ml-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (modifiedCount > 0 && !confirm('Chuyển năm sẽ hủy các chỉnh sửa chưa lưu. Tiếp tục?')) return;
-                    setSelectedYear('ALL');
-                    setEditedItems({});
-                  }}
-                  className={`px-2 py-1 text-xs font-bold rounded-md transition cursor-pointer ${
-                    selectedYear === 'ALL'
-                      ? 'bg-emerald-700 text-white shadow-2xs'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  Tất cả
-                </button>
-                {availableYears.slice(0, 5).map((y) => (
-                  <button
-                    key={y}
-                    type="button"
-                    onClick={() => {
-                      if (modifiedCount > 0 && !confirm('Chuyển năm sẽ hủy các chỉnh sửa chưa lưu. Tiếp tục?')) return;
-                      setSelectedYear(String(y));
-                      setEditedItems({});
-                    }}
-                    className={`px-2 py-1 text-xs font-bold rounded-md transition cursor-pointer ${
-                      selectedYear === String(y)
-                        ? 'bg-emerald-700 text-white shadow-2xs'
-                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    {y}
-                  </button>
-                ))}
-              </div>
             </div>
 
             {/* Thông báo lưu thành công */}

@@ -564,8 +564,8 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     list.forEach((i) => {
       if (i.nam) years.add(i.nam);
     });
-    // Bao gồm các năm chuẩn xung quanh nhiệm kỳ 2025 - 2030
-    [2024, 2025, 2026, 2027, 2028, 2029, 2030].forEach((y) => years.add(y));
+    years.add(2026);
+    years.add(2025);
     return Array.from(years).sort((a, b) => b - a);
   }, [list]);
 
@@ -2943,41 +2943,6 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                           </option>
                         ))}
                       </select>
-                    </div>
-
-                    {/* Quick year pills */}
-                    <div className="hidden sm:inline-flex items-center space-x-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFilterNam('ALL');
-                          setCurrentPageHn(1);
-                        }}
-                        className={`px-2 py-0.5 text-[11px] font-bold rounded-md transition cursor-pointer ${
-                          filterNam === 'ALL'
-                            ? 'bg-emerald-700 text-white shadow-2xs'
-                            : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        Tất cả
-                      </button>
-                      {availableYears.slice(0, 4).map((y) => (
-                        <button
-                          key={y}
-                          type="button"
-                          onClick={() => {
-                            setFilterNam(String(y));
-                            setCurrentPageHn(1);
-                          }}
-                          className={`px-2 py-0.5 text-[11px] font-bold rounded-md transition cursor-pointer ${
-                            filterNam === String(y)
-                              ? 'bg-emerald-700 text-white shadow-2xs'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          {y}
-                        </button>
-                      ))}
                     </div>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-0.5">
