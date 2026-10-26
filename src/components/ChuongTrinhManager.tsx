@@ -58,8 +58,10 @@ import {
   Info,
   Upload,
   ChevronDown,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { ChuongTrinhImportExcelModal } from './chuongtrinh/ChuongTrinhImportExcelModal';
+import { ChinhTienDoNamModal } from './chuongtrinh/ChinhTienDoNamModal';
 import { exportChuongTrinhToExcel } from '../services/chuongTrinhExcelService';
 
 // Chuyển đổi an toàn Base64 Data URL sang Blob URL để xem trực tiếp trong iframe và mở tab mới
@@ -208,6 +210,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
   // Modal Nhập / Xuất Excel Chương trình KT-GS năm
   const [isHnImportExcelOpen, setIsHnImportExcelOpen] = useState(false);
+  const [isChinhTienDoOpen, setIsChinhTienDoOpen] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
@@ -558,14 +561,11 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   // Danh sách các năm có trong hệ thống (cho mục Hàng năm)
   const availableYears = useMemo(() => {
     const years = new Set<number>();
-    list
-      .filter((i) => (i.loai_chuong_trinh || 'HANG_NAM') === 'HANG_NAM')
-      .forEach((i) => {
-        if (i.nam) years.add(i.nam);
-      });
-    years.add(2026);
-    years.add(2025);
-    years.add(2024);
+    list.forEach((i) => {
+      if (i.nam) years.add(i.nam);
+    });
+    // Bao gồm các năm chuẩn xung quanh nhiệm kỳ 2025 - 2030
+    [2024, 2025, 2026, 2027, 2028, 2029, 2030].forEach((y) => years.add(y));
     return Array.from(years).sort((a, b) => b - a);
   }, [list]);
 
@@ -2913,37 +2913,106 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
               PHẦN A. TỔNG QUAN TIẾN ĐỘ THỰC HIỆN (MÀU SẮC NHẸ NHÀNG, DỊU MẮT, THANH LỊCH)
           ══════════════════════════════════════════════════════════════════════════════ */}
           <div className="bg-white p-4 rounded-xl border border-slate-200/90 shadow-2xs space-y-3.5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200/80 flex items-center justify-center font-bold text-xs">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-start sm:items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200/80 flex items-center justify-center font-bold text-xs shrink-0">
                   A
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800 tracking-tight flex items-center gap-2">
-                    <span>TỔNG QUAN TIẾN ĐỘ THỰC HIỆN</span>
-                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
-                      {filterNam === 'ALL' ? 'Tất cả các năm' : `Năm ${filterNam}`}
-                    </span>
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-bold text-slate-800 tracking-tight">
+                      TỔNG QUAN TIẾN ĐỘ THỰC HIỆN
+                    </h3>
+
+                    {/* Bộ điều khiển chọn năm trực tiếp */}
+                    <div className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-lg px-2 py-1 transition cursor-pointer">
+                      <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <select
+                        value={filterNam}
+                        onChange={(e) => {
+                          setFilterNam(e.target.value);
+                          setCurrentPageHn(1);
+                        }}
+                        className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer pr-1"
+                        title="Chọn năm để xem và cập nhật tổng quan tiến độ"
+                      >
+                        <option value="ALL">Tất cả các năm</option>
+                        {availableYears.map((y) => (
+                          <option key={y} value={y}>
+                            Năm {y}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Quick year pills */}
+                    <div className="hidden sm:inline-flex items-center space-x-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFilterNam('ALL');
+                          setCurrentPageHn(1);
+                        }}
+                        className={`px-2 py-0.5 text-[11px] font-bold rounded-md transition cursor-pointer ${
+                          filterNam === 'ALL'
+                            ? 'bg-emerald-700 text-white shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Tất cả
+                      </button>
+                      {availableYears.slice(0, 4).map((y) => (
+                        <button
+                          key={y}
+                          type="button"
+                          onClick={() => {
+                            setFilterNam(String(y));
+                            setCurrentPageHn(1);
+                          }}
+                          className={`px-2 py-0.5 text-[11px] font-bold rounded-md transition cursor-pointer ${
+                            filterNam === String(y)
+                              ? 'bg-emerald-700 text-white shadow-2xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          {y}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
                     Theo dõi số lượng, tỷ lệ hoàn thành chung và tiến độ thực tế so với kế hoạch
                   </p>
                 </div>
               </div>
 
-              {/* Tỷ lệ hoàn thành chung của năm (KPI Badge nhẹ nhàng) */}
-              <div className="flex items-center space-x-3 bg-slate-50/80 px-3 py-1.5 rounded-xl border border-slate-200/80">
-                <div className="text-right">
-                  <span className="text-[10px] text-slate-500 font-medium block">Tỷ lệ hoàn thành chung</span>
-                  <strong className="text-sm font-black text-emerald-700">
-                    {statsHangNam.tyLeHoanThanh}%
-                  </strong>
-                </div>
-                <div className="w-16 bg-slate-200/80 rounded-full h-2 overflow-hidden">
-                  <div
-                    className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${statsHangNam.tyLeHoanThanh}%` }}
-                  />
+              {/* Nhóm nút bên phải: Nút Chỉnh tiến độ năm & Tỷ lệ hoàn thành */}
+              <div className="flex items-center space-x-2.5 flex-wrap gap-y-2">
+                {/* Nút Chỉnh tổng quan tiến độ năm */}
+                <button
+                  type="button"
+                  onClick={() => setIsChinhTienDoOpen(true)}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-sm transition cursor-pointer"
+                  title="Mở bảng điều chỉnh và cập nhật nhanh tiến độ thực hiện theo năm"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-200" />
+                  <span>Chỉnh tiến độ năm {filterNam === 'ALL' ? '' : filterNam}</span>
+                </button>
+
+                {/* Tỷ lệ hoàn thành chung của năm (KPI Badge nhẹ nhàng) */}
+                <div className="flex items-center space-x-3 bg-slate-50/80 px-3 py-1.5 rounded-xl border border-slate-200/80">
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-500 font-medium block">Tỷ lệ hoàn thành chung</span>
+                    <strong className="text-sm font-black text-emerald-700">
+                      {statsHangNam.tyLeHoanThanh}%
+                    </strong>
+                  </div>
+                  <div className="w-16 bg-slate-200/80 rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${statsHangNam.tyLeHoanThanh}%` }}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -5441,6 +5510,20 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
           onDataChanged?.();
         }}
         onBatchImport={handleBatchImportHn}
+      />
+
+      {/* ── MODAL CHỈNH TIẾN ĐỘ THỰC HIỆN THEO NĂM ───────────────────────── */}
+      <ChinhTienDoNamModal
+        isOpen={isChinhTienDoOpen}
+        onClose={() => setIsChinhTienDoOpen(false)}
+        list={list}
+        initialYear={filterNam}
+        availableYears={availableYears}
+        onDataChanged={async () => {
+          await loadData();
+          window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
+          onDataChanged?.();
+        }}
       />
     </div>
   );
