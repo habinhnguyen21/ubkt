@@ -765,6 +765,124 @@ app.delete('/api/chuong-trinh/:id', (req, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/chuong-trinh/batch-import', (req, res) => {
+  const { items, duplicateAction = 'OVERWRITE' } = req.body;
+  const db = readDb();
+  if (!db.chuongTrinhList) db.chuongTrinhList = [];
+
+  const createdItems = [];
+  const updatedItems = [];
+  let skippedCount = 0;
+  const errors = [];
+
+  for (let idx = 0; idx < (items || []).length; idx++) {
+    const input = items[idx];
+    const isNhiemKy = (input.loai_chuong_trinh || (input.nhiem_ky || input.has_nhiem_ky ? 'NHIEM_KY' : 'HANG_NAM')) === 'NHIEM_KY';
+    const termStart = input.term_start_year || (input.nhiem_ky ? parseInt(input.nhiem_ky.split('-')[0]?.trim() || '', 10) || null : null);
+    const termEnd = input.term_end_year || (input.nhiem_ky ? parseInt(input.nhiem_ky.split('-')[1]?.trim() || '', 10) || null : null);
+    const nhiemKyFinal = input.nhiem_ky || (termStart && termEnd ? `${termStart} - ${termEnd}` : null);
+
+    const existingIdx = db.chuongTrinhList.findIndex((c) => {
+      if (c.nam !== input.nam) return false;
+      if (input.so_van_ban && c.so_van_ban && c.so_van_ban.trim().toLowerCase() === input.so_van_ban.trim().toLowerCase()) {
+        return true;
+      }
+      if (
+        input.doi_tuong &&
+        c.doi_tuong &&
+        c.doi_tuong.trim().toLowerCase() === input.doi_tuong.trim().toLowerCase() &&
+        c.noi_dung &&
+        c.noi_dung.trim().toLowerCase() === input.noi_dung.trim().toLowerCase()
+      ) {
+        return true;
+      }
+      return false;
+    });
+
+    if (existingIdx >= 0) {
+      if (duplicateAction === 'SKIP') {
+        skippedCount++;
+        continue;
+      }
+
+      if (duplicateAction === 'OVERWRITE') {
+        const existing = db.chuongTrinhList[existingIdx];
+        existing.nam = input.nam;
+        existing.chu_the = input.chu_the;
+        existing.co_quan_ban_hanh = input.co_quan_ban_hanh || input.chu_the;
+        existing.chu_the_ap_dung = input.chu_the_ap_dung || input.doi_tuong || 'Toàn Đảng bộ';
+        existing.loai_hinh = input.loai_hinh || 'KIEM_TRA';
+        existing.linh_vuc = input.linh_vuc || 'Công tác xây dựng Đảng';
+        existing.doi_tuong = input.doi_tuong?.trim() || '';
+        existing.noi_dung = input.noi_dung.trim();
+        existing.ten_chuong_trinh = input.ten_chuong_trinh || existing.ten_chuong_trinh;
+        existing.ngay_bat_dau = input.ngay_bat_dau || existing.ngay_bat_dau;
+        existing.ngay_ket_thuc = input.ngay_ket_thuc || existing.ngay_ket_thuc;
+        existing.so_van_ban = input.so_van_ban?.trim() || existing.so_van_ban;
+        existing.ngay_ban_hanh = input.ngay_ban_hanh || existing.ngay_ban_hanh;
+        existing.nguoi_ky = input.nguoi_ky?.trim() || existing.nguoi_ky;
+        existing.trang_thai = input.trang_thai;
+        if (input.file_pdf_ten) existing.file_pdf_ten = input.file_pdf_ten;
+        if (input.ghi_chu_pdf) existing.ghi_chu_pdf = input.ghi_chu_pdf.trim();
+        existing.updated_at = new Date().toISOString();
+
+        updatedItems.push(existing);
+        continue;
+      }
+    }
+
+    const newItem = {
+      id: `ct-${Date.now()}-${idx}`,
+      nam: input.nam,
+      loai_chuong_trinh: isNhiemKy ? 'NHIEM_KY' : 'HANG_NAM',
+      nhiem_ky: nhiemKyFinal,
+      khoa_nhiem_ky: nhiemKyFinal,
+      has_nhiem_ky: input.has_nhiem_ky !== undefined ? input.has_nhiem_ky : Boolean(nhiemKyFinal),
+      term_start_year: termStart,
+      term_end_year: termEnd,
+      ten_chuong_trinh: input.ten_chuong_trinh?.trim() || input.noi_dung.slice(0, 80),
+      co_quan_ban_hanh: input.co_quan_ban_hanh?.trim() || input.chu_the,
+      chu_the_ap_dung: input.chu_the_ap_dung?.trim() || input.doi_tuong || 'Toàn Đảng bộ',
+      thoi_gian_loai: input.thoi_gian_loai || (input.ngay_bat_dau ? 'KHOANG_THOI_GIAN' : 'CA_NHIEM_KY'),
+      chu_the: input.chu_the,
+      don_vi_id: input.don_vi_id || null,
+      ten_don_vi: input.ten_don_vi || null,
+      chi_dang_bo_id: input.chi_dang_bo_id || null,
+      ten_chi_dang_bo: input.ten_chi_dang_bo || null,
+      loai_hinh: isNhiemKy ? (input.loai_hinh || null) : (input.loai_hinh || 'KIEM_TRA'),
+      doi_tuong: input.doi_tuong?.trim() || '',
+      noi_dung: input.noi_dung.trim(),
+      noi_dung_van_ban: input.noi_dung_van_ban?.trim() || null,
+      ngay_bat_dau: input.ngay_bat_dau || null,
+      ngay_ket_thuc: input.ngay_ket_thuc || null,
+      so_van_ban: input.so_van_ban?.trim() || null,
+      ngay_ban_hanh: input.ngay_ban_hanh || null,
+      nguoi_ky: input.nguoi_ky?.trim() || null,
+      trang_thai: input.trang_thai,
+      file_pdf_ten: input.file_pdf_ten || null,
+      file_pdf_url: input.file_pdf_url || null,
+      file_pdf_dung_luong: input.file_pdf_dung_luong || (input.file_pdf_ten ? 350000 : null),
+      ghi_chu_pdf: input.ghi_chu_pdf?.trim() || null,
+      danh_sach_thay_doi_bo_sung: input.danh_sach_thay_doi_bo_sung || [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    db.chuongTrinhList.unshift(newItem);
+    createdItems.push(newItem);
+  }
+
+  writeDb(db);
+  res.json({
+    success: true,
+    createdCount: createdItems.length,
+    updatedCount: updatedItems.length,
+    skippedCount,
+    totalProcessed: (items || []).length,
+    errors,
+  });
+});
+
 // ── Thay Doi Bo Sung ────────────────────────────────────────────────────────
 app.post('/api/thay-doi-bo-sung', (req, res) => {
   const { input } = req.body;

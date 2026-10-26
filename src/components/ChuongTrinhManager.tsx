@@ -56,7 +56,11 @@ import {
   Cloud,
   ExternalLink,
   Info,
+  Upload,
+  ChevronDown,
 } from 'lucide-react';
+import { ChuongTrinhImportExcelModal } from './chuongtrinh/ChuongTrinhImportExcelModal';
+import { exportChuongTrinhToExcel } from '../services/chuongTrinhExcelService';
 
 // Chuyển đổi an toàn Base64 Data URL sang Blob URL để xem trực tiếp trong iframe và mở tab mới
 const getBlobUrlFromDataUrl = (dataUrl?: string | null): string | null => {
@@ -201,6 +205,25 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   const [hnExtractingPdf, setHnExtractingPdf] = useState(false);
   const [hnIsSaving, setHnIsSaving] = useState(false);
   const [hnFormError, setHnFormError] = useState<string | null>(null);
+
+  // Modal Nhập / Xuất Excel Chương trình KT-GS năm
+  const [isHnImportExcelOpen, setIsHnImportExcelOpen] = useState(false);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setIsExportMenuOpen(false);
+      }
+    };
+    if (isExportMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isExportMenuOpen]);
 
   // Phân trang cho Nhiệm kỳ
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -1090,69 +1113,33 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     }
   };
 
-  // Xuất file CSV / Excel UTF-8 BOM
-  const handleExportHnCsv = () => {
+  // Xuất file Excel (.xlsx chuẩn hoặc .csv UTF-8 BOM)
+  const handleExportHn = (format: 'xlsx' | 'csv' = 'xlsx') => {
+    setIsExportMenuOpen(false);
     if (filteredHangNamList.length === 0) {
       alert('Không có dữ liệu chương trình kiểm tra, giám sát để xuất file.');
       return;
     }
-    const headers = [
-      'STT',
-      'Năm',
-      'Số văn bản',
-      'Cơ quan ban hành',
-      'Loại hình',
-      'Lĩnh vực',
-      'Đối tượng kiểm tra, giám sát',
-      'Nội dung kiểm tra, giám sát',
-      'Từ ngày',
-      'Đến ngày',
-      'Trạng thái',
-      'Văn bản đính kèm',
-    ];
-
-    const getStatusLabel = (s: TrangThaiKtGs) => {
-      switch (s) {
-        case 'DA_HOAN_THANH':
-          return 'Đã hoàn thành';
-        case 'DANG_THUC_HIEN':
-          return 'Đang thực hiện';
-        case 'CHUA_THUC_HIEN':
-          return 'Chưa thực hiện';
-        case 'QUA_HAN':
-          return 'Quá hạn';
-        default:
-          return s;
-      }
-    };
-
-    const rows = filteredHangNamList.map((item, idx) => [
-      String(idx + 1),
-      String(item.nam || ''),
-      `"${(item.so_van_ban || '').replace(/"/g, '""')}"`,
-      `"${(item.chu_the || item.co_quan_ban_hanh || '').replace(/"/g, '""')}"`,
-      item.loai_hinh === 'KIEM_TRA' ? 'Kiểm tra' : 'Giám sát',
-      `"${(item.linh_vuc || 'Công tác xây dựng Đảng').replace(/"/g, '""')}"`,
-      `"${(item.doi_tuong || '').replace(/"/g, '""')}"`,
-      `"${(item.noi_dung || '').replace(/"/g, '""')}"`,
-      item.ngay_bat_dau || '',
-      item.ngay_ket_thuc || '',
-      getStatusLabel(item.trang_thai),
-      `"${(item.file_pdf_ten || '').replace(/"/g, '""')}"`,
-    ]);
-
-    const csvContent =
-      '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
     const yearStr = filterNam === 'ALL' ? 'tat_ca_cac_nam' : `nam_${filterNam}`;
-    link.setAttribute('download', `chuong_trinh_kiem_tra_giam_sat_${yearStr}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const fileName = `chuong_trinh_kiem_tra_giam_sat_${yearStr}`;
+    exportChuongTrinhToExcel(filteredHangNamList, format, fileName);
+  };
+
+  // Nhập hàng loạt chương trình KT-GS năm từ Excel
+  const handleBatchImportHn = async (
+    items: CreateChuongTrinhInput[],
+    duplicateAction: 'OVERWRITE' | 'SKIP' | 'CREATE_NEW'
+  ) => {
+    const res = await api.batchImportChuongTrinh(
+      items,
+      duplicateAction,
+      user?.ho_ten || 'Cán bộ UBKT',
+      user?.id
+    );
+    await loadData();
+    window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+    onDataChanged?.();
+    return res;
   };
 
   const handleClearHnFilter = () => {
@@ -3378,16 +3365,68 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
                   {/* Nút Phần F: Thao tác & Quản lý dữ liệu tích hợp */}
                   <div className="flex flex-wrap items-center gap-1.5">
-                    {/* Xuất file CSV / Excel */}
-                    <button
-                      type="button"
-                      onClick={handleExportHnCsv}
-                      className="inline-flex items-center space-x-1 px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold border border-slate-200 transition cursor-pointer"
-                      title="Xuất danh sách chương trình ra file Excel / CSV (UTF-8 BOM)"
-                    >
-                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
-                      <span>Xuất Excel</span>
-                    </button>
+                    {/* Nhập file Excel nhiều cái 1 lần */}
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => setIsHnImportExcelOpen(true)}
+                        className="inline-flex items-center space-x-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg text-xs font-bold border border-emerald-300 transition cursor-pointer shadow-2xs"
+                        title="Nhập hàng loạt chương trình kiểm tra, giám sát từ tệp Excel (.xlsx, .csv)"
+                      >
+                        <Upload className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>Nhập Excel</span>
+                      </button>
+                    )}
+
+                    {/* Xuất file Excel / CSV có menu tùy chọn định dạng */}
+                    <div className="relative inline-block text-left" ref={exportMenuRef}>
+                      <div className="inline-flex rounded-lg shadow-2xs border border-slate-200 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => handleExportHn('xlsx')}
+                          className="inline-flex items-center space-x-1 px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition cursor-pointer"
+                          title="Xuất danh sách ra file Excel (.xlsx) chuẩn"
+                        >
+                          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>Xuất Excel</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsExportMenuOpen((prev) => !prev)}
+                          className="px-1.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 border-l border-slate-200 transition cursor-pointer"
+                          title="Tùy chọn định dạng xuất (.xlsx / .csv)"
+                        >
+                          <ChevronDown className="w-3 h-3" />
+                        </button>
+                      </div>
+
+                      {isExportMenuOpen && (
+                        <div className="absolute right-0 mt-1 w-52 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-20 animate-fadeIn text-xs">
+                          <button
+                            type="button"
+                            onClick={() => handleExportHn('xlsx')}
+                            className="w-full text-left px-3 py-2 hover:bg-emerald-50 text-slate-700 hover:text-emerald-900 flex items-center space-x-2 transition cursor-pointer"
+                          >
+                            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                            <div>
+                              <p className="font-bold">File Excel (.xlsx)</p>
+                              <p className="text-[10px] text-slate-400">Bảng tính Excel chuẩn (.xlsx)</p>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleExportHn('csv')}
+                            className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-700 flex items-center space-x-2 transition cursor-pointer border-t border-slate-100"
+                          >
+                            <FileSpreadsheet className="w-4 h-4 text-slate-500" />
+                            <div>
+                              <p className="font-semibold">File CSV UTF-8 (.csv)</p>
+                              <p className="text-[10px] text-slate-400">Mở trên Excel không lỗi tiếng Việt</p>
+                            </div>
+                          </button>
+                        </div>
+                      )}
+                    </div>
 
                     {/* In sổ */}
                     <button
@@ -5390,6 +5429,19 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
           </div>
         </div>
       )}
+
+      {/* ── MODAL NHẬP HÀNG LOẠT EXCEL CHƯƠNG TRÌNH NĂM ────────────────── */}
+      <ChuongTrinhImportExcelModal
+        isOpen={isHnImportExcelOpen}
+        existingList={list}
+        onClose={() => setIsHnImportExcelOpen(false)}
+        onImportSuccess={async () => {
+          await loadData();
+          window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+          onDataChanged?.();
+        }}
+        onBatchImport={handleBatchImportHn}
+      />
     </div>
   );
 };
