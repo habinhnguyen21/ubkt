@@ -3,7 +3,7 @@ import type { AppInfo, User } from '../types';
 import logoUbkt from '../assets/logo-ubkt.jpg';
 import { cloudSyncService } from '../services/cloudSyncService';
 
-type TabKey = 'tong_quan' | 'don_vi' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
+type TabKey = 'tong_quan' | 'don_vi' | 'phan_cong' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
 
 interface LayoutProps {
   currentUser: User;
@@ -19,18 +19,6 @@ interface LayoutProps {
   onOpenCloudSync?: () => void;
   children: React.ReactNode;
 }
-
-const MENU_ITEMS: { key: TabKey; icon: string; label: string; badge?: number }[] = [
-  { key: 'tong_quan', icon: '⊞', label: 'Tổng quan' },
-  { key: 'don_vi', icon: '🏛', label: 'Cơ cấu Tổ chức' },
-  { key: 'chuong_trinh', icon: '📋', label: 'Chương trình KT-GS' },
-  { key: 'ho_so_dia_ban', icon: '📍', label: 'Hồ sơ địa bàn' },
-  { key: 'don_thu', icon: '📬', label: 'Quản lý Đơn thư' },
-  { key: 'lich_thang', icon: '📅', label: 'Lịch theo tháng' },
-  { key: 'kho_pdf', icon: '🗄️', label: 'Kho dữ liệu' },
-  { key: 'thong_ke', icon: '📊', label: 'Thống kê' },
-  { key: 'bao_cao', icon: '📄', label: 'Báo cáo' },
-];
 
 const ROLE_LABEL: Record<string, string> = {
   ADMIN: 'Quản trị viên',
@@ -80,6 +68,32 @@ export function AppLayout({
       window.removeEventListener('ubkt_sync_status_changed', handleStatusChanged);
     };
   }, []);
+
+  const menuItems: { key: TabKey; icon: string; label: string; badge?: number }[] =
+    currentUser.vai_tro === 'ADMIN'
+      ? [
+          { key: 'tong_quan', icon: '⊞', label: 'Tổng quan' },
+          { key: 'don_vi', icon: '🏛', label: 'Cơ cấu Tổ chức' },
+          { key: 'phan_cong', icon: '👥', label: 'Phân công quản lý' },
+          { key: 'chuong_trinh', icon: '📋', label: 'Chương trình KT-GS' },
+          { key: 'ho_so_dia_ban', icon: '📍', label: 'Hồ sơ địa bàn' },
+          { key: 'don_thu', icon: '📬', label: 'Quản lý Đơn thư' },
+          { key: 'lich_thang', icon: '📅', label: 'Lịch theo tháng' },
+          { key: 'kho_pdf', icon: '🗄️', label: 'Kho dữ liệu' },
+          { key: 'thong_ke', icon: '📊', label: 'Thống kê' },
+          { key: 'bao_cao', icon: '📄', label: 'Báo cáo' },
+        ]
+      : [
+          { key: 'tong_quan', icon: '⊞', label: 'Tổng quan' },
+          { key: 'don_vi', icon: '🏛', label: 'Cơ cấu Tổ chức' },
+          { key: 'chuong_trinh', icon: '📋', label: 'Chương trình KT-GS' },
+          { key: 'ho_so_dia_ban', icon: '📍', label: 'Hồ sơ địa bàn' },
+          { key: 'don_thu', icon: '📬', label: 'Quản lý Đơn thư' },
+          { key: 'lich_thang', icon: '📅', label: 'Lịch theo tháng' },
+          { key: 'kho_pdf', icon: '🗄️', label: 'Kho dữ liệu' },
+          { key: 'thong_ke', icon: '📊', label: 'Thống kê' },
+          { key: 'bao_cao', icon: '📄', label: 'Báo cáo' },
+        ];
 
   const SIDEBAR_W = sidebarCollapsed ? 60 : 220;
 
@@ -166,7 +180,7 @@ export function AppLayout({
 
         {/* Menu */}
         <nav style={{ flex: 1, padding: '8px 0', overflowY: 'auto', overflowX: 'hidden' }}>
-          {MENU_ITEMS.map((item) => {
+          {menuItems.map((item) => {
             const active = activeTab === item.key;
             return (
               <button
@@ -240,7 +254,7 @@ export function AppLayout({
             </span>
             <span style={{ color: '#cbd5e1' }}>/</span>
             <span style={{ fontSize: 13, color: '#475569', fontWeight: 600, whiteSpace: 'nowrap' }}>
-              {MENU_ITEMS.find(m => m.key === activeTab)?.label ?? 'Tổng quan'}
+              {menuItems.find(m => m.key === activeTab)?.label ?? 'Tổng quan'}
             </span>
           </div>
 

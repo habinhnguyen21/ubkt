@@ -17,7 +17,7 @@ import { CloudSyncModal } from './components/CloudSyncModal';
 import { cloudSyncService } from './services/cloudSyncService';
 import { centralDataService } from './services/centralDataService';
 
-type TabKey = 'tong_quan' | 'don_vi' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
+type TabKey = 'tong_quan' | 'don_vi' | 'phan_cong' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
 
 // Khởi tạo trạng thái môi trường chính thức
 if (typeof window !== 'undefined') {
@@ -48,7 +48,7 @@ export function App() {
 
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
     const saved = localStorage.getItem('ubkt_active_tab');
-    const validTabs: TabKey[] = ['tong_quan', 'don_vi', 'chuong_trinh', 'ho_so_dia_ban', 'don_thu', 'lich_thang', 'kho_pdf', 'thong_ke', 'bao_cao'];
+    const validTabs: TabKey[] = ['tong_quan', 'don_vi', 'phan_cong', 'chuong_trinh', 'ho_so_dia_ban', 'don_thu', 'lich_thang', 'kho_pdf', 'thong_ke', 'bao_cao'];
     if (saved && validTabs.includes(saved as TabKey)) {
       return saved as TabKey;
     }
@@ -58,12 +58,15 @@ export function App() {
   const handleTabChange = useCallback((tab: TabKey) => {
     setActiveTab(tab);
     localStorage.setItem('ubkt_active_tab', tab);
-    if (tab !== 'don_vi') {
+    if (tab === 'phan_cong') {
+      setDonViInitialTab('phan_cong');
+    } else if (tab !== 'don_vi') {
       setDonViInitialTab('to_chuc');
     }
     const hashMap: Record<TabKey, string> = {
       tong_quan: '#tong-quan',
       don_vi: '#don-vi',
+      phan_cong: '#phan-cong',
       chuong_trinh: '#chuong-trinh',
       ho_so_dia_ban: '#ho-so-dia-ban',
       don_thu: '#don-thu',
@@ -99,7 +102,7 @@ export function App() {
       if (!user) return;
 
       if (user.vai_tro === 'ADMIN') {
-        setActiveTab('don_vi');
+        setActiveTab('phan_cong');
         setDonViInitialTab('phan_cong');
       } else {
         // BIÊN TẬP VIÊN: TỪ CHỐI TRUY CẬP TRỰC TIẾP
@@ -117,6 +120,15 @@ export function App() {
     }
 
     if (hash === '#tong-quan') setActiveTab('tong_quan');
+    else if (hash === '#phan-cong') {
+      if (user?.vai_tro === 'ADMIN') {
+        setActiveTab('phan_cong');
+        setDonViInitialTab('phan_cong');
+      } else {
+        setActiveTab('don_vi');
+        setDonViInitialTab('to_chuc');
+      }
+    }
     else if (hash === '#don-vi') { setActiveTab('don_vi'); setDonViInitialTab('to_chuc'); }
     else if (hash === '#chuong-trinh') setActiveTab('chuong_trinh');
     else if (hash === '#ho-so-dia-ban') setActiveTab('ho_so_dia_ban');
@@ -224,6 +236,14 @@ export function App() {
             user={currentUser}
             onDataChanged={fetchAppInfo}
             initialTab={donViInitialTab}
+          />
+        );
+      case 'phan_cong':
+        return (
+          <DonViManager
+            user={currentUser}
+            onDataChanged={fetchAppInfo}
+            initialTab="phan_cong"
           />
         );
       case 'chuong_trinh':

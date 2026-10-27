@@ -97,13 +97,19 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
     return initialTab === 'phan_cong' ? 'phan_cong' : 'to_chuc';
   });
 
+  // Chặn nghiêm ngặt: nếu không phải Admin thì không bao giờ được ở tab phan_cong
   useEffect(() => {
     if (!isAdmin && activeTab === 'phan_cong') {
       setActiveTab('to_chuc');
-    } else if (isAdmin && initialTab) {
+    }
+  }, [isAdmin, activeTab]);
+
+  // Chỉ phản ứng khi initialTab thay đổi từ bên ngoài (ví dụ URL routing)
+  useEffect(() => {
+    if (isAdmin && initialTab) {
       setActiveTab(initialTab);
     }
-  }, [isAdmin, initialTab, activeTab]);
+  }, [isAdmin, initialTab]);
 
   // Dữ liệu đơn vị
   const [treeData, setTreeData] = useState<DonViTreeItem[]>([]);
@@ -860,7 +866,12 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
             <button
-              onClick={() => setActiveTab('to_chuc')}
+              onClick={() => {
+                setActiveTab('to_chuc');
+                if (typeof window !== 'undefined' && window.history && window.history.replaceState) {
+                  window.history.replaceState(null, '', window.location.pathname + '#don-vi');
+                }
+              }}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
                 activeTab === 'to_chuc'
                   ? 'bg-blue-600 text-white shadow-xs'
@@ -875,7 +886,12 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
             {isAdmin && (
               <button
                 id="tab-phan-cong"
-                onClick={() => setActiveTab('phan_cong')}
+                onClick={() => {
+                  setActiveTab('phan_cong');
+                  if (typeof window !== 'undefined' && window.history && window.history.replaceState) {
+                    window.history.replaceState(null, '', window.location.pathname + '#phan-cong');
+                  }
+                }}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
                   activeTab === 'phan_cong'
                     ? 'bg-blue-600 text-white shadow-xs'

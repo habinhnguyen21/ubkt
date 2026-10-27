@@ -1942,7 +1942,18 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
           throw new Error('Từ chối truy cập: Tài khoản Biên tập viên không có quyền xem dữ liệu phân công quản lý.');
         }
         const raw = localStorage.getItem('ubkt_phan_cong_dia_ban');
-        return (raw ? JSON.parse(raw) : []) as T;
+        if (raw) {
+          return JSON.parse(raw) as T;
+        }
+        const fromCentral = centralDataService.getPhanCongList();
+        if (Array.isArray(fromCentral) && fromCentral.length > 0) {
+          localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(fromCentral));
+          return fromCentral as T;
+        }
+        if (db.phanCongDiaBan && Array.isArray(db.phanCongDiaBan)) {
+          return db.phanCongDiaBan as T;
+        }
+        return [] as T;
       } catch (err) {
         if (err instanceof Error && err.message.includes('Từ chối truy cập')) {
           throw err;
