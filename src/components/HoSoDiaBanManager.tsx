@@ -275,6 +275,7 @@ export function HoSoDiaBanManager({ user }: Props) {
   const [canCuError, setCanCuError] = useState<string | null>(null);
 
   const canEdit = user.vai_tro === 'ADMIN' || user.vai_tro === 'BIEN_TAP';
+  const isAdmin = user.vai_tro === 'ADMIN';
 
   // Modal xác nhận xóa hồ sơ địa bàn
   const [deleteTargetRecord, setDeleteTargetRecord] = useState<DiaBanRecord | null>(null);
@@ -970,6 +971,10 @@ export function HoSoDiaBanManager({ user }: Props) {
   };
 
   const handleSaveDoiCanBo = () => {
+    if (!isAdmin) {
+      alert('Từ chối thao tác: Chỉ tài khoản Quản trị viên (ADMIN) mới có quyền phân công lại cán bộ phụ trách.');
+      return;
+    }
     if (!doiCanBoRecord || !doiCanBoNewUserId) {
       alert('Vui lòng chọn cán bộ phụ trách mới!');
       return;
@@ -1100,6 +1105,10 @@ export function HoSoDiaBanManager({ user }: Props) {
   };
 
   const handleSaveBoSungCanCu = () => {
+    if (!isAdmin) {
+      alert('Từ chối thao tác: Chỉ tài khoản Quản trị viên (ADMIN) mới có quyền bổ sung căn cứ văn bản phân công.');
+      return;
+    }
     if (!selectedRecord) return;
     if (!canCuSoVanBan.trim() && !canCuTrichYeu.trim()) {
       setCanCuError('Vui lòng nhập số hiệu văn bản hoặc trích yếu căn cứ.');
@@ -3878,7 +3887,7 @@ export function HoSoDiaBanManager({ user }: Props) {
                         <p className="text-xs text-slate-600">Thời gian nhận nhiệm vụ: {selectedRecord.thoi_gian_phan_cong}</p>
                       </div>
 
-                      {canEdit && (
+                      {isAdmin && (
                         <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
                           <span className="text-[11px] text-slate-400">Luân chuyển cán bộ:</span>
                           <button
@@ -3996,7 +4005,7 @@ export function HoSoDiaBanManager({ user }: Props) {
                         Theo dõi quá trình bàn giao, tiếp quản và bảo đảm tính kế thừa hồ sơ qua các thời kỳ cán bộ.
                       </p>
                     </div>
-                    {canEdit && (
+                    {isAdmin && (
                       <div className="flex items-center space-x-2">
                         <button
                           type="button"

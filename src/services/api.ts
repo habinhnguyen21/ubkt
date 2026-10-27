@@ -138,12 +138,29 @@ async function requestApi<T>(
   fallbackCmd?: string,
   fallbackArgs?: Record<string, unknown>
 ): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  try {
+    const token = localStorage.getItem('ubkt_session_token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const rawUser = localStorage.getItem('ubkt_current_user');
+    if (rawUser) {
+      const u = JSON.parse(rawUser);
+      if (u.id) headers['x-user-id'] = u.id;
+      if (u.vai_tro) headers['x-user-role'] = u.vai_tro;
+    }
+  } catch {
+    // ignore
+  }
+
   try {
     const res = await fetch(endpoint, {
       method,
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
 
@@ -152,8 +169,26 @@ async function requestApi<T>(
     }
 
     const errJson = await res.json().catch(() => null);
-    throw new Error(errJson?.message || `Lỗi máy chủ trực tuyến (${res.status})`);
+    const errorMessage = errJson?.message || `Lỗi máy chủ trực tuyến (${res.status})`;
+
+    // Nếu máy chủ chủ động từ chối quyền (401 hoặc 403), ném lỗi ngay lập tức, không được fallback
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(errorMessage);
+    }
+
+    throw new Error(errorMessage);
   } catch (err: unknown) {
+    // Không fallback nếu lỗi là do từ chối quyền truy cập (401 / 403)
+    const errText = err instanceof Error ? err.message : String(err);
+    if (
+      errText.includes('401') ||
+      errText.includes('403') ||
+      errText.includes('Từ chối truy cập') ||
+      errText.includes('Yêu cầu đăng nhập')
+    ) {
+      throw err;
+    }
+
     if (fallbackCmd) {
       // Fallback tự động khi máy chủ dev hoặc preview chạy độc lập
       return mockInvoke<T>(fallbackCmd, fallbackArgs);
@@ -1901,14 +1936,27 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
 
     case 'get_phan_cong_dia_ban': {
       try {
+        const rawUser = localStorage.getItem('ubkt_current_user');
+        const currentUser = rawUser ? JSON.parse(rawUser) : null;
+        if (currentUser?.vai_tro !== 'ADMIN') {
+          throw new Error('Từ chối truy cập: Tài khoản Biên tập viên không có quyền xem dữ liệu phân công quản lý.');
+        }
         const raw = localStorage.getItem('ubkt_phan_cong_dia_ban');
         return (raw ? JSON.parse(raw) : []) as T;
-      } catch {
+      } catch (err) {
+        if (err instanceof Error && err.message.includes('Từ chối truy cập')) {
+          throw err;
+        }
         return [] as T;
       }
     }
 
     case 'save_phan_cong_dia_ban': {
+      const rawUser = localStorage.getItem('ubkt_current_user');
+      const currentUser = rawUser ? JSON.parse(rawUser) : null;
+      if (currentUser?.vai_tro !== 'ADMIN') {
+        throw new Error('Từ chối truy cập: Tài khoản Biên tập viên không có quyền chỉnh sửa dữ liệu phân công quản lý.');
+      }
       const { assignments } = args as { assignments: PhanCongDiaBan[] };
       localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(assignments || []));
       for (const as of assignments || []) {

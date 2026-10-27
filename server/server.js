@@ -1174,12 +1174,59 @@ app.put('/api/dia-ban/:id', (req, res) => {
   res.json(db.diaBanRecords.find((r) => r.id === id));
 });
 
-app.get('/api/phan-cong-dia-ban', (req, res) => {
+// ── Helper xác thực người dùng và phân quyền RBAC ─────────────────────────────
+function getAuthUser(req, db) {
+  const authHeader = req.headers.authorization || '';
+  let tokenUserId = null;
+  if (authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7).trim();
+    // format: online-jwt-${timestamp}-${userId}
+    const parts = token.split('-');
+    if (parts.length >= 4 && parts[0] === 'online' && parts[1] === 'jwt') {
+      tokenUserId = parts.slice(3).join('-');
+    }
+  }
+
+  const userId =
+    tokenUserId ||
+    req.headers['x-user-id'] ||
+    req.query?.user_id ||
+    req.body?.user_id;
+
+  if (!userId) return null;
+
+  return (db.users || []).find((u) => u.id === userId && u.trang_thai !== 0) || null;
+}
+
+// Middleware kiểm tra quyền Quản trị viên (ADMIN) cho phân hệ Phân công quản lý
+function requireAdminForPhanCong(req, res, next) {
+  const db = readDb();
+  const user = getAuthUser(req, db);
+
+  if (!user) {
+    return res.status(401).json({
+      success: false,
+      message: 'Yêu cầu đăng nhập: Không tìm thấy thông tin phiên làm việc hợp lệ.',
+    });
+  }
+
+  if (user.vai_tro !== 'ADMIN') {
+    return res.status(403).json({
+      success: false,
+      message: 'Từ chối truy cập: Tài khoản Biên tập viên không có quyền xem hoặc chỉnh sửa dữ liệu phân công quản lý.',
+    });
+  }
+
+  req.authUser = user;
+  next();
+}
+
+app.get('/api/phan-cong-dia-ban', requireAdminForPhanCong, (req, res) => {
   const db = readDb();
   res.json(db.phanCongDiaBan || []);
 });
 
-app.post('/api/phan-cong-dia-ban', (req, res) => {
+app.post('/api/phan-cong-dia-ban', requireAdminForPhanCong, (req, res) => {
   const db = readDb();
   const { assignments, user_id, actor_name } = req.body;
   if (!Array.isArray(assignments)) {

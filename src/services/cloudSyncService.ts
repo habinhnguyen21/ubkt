@@ -185,7 +185,16 @@ export const cloudSyncService = {
         await saveArrayToCollection('audit_logs', auditLogs, (l) => l.id || `log-${Date.now()}`);
       }
 
-      if (phanCongList.length > 0) {
+      const isAdminUser = (() => {
+        try {
+          const raw = localStorage.getItem('ubkt_current_user');
+          return raw ? JSON.parse(raw)?.vai_tro === 'ADMIN' : false;
+        } catch {
+          return false;
+        }
+      })();
+
+      if (isAdminUser && phanCongList.length > 0) {
         onProgress?.('Đang lưu thông tin phân công cán bộ...');
         await saveArrayToCollection('phan_cong_dia_ban', phanCongList, (p) => p.don_vi_id || p.id || 'pc');
       }
@@ -878,13 +887,24 @@ export const cloudSyncService = {
         }
       });
       const cloudPcKeys = new Set(cloudPhanCong.map((p) => p.id || p.don_vi_id));
-      currentPhanCong.forEach((p) => {
-        const k = p.id || p.don_vi_id;
-        if (k && !cloudPcKeys.has(k)) {
-          itemsToPushToCloud.push({ collection: 'phan_cong_dia_ban', id: p.id || p.don_vi_id, data: p });
+      const isAdminUser = (() => {
+        try {
+          const raw = localStorage.getItem('ubkt_current_user');
+          return raw ? JSON.parse(raw)?.vai_tro === 'ADMIN' : false;
+        } catch {
+          return false;
         }
-      });
-      localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(Array.from(pcMap.values())));
+      })();
+
+      if (isAdminUser) {
+        currentPhanCong.forEach((p) => {
+          const k = p.id || p.don_vi_id;
+          if (k && !cloudPcKeys.has(k)) {
+            itemsToPushToCloud.push({ collection: 'phan_cong_dia_ban', id: p.id || p.don_vi_id, data: p });
+          }
+        });
+        localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(Array.from(pcMap.values())));
+      }
 
       // Cấu hình Google Drive
       if (gdriveDoc.exists()) {

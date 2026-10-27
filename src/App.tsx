@@ -43,6 +43,9 @@ export function App() {
   const [showCloudSyncModal, setShowCloudSyncModal] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [donViInitialTab, setDonViInitialTab] = useState<'to_chuc' | 'phan_cong'>('to_chuc');
+  const [accessDeniedMessage, setAccessDeniedMessage] = useState<string | null>(null);
+
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
     const saved = localStorage.getItem('ubkt_active_tab');
     const validTabs: TabKey[] = ['tong_quan', 'don_vi', 'chuong_trinh', 'ho_so_dia_ban', 'don_thu', 'lich_thang', 'kho_pdf', 'thong_ke', 'bao_cao'];
@@ -55,7 +58,83 @@ export function App() {
   const handleTabChange = useCallback((tab: TabKey) => {
     setActiveTab(tab);
     localStorage.setItem('ubkt_active_tab', tab);
+    if (tab !== 'don_vi') {
+      setDonViInitialTab('to_chuc');
+    }
+    const hashMap: Record<TabKey, string> = {
+      tong_quan: '#tong-quan',
+      don_vi: '#don-vi',
+      chuong_trinh: '#chuong-trinh',
+      ho_so_dia_ban: '#ho-so-dia-ban',
+      don_thu: '#don-thu',
+      lich_thang: '#lich-thang',
+      kho_pdf: '#kho-pdf',
+      thong_ke: '#thong-ke',
+      bao_cao: '#bao-cao',
+    };
+    if (typeof window !== 'undefined' && window.history && window.history.replaceState) {
+      window.history.replaceState(null, '', window.location.pathname + (hashMap[tab] || ''));
+    }
   }, []);
+
+  // Kiểm tra điều hướng trực tiếp bằng URL (Hash, Query Param, Path)
+  const checkUrlRouting = useCallback((user: User | null) => {
+    if (typeof window === 'undefined') return;
+
+    const hash = window.location.hash.toLowerCase();
+    const search = window.location.search.toLowerCase();
+    const pathname = window.location.pathname.toLowerCase();
+
+    const isRequestingPhanCong =
+      hash.includes('phan-cong') ||
+      hash.includes('phan_cong') ||
+      search.includes('tab=phan_cong') ||
+      search.includes('tab=phan-cong') ||
+      search.includes('sub=phan_cong') ||
+      search.includes('sub=phan-cong') ||
+      pathname.endsWith('/phan-cong') ||
+      pathname.endsWith('/phan_cong');
+
+    if (isRequestingPhanCong) {
+      if (!user) return;
+
+      if (user.vai_tro === 'ADMIN') {
+        setActiveTab('don_vi');
+        setDonViInitialTab('phan_cong');
+      } else {
+        // BIÊN TẬP VIÊN: TỪ CHỐI TRUY CẬP TRỰC TIẾP
+        setActiveTab('don_vi');
+        setDonViInitialTab('to_chuc');
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, '', window.location.pathname + '#don-vi');
+        } else {
+          window.location.hash = '#don-vi';
+        }
+        setAccessDeniedMessage('Từ chối truy cập: Tài khoản Biên tập viên không có quyền truy cập trực tiếp phân hệ Phân công quản lý.');
+        setTimeout(() => setAccessDeniedMessage(null), 5000);
+      }
+      return;
+    }
+
+    if (hash === '#tong-quan') setActiveTab('tong_quan');
+    else if (hash === '#don-vi') { setActiveTab('don_vi'); setDonViInitialTab('to_chuc'); }
+    else if (hash === '#chuong-trinh') setActiveTab('chuong_trinh');
+    else if (hash === '#ho-so-dia-ban') setActiveTab('ho_so_dia_ban');
+    else if (hash === '#don-thu') setActiveTab('don_thu');
+    else if (hash === '#lich-thang') setActiveTab('lich_thang');
+    else if (hash === '#kho-pdf') setActiveTab('kho_pdf');
+  }, []);
+
+  useEffect(() => {
+    checkUrlRouting(currentUser);
+    const handleHash = () => checkUrlRouting(currentUser);
+    window.addEventListener('hashchange', handleHash);
+    window.addEventListener('popstate', handleHash);
+    return () => {
+      window.removeEventListener('hashchange', handleHash);
+      window.removeEventListener('popstate', handleHash);
+    };
+  }, [currentUser, checkUrlRouting]);
 
   const fetchAppInfo = useCallback(async () => {
     try {
@@ -111,12 +190,16 @@ export function App() {
     localStorage.setItem('ubkt_current_user', JSON.stringify(user));
     localStorage.setItem('ubkt_session_token', token);
     fetchAppInfo();
+    checkUrlRouting(user);
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('ubkt_current_user');
     localStorage.removeItem('ubkt_session_token');
+    if (typeof window !== 'undefined' && window.location.hash) {
+      window.location.hash = '';
+    }
   };
 
   const handleManualSync = async () => {
@@ -136,7 +219,13 @@ export function App() {
       case 'tong_quan':
         return <Dashboard currentUser={currentUser} appInfo={appInfo} />;
       case 'don_vi':
-        return <DonViManager user={currentUser} onDataChanged={fetchAppInfo} />;
+        return (
+          <DonViManager
+            user={currentUser}
+            onDataChanged={fetchAppInfo}
+            initialTab={donViInitialTab}
+          />
+        );
       case 'chuong_trinh':
         return <ChuongTrinhManager user={currentUser} onDataChanged={fetchAppInfo} />;
       case 'ho_so_dia_ban':
@@ -158,6 +247,25 @@ export function App() {
 
   return (
     <>
+      {/* Thông báo từ chối truy cập nếu Biên tập viên mở trực tiếp URL cấm */}
+      {accessDeniedMessage && (
+        <div style={{
+          position: 'fixed', top: 20, right: 20, zIndex: 9999,
+          background: '#fee2e2', border: '1.5px solid #ef4444',
+          color: '#991b1b', padding: '12px 18px', borderRadius: 10,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.15)', fontSize: 13,
+          fontWeight: 600, display: 'flex', alignItems: 'center', gap: 10
+        }}>
+          <span>⛔</span>
+          <span>{accessDeniedMessage}</span>
+          <button
+            onClick={() => setAccessDeniedMessage(null)}
+            style={{ background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer', fontSize: 16, marginLeft: 8 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {/* Nếu chưa đăng nhập → chỉ hiện màn hình đăng nhập */}
       {!currentUser && (
         <LoginModal onLoginSuccess={handleLoginSuccess} />

@@ -49,6 +49,7 @@ import { OrgDeleteModal } from './donvi/OrgDeleteModal';
 interface DonViManagerProps {
   user: User;
   onDataChanged?: () => void;
+  initialTab?: 'to_chuc' | 'phan_cong';
 }
 
 // Storage keys
@@ -87,9 +88,22 @@ export const sanitizeStrictAssignments = (rawList: PhanCongDiaBan[]): PhanCongDi
   });
 };
 
-export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged }) => {
-  // Tabs: 'to_chuc' | 'phan_cong'
-  const [activeTab, setActiveTab] = useState<'to_chuc' | 'phan_cong'>('to_chuc');
+export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged, initialTab }) => {
+  const isAdmin = user.vai_tro === 'ADMIN';
+
+  // Tabs: 'to_chuc' | 'phan_cong' (Phân công quản lý chỉ dành riêng cho ADMIN)
+  const [activeTab, setActiveTab] = useState<'to_chuc' | 'phan_cong'>(() => {
+    if (!isAdmin) return 'to_chuc';
+    return initialTab === 'phan_cong' ? 'phan_cong' : 'to_chuc';
+  });
+
+  useEffect(() => {
+    if (!isAdmin && activeTab === 'phan_cong') {
+      setActiveTab('to_chuc');
+    } else if (isAdmin && initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [isAdmin, initialTab, activeTab]);
 
   // Dữ liệu đơn vị
   const [treeData, setTreeData] = useState<DonViTreeItem[]>([]);
@@ -202,14 +216,14 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
         api.getDonViTree(),
         api.getAllDonVi(),
         api.getAllUsers().catch(() => []),
-        api.getPhanCongDiaBan().catch(() => []),
+        isAdmin ? api.getPhanCongDiaBan().catch(() => []) : Promise.resolve([]),
         api.getDiaBanRecords().catch(() => []),
       ]);
       setTreeData(tree);
       setAllDonVi(flat);
       setUsersList(users);
 
-      if (Array.isArray(savedAssignments) && savedAssignments.length > 0) {
+      if (isAdmin && Array.isArray(savedAssignments) && savedAssignments.length > 0) {
         const sanitized = sanitizeStrictAssignments(savedAssignments);
         setAssignments(sanitized);
         localStorage.setItem(STORAGE_PHAN_CONG, JSON.stringify(sanitized));
@@ -265,10 +279,10 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
   };
 
   useEffect(() => {
-    if (activeTab === 'phan_cong') {
+    if (isAdmin && activeTab === 'phan_cong') {
       reloadUsers();
     }
-  }, [activeTab]);
+  }, [isAdmin, activeTab]);
 
   // Lắng nghe sự kiện tài khoản được tạo/cập nhật
   useEffect(() => {
@@ -284,6 +298,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
   // Lắng nghe sự kiện phân công & hồ sơ địa bàn
   useEffect(() => {
     const handleAssignmentsUpdated = (e?: Event) => {
+      if (!isAdmin) return;
       const customEvent = e as CustomEvent<PhanCongDiaBan[]>;
       if (customEvent?.detail && Array.isArray(customEvent.detail)) {
         setAssignments(sanitizeStrictAssignments(customEvent.detail));
@@ -540,6 +555,10 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
   };
 
   const saveAssignmentsToStorage = (newAssignments: PhanCongDiaBan[]) => {
+    if (!isAdmin) {
+      alert('Từ chối thao tác: Chỉ tài khoản Quản trị viên (ADMIN) mới có quyền lưu phân công quản lý.');
+      return;
+    }
     const sanitized = sanitizeStrictAssignments(newAssignments);
     setAssignments(sanitized);
     localStorage.setItem(STORAGE_PHAN_CONG, JSON.stringify(sanitized));
@@ -852,17 +871,21 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
               <span>Cơ cấu tổ chức ({allDonVi.filter((u) => !u.deleted_at).length})</span>
             </button>
 
-            <button
-              onClick={() => setActiveTab('phan_cong')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
-                activeTab === 'phan_cong'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200'
-              }`}
-            >
-              <Users className="w-4 h-4" />
-              <span>Phân công quản lý</span>
-            </button>
+            {/* Phân công quản lý chỉ hiển thị cho Quản trị viên (ADMIN) */}
+            {isAdmin && (
+              <button
+                id="tab-phan-cong"
+                onClick={() => setActiveTab('phan_cong')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+                  activeTab === 'phan_cong'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span>Phân công quản lý</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1112,9 +1135,9 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged 
       )}
 
       {/* ──────────────────────────────────────────────────────────────────────── */}
-      {/* TAB 2: PHÂN CÔNG QUẢN LÝ (BẢO TOÀN NGUYÊN BẢN CÁC CHỨC NĂNG)             */}
+      {/* TAB 2: PHÂN CÔNG QUẢN LÝ (CHỈ DÀNH RIÊNG CHO QUẢN TRỊ VIÊN ADMIN)        */}
       {/* ──────────────────────────────────────────────────────────────────────── */}
-      {activeTab === 'phan_cong' && (
+      {isAdmin && activeTab === 'phan_cong' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
           <div className="p-4 border-b border-slate-200 bg-slate-50/60">
             <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
