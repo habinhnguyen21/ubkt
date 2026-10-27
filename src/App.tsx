@@ -43,7 +43,6 @@ export function App() {
   const [showCloudSyncModal, setShowCloudSyncModal] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [donViInitialTab, setDonViInitialTab] = useState<'to_chuc' | 'phan_cong'>('to_chuc');
   const [accessDeniedMessage, setAccessDeniedMessage] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
@@ -58,11 +57,6 @@ export function App() {
   const handleTabChange = useCallback((tab: TabKey) => {
     setActiveTab(tab);
     localStorage.setItem('ubkt_active_tab', tab);
-    if (tab === 'phan_cong') {
-      setDonViInitialTab('phan_cong');
-    } else if (tab !== 'don_vi') {
-      setDonViInitialTab('to_chuc');
-    }
     const hashMap: Record<TabKey, string> = {
       tong_quan: '#tong-quan',
       don_vi: '#don-vi',
@@ -103,11 +97,9 @@ export function App() {
 
       if (user.vai_tro === 'ADMIN') {
         setActiveTab('phan_cong');
-        setDonViInitialTab('phan_cong');
       } else {
         // BIÊN TẬP VIÊN: TỪ CHỐI TRUY CẬP TRỰC TIẾP
         setActiveTab('don_vi');
-        setDonViInitialTab('to_chuc');
         if (window.history && window.history.replaceState) {
           window.history.replaceState(null, '', window.location.pathname + '#don-vi');
         } else {
@@ -123,13 +115,11 @@ export function App() {
     else if (hash === '#phan-cong') {
       if (user?.vai_tro === 'ADMIN') {
         setActiveTab('phan_cong');
-        setDonViInitialTab('phan_cong');
       } else {
         setActiveTab('don_vi');
-        setDonViInitialTab('to_chuc');
       }
     }
-    else if (hash === '#don-vi') { setActiveTab('don_vi'); setDonViInitialTab('to_chuc'); }
+    else if (hash === '#don-vi') { setActiveTab('don_vi'); }
     else if (hash === '#chuong-trinh') setActiveTab('chuong_trinh');
     else if (hash === '#ho-so-dia-ban') setActiveTab('ho_so_dia_ban');
     else if (hash === '#don-thu') setActiveTab('don_thu');
@@ -235,7 +225,7 @@ export function App() {
           <DonViManager
             user={currentUser}
             onDataChanged={fetchAppInfo}
-            initialTab={donViInitialTab}
+            mode="to_chuc"
           />
         );
       case 'phan_cong':
@@ -243,7 +233,7 @@ export function App() {
           <DonViManager
             user={currentUser}
             onDataChanged={fetchAppInfo}
-            initialTab="phan_cong"
+            mode="phan_cong"
           />
         );
       case 'chuong_trinh':

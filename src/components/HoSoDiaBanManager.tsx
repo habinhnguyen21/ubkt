@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { api } from '../services/api';
 import type {
   User,
@@ -497,7 +497,8 @@ export function HoSoDiaBanManager({ user }: Props) {
     });
   };
 
-  useEffect(() => {
+  // Nạp và đồng bộ toàn diện dữ liệu: Cơ cấu tổ chức (dùng chung) + Phân công quản lý + Hồ sơ địa bàn
+  const loadData = useCallback(() => {
     Promise.all([
       api.getAllDonVi(),
       api.getAllUsers(),
@@ -508,94 +509,95 @@ export function HoSoDiaBanManager({ user }: Props) {
         syncUsersAndRecords(usrs);
 
         setRecords((prev) => {
-          const deletedIds = getDeletedDiaBanIds();
-          const dvIdSet = new Set(dvs.map((d) => d.id));
           const dvMap = new Map(dvs.map((d) => [d.id, d]));
-
-          // Ưu tiên nạp từ server nếu có
           const baseRecords = Array.isArray(serverRecords) && serverRecords.length > 0 ? serverRecords : prev;
+          const recMap = new Map(baseRecords.map((r) => [r.id, r]));
 
-          // Lọc bỏ các bản ghi đã xóa
-          const validPrev = baseRecords.filter((r) => !deletedIds.has(r.id) && (dvs.length === 0 || dvIdSet.has(r.id)));
-          const existingIds = new Set(validPrev.map((r) => r.id));
-          const newRecords: DiaBanRecord[] = [];
+          const combined: DiaBanRecord[] = [];
 
-          // 1. Cập nhật tên địa bàn mới nhất từ danh mục DonVi gốc cho các bản ghi hiện có
-          const updatedPrev = validPrev.map((r) => {
-            const org = dvMap.get(r.id);
-            if (!org) return r;
+          // 1. Duyệt qua tất cả các tổ chức đảng trong danh mục chung Cơ cấu tổ chức
+          dvs
+            .filter((dv) => !dv.deleted_at)
+            .forEach((dv) => {
+              const existing = recMap.get(dv.id);
 
-            // Kiểm tra phân công từ serverAssignments nếu có
-            let canBoId = r.can_bo_phu_trach_id;
-            let canBoTen = r.can_bo_phu_trach_ten;
-            let canBoChucVu = r.can_bo_chuc_vu;
-            if (Array.isArray(serverAssignments) && serverAssignments.length > 0) {
-              const assigned = serverAssignments.find((a) => a.don_vi_ids?.includes(r.id));
-              if (assigned) {
-                canBoId = assigned.user_id;
-                canBoTen = assigned.user_name || r.can_bo_phu_trach_ten;
-                const usr = usrs.find((u) => u.id === assigned.user_id);
-                if (usr) {
-                  canBoTen = `Đ/c ${usr.ho_ten}`;
-                  canBoChucVu = usr.chuc_danh || canBoChucVu;
-                }
+              // Tìm tất cả các phân công cho đơn vị này
+              const assignedList = Array.isArray(serverAssignments)
+                ? serverAssignments.filter((a) => a.don_vi_ids?.includes(dv.id))
+                : [];
+
+              const canBoIds = assignedList.map((a) => a.user_id);
+              const canBoNames = assignedList.map((a) => {
+                const u = usrs.find((x) => x.id === a.user_id);
+                return 'Đ/c ' + (u ? u.ho_ten : a.user_name || 'Cán bộ');
+              });
+              const canBoChucVus = assignedList
+                .map((a) => {
+                  const u = usrs.find((x) => x.id === a.user_id);
+                  return u?.chuc_danh || '';
+                })
+                .filter(Boolean)
+                .join(', ');
+
+              const hasAssignments = assignedList.length > 0;
+              const primaryId = hasAssignments ? canBoIds[0] : existing?.can_bo_phu_trach_id;
+              const displayTen = hasAssignments
+                ? canBoNames.join(', ')
+                : existing?.can_bo_phu_trach_ten || 'Chưa phân công';
+              const displayChucVu = hasAssignments
+                ? canBoChucVus
+                : existing?.can_bo_chuc_vu || '';
+
+              if (existing) {
+                // Cập nhật tên mới nhất từ danh mục và phân công hiện tại
+                combined.push({
+                  ...existing,
+                  ten_dia_ban: dv.ten, // Luôn đồng bộ tên mới nhất từ danh mục chung
+                  loai_to_chuc: dv.loai,
+                  trang_thai_to_chuc: dv.trang_thai,
+                  can_bo_phu_trach_id: primaryId,
+                  can_bo_phu_trach_ids: hasAssignments
+                    ? canBoIds
+                    : existing.can_bo_phu_trach_ids || (primaryId ? [primaryId] : []),
+                  can_bo_phu_trach_ten: displayTen,
+                  can_bo_chuc_vu: displayChucVu,
+                });
+              } else {
+                // Bổ sung hồ sơ mới cho đơn vị mới
+                combined.push({
+                  id: dv.id,
+                  ten_dia_ban: dv.ten,
+                  loai_to_chuc: dv.loai,
+                  trang_thai_to_chuc: dv.trang_thai,
+                  can_bo_phu_trach_id: primaryId,
+                  can_bo_phu_trach_ids: canBoIds,
+                  can_bo_phu_trach_ten: displayTen,
+                  can_bo_chuc_vu: displayChucVu,
+                  thoi_gian_phan_cong: hasAssignments ? new Date().toLocaleDateString('vi-VN') : 'Chưa có',
+                  van_ban_phan_cong: hasAssignments ? 'Quyết định phân công' : 'Chưa ban hành',
+                  tinh_trang_bao_cao_thang: 'CHUA_NOP',
+                  thang_hien_tai: 'T10/2026',
+                  so_van_de_theo_doi: 0,
+                  danh_sach_van_de: [],
+                  so_chi_dao_chua_hoan_thanh: 0,
+                  danh_sach_chi_dao: [],
+                  thoi_diem_cap_nhat_gan_nhat: new Date().toLocaleDateString('vi-VN'),
+                  nguoi_cap_nhat_gan_nhat: 'Hệ thống',
+                  so_luong_tai_lieu: 0,
+                });
               }
-            }
+            });
 
-            return {
-              ...r,
-              ten_dia_ban: org.ten, // Luôn đồng bộ tên mới nhất từ danh mục chung
-              loai_to_chuc: org.loai,
-              trang_thai_to_chuc: org.trang_thai,
-              can_bo_phu_trach_id: canBoId,
-              can_bo_phu_trach_ten: canBoTen,
-              can_bo_chuc_vu: canBoChucVu,
-            };
-          });
-
-          // 2. Tự động thêm hồ sơ địa bàn cho các đơn vị mới bổ sung trong danh mục chung
-          dvs.forEach((dv) => {
-            if (!existingIds.has(dv.id) && !deletedIds.has(dv.id)) {
-              let canBoId: string | undefined;
-              let canBoTen = 'Chưa phân công';
-              let canBoChucVu = '';
-              if (Array.isArray(serverAssignments) && serverAssignments.length > 0) {
-                const assigned = serverAssignments.find((a) => a.don_vi_ids?.includes(dv.id));
-                if (assigned) {
-                  canBoId = assigned.user_id;
-                  canBoTen = assigned.user_name || 'Chưa phân công';
-                  const usr = usrs.find((u) => u.id === assigned.user_id);
-                  if (usr) {
-                    canBoTen = `Đ/c ${usr.ho_ten}`;
-                    canBoChucVu = usr.chuc_danh || '';
-                  }
-                }
-              }
-
-              newRecords.push({
-                id: dv.id,
-                ten_dia_ban: dv.ten,
-                loai_to_chuc: dv.loai,
-                trang_thai_to_chuc: dv.trang_thai,
-                can_bo_phu_trach_id: canBoId,
-                can_bo_phu_trach_ten: canBoTen,
-                can_bo_chuc_vu: canBoChucVu,
-                thoi_gian_phan_cong: canBoId ? new Date().toLocaleDateString('vi-VN') : 'Chưa có',
-                van_ban_phan_cong: canBoId ? 'Quyết định phân công' : 'Chưa ban hành',
-                tinh_trang_bao_cao_thang: 'CHUA_NOP',
-                thang_hien_tai: 'T10/2026',
-                so_van_de_theo_doi: 0,
-                danh_sach_van_de: [],
-                so_chi_dao_chua_hoan_thanh: 0,
-                danh_sach_chi_dao: [],
-                thoi_diem_cap_nhat_gan_nhat: new Date().toLocaleDateString('vi-VN'),
-                nguoi_cap_nhat_gan_nhat: 'Hệ thống',
-                so_luong_tai_lieu: 0,
+          // 2. Bảo toàn các hồ sơ cũ nếu đơn vị không còn trong danh mục (đã kết thúc/giải thể)
+          baseRecords.forEach((r) => {
+            if (!dvMap.has(r.id)) {
+              combined.push({
+                ...r,
+                trang_thai_to_chuc: 'CHAM_DUT',
               });
             }
           });
 
-          const combined = [...updatedPrev, ...newRecords];
           localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(combined));
           api.saveDiaBanRecords(combined).catch(() => {});
           return combined;
@@ -604,36 +606,23 @@ export function HoSoDiaBanManager({ user }: Props) {
       .catch((err) => console.error('Lỗi nạp dữ liệu hồ sơ địa bàn:', err));
   }, []);
 
-  // Lắng nghe sự kiện tài khoản quản trị cập nhật (từ Quản lý Tài khoản)
   useEffect(() => {
-    const handleUsersUpdated = () => {
-      api.getAllUsers()
-        .then((usrs) => {
-          syncUsersAndRecords(usrs);
-        })
-        .catch((err) => console.error('Lỗi đồng bộ danh sách người dùng:', err));
+    loadData();
+
+    // Lắng nghe các sự kiện cập nhật
+    const handleSync = () => loadData();
+    window.addEventListener('ubkt_data_synced', handleSync);
+    window.addEventListener('ubkt_assignments_updated', handleSync);
+    window.addEventListener('ubkt_users_updated', handleSync);
+    window.addEventListener('ubkt_diaban_records_updated', handleSync);
+
+    return () => {
+      window.removeEventListener('ubkt_data_synced', handleSync);
+      window.removeEventListener('ubkt_assignments_updated', handleSync);
+      window.removeEventListener('ubkt_users_updated', handleSync);
+      window.removeEventListener('ubkt_diaban_records_updated', handleSync);
     };
-
-    window.addEventListener('ubkt_users_updated', handleUsersUpdated);
-    return () => window.removeEventListener('ubkt_users_updated', handleUsersUpdated);
-  }, []);
-
-  // Lắng nghe sự kiện phân công quản lý cập nhật (từ Cơ cấu tổ chức / DonViManager)
-  useEffect(() => {
-    const handleAssignmentsUpdated = () => {
-      try {
-        const saved = localStorage.getItem(STORAGE_DIA_BAN_RECORDS);
-        if (saved) {
-          setRecords(JSON.parse(saved));
-        }
-      } catch (err) {
-        console.error('Lỗi nạp cập nhật phân công:', err);
-      }
-    };
-
-    window.addEventListener('ubkt_assignments_updated', handleAssignmentsUpdated);
-    return () => window.removeEventListener('ubkt_assignments_updated', handleAssignmentsUpdated);
-  }, []);
+  }, [loadData]);
 
   // Danh sách chương trình KT-GS & các văn bản thay đổi, bổ sung
   const [chuongTrinhList, setChuongTrinhList] = useState<ChuongTrinhKtGs[]>([]);
@@ -834,11 +823,16 @@ export function HoSoDiaBanManager({ user }: Props) {
 
       let matchCanBo = true;
       if (filterCanBo === 'MINE') {
-        matchCanBo = r.can_bo_phu_trach_id === user.id;
+        matchCanBo = isUserAssignedToRecord(r);
       } else if (filterCanBo === 'UNASSIGNED') {
-        matchCanBo = !r.can_bo_phu_trach_id || r.can_bo_phu_trach_ten === 'Chưa phân công';
+        matchCanBo =
+          !r.can_bo_phu_trach_id ||
+          r.can_bo_phu_trach_ten === 'Chưa phân công' ||
+          (Array.isArray(r.can_bo_phu_trach_ids) && r.can_bo_phu_trach_ids.length === 0);
       } else if (filterCanBo !== 'ALL') {
-        matchCanBo = r.can_bo_phu_trach_id === filterCanBo;
+        matchCanBo =
+          r.can_bo_phu_trach_id === filterCanBo ||
+          (Array.isArray(r.can_bo_phu_trach_ids) && r.can_bo_phu_trach_ids.includes(filterCanBo));
       }
 
       const matchBaoCao = filterBaoCao === 'ALL' || r.tinh_trang_bao_cao_thang === filterBaoCao;
@@ -874,7 +868,7 @@ export function HoSoDiaBanManager({ user }: Props) {
     const chuaNop = records.filter((r) => r.tinh_trang_bao_cao_thang === 'CHUA_NOP').length;
     const tongVanDe = records.reduce((acc, cur) => acc + (cur.so_van_de_theo_doi || 0), 0);
     const tongChiDao = records.reduce((acc, cur) => acc + (cur.so_chi_dao_chua_hoan_thanh || 0), 0);
-    const myCount = records.filter((r) => r.can_bo_phu_trach_id === user.id).length;
+    const myCount = records.filter((r) => isUserAssignedToRecord(r)).length;
     return { total, dangTheoDoi, daKetThuc, daNop, chuaNop, tongVanDe, tongChiDao, myCount };
   }, [records, user.id]);
 
@@ -906,13 +900,16 @@ export function HoSoDiaBanManager({ user }: Props) {
     return chuongTrinhList.filter((ct) => ct.loai_chuong_trinh === 'NHIEM_KY');
   }, [chuongTrinhList]);
 
-  // Quyền nộp báo cáo: Chỉ người được phân công quản lý mới được nộp báo cáo của mình trừ admin
+  // Quyền nộp báo cáo / thao tác: Người được phân công quản lý hoặc Admin
   const isUserAssignedToRecord = (record: DiaBanRecord): boolean => {
     if (!user) return false;
     if (user.vai_tro === 'ADMIN') return true;
 
-    // 1. So khớp can_bo_phu_trach_id với user.id
+    // 1. So khớp can_bo_phu_trach_id hoặc can_bo_phu_trach_ids với user.id
     if (record.can_bo_phu_trach_id && record.can_bo_phu_trach_id === user.id) {
+      return true;
+    }
+    if (Array.isArray(record.can_bo_phu_trach_ids) && record.can_bo_phu_trach_ids.includes(user.id)) {
       return true;
     }
 
@@ -2186,21 +2183,46 @@ export function HoSoDiaBanManager({ user }: Props) {
     >();
 
     filteredRecords.forEach((r) => {
-      const isAssigned = Boolean(
-        r.can_bo_phu_trach_id && r.can_bo_phu_trach_ten && r.can_bo_phu_trach_ten !== 'Chưa phân công'
-      );
-      const key = isAssigned ? r.can_bo_phu_trach_id! : 'UNASSIGNED';
-      if (!groupsMap.has(key)) {
-        groupsMap.set(key, {
-          can_bo_id: isAssigned ? r.can_bo_phu_trach_id : undefined,
-          can_bo_ten: isAssigned ? r.can_bo_phu_trach_ten! : 'Địa bàn chưa phân công cán bộ phụ trách',
-          can_bo_chuc_vu: isAssigned ? r.can_bo_chuc_vu : '',
-          van_ban_phan_cong: isAssigned ? r.van_ban_phan_cong : 'Chưa ban hành quyết định phân công',
-          thoi_gian_phan_cong: isAssigned ? r.thoi_gian_phan_cong : '',
-          records: [],
+      const assignedIds =
+        Array.isArray(r.can_bo_phu_trach_ids) && r.can_bo_phu_trach_ids.length > 0
+          ? r.can_bo_phu_trach_ids
+          : r.can_bo_phu_trach_id && r.can_bo_phu_trach_ten !== 'Chưa phân công'
+          ? [r.can_bo_phu_trach_id]
+          : [];
+
+      if (assignedIds.length === 0 || r.can_bo_phu_trach_ten === 'Chưa phân công') {
+        const key = 'UNASSIGNED';
+        if (!groupsMap.has(key)) {
+          groupsMap.set(key, {
+            can_bo_id: undefined,
+            can_bo_ten: 'Địa bàn chưa phân công cán bộ phụ trách',
+            can_bo_chuc_vu: '',
+            van_ban_phan_cong: 'Chưa ban hành quyết định phân công',
+            thoi_gian_phan_cong: '',
+            records: [],
+          });
+        }
+        groupsMap.get(key)!.records.push(r);
+      } else {
+        assignedIds.forEach((cbId) => {
+          const usr = usersList.find((u) => u.id === cbId);
+          const cbTen = usr ? `Đ/c ${usr.ho_ten}` : r.can_bo_phu_trach_ten || 'Cán bộ phụ trách';
+          const cbChucVu =
+            usr?.chuc_danh || (usr?.vai_tro === 'ADMIN' ? 'Chủ nhiệm UBKT' : 'Ủy viên UBKT');
+
+          if (!groupsMap.has(cbId)) {
+            groupsMap.set(cbId, {
+              can_bo_id: cbId,
+              can_bo_ten: cbTen,
+              can_bo_chuc_vu: cbChucVu,
+              van_ban_phan_cong: r.van_ban_phan_cong || 'Quyết định phân công',
+              thoi_gian_phan_cong: r.thoi_gian_phan_cong || '',
+              records: [],
+            });
+          }
+          groupsMap.get(cbId)!.records.push(r);
         });
       }
-      groupsMap.get(key)!.records.push(r);
     });
 
     const assignedList = Array.from(groupsMap.values()).filter((g) => g.can_bo_id !== undefined);
@@ -2213,7 +2235,7 @@ export function HoSoDiaBanManager({ user }: Props) {
     }
 
     return assignedList;
-  }, [filteredRecords]);
+  }, [filteredRecords, usersList]);
 
   // Bộ lọc cho Kho tài liệu địa bàn (sắp xếp giảm dần theo ngày ban hành)
   const filteredKhoFiles = useMemo(() => {

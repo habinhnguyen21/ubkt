@@ -50,6 +50,7 @@ interface DonViManagerProps {
   user: User;
   onDataChanged?: () => void;
   initialTab?: 'to_chuc' | 'phan_cong';
+  mode?: 'to_chuc' | 'phan_cong';
 }
 
 // Storage keys
@@ -57,59 +58,21 @@ const STORAGE_PHAN_CONG = 'ubkt_phan_cong_dia_ban';
 const STORAGE_DIA_BAN_RECORDS = 'ubkt_ho_so_dia_ban_records';
 const STORAGE_LOAI_HINH = 'ubkt_loai_hinh_to_chuc';
 
-// Đảm bảo nguyên tắc nghiêm ngặt: Mỗi tổ chức Đảng / Chi bộ chỉ giao duy nhất 1 cán bộ phụ trách
+// Làm sạch và chuẩn hóa danh sách phân công (loại bỏ trùng lặp ID rác)
 export const sanitizeStrictAssignments = (rawList: PhanCongDiaBan[]): PhanCongDiaBan[] => {
   if (!Array.isArray(rawList)) return [];
-
-  // Ưu tiên danh sách giao số lượng cụ thể trước, rồi đến danh sách nhận hàng loạt
-  const sorted = [...rawList].sort((a, b) => {
-    const lenA = a.don_vi_ids?.length || 0;
-    const lenB = b.don_vi_ids?.length || 0;
-    return lenA - lenB;
-  });
-
-  const unitAssignedTo = new Map<string, string>(); // unitId -> userId
-  sorted.forEach((item) => {
-    (item.don_vi_ids || []).forEach((uId) => {
-      if (!unitAssignedTo.has(uId)) {
-        unitAssignedTo.set(uId, item.user_id);
-      }
-    });
-  });
-
-  return rawList.map((item) => {
-    const validUnits = (item.don_vi_ids || []).filter(
-      (uId) => unitAssignedTo.get(uId) === item.user_id,
-    );
-    return {
-      ...item,
-      don_vi_ids: validUnits,
-    };
-  });
+  return rawList.map((item) => ({
+    ...item,
+    don_vi_ids: Array.from(new Set((item.don_vi_ids || []).filter(Boolean))),
+  }));
 };
 
-export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged, initialTab }) => {
+export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged, initialTab, mode }) => {
   const isAdmin = user.vai_tro === 'ADMIN';
 
-  // Tabs: 'to_chuc' | 'phan_cong' (Phân công quản lý chỉ dành riêng cho ADMIN)
-  const [activeTab, setActiveTab] = useState<'to_chuc' | 'phan_cong'>(() => {
-    if (!isAdmin) return 'to_chuc';
-    return initialTab === 'phan_cong' ? 'phan_cong' : 'to_chuc';
-  });
-
-  // Chặn nghiêm ngặt: nếu không phải Admin thì không bao giờ được ở tab phan_cong
-  useEffect(() => {
-    if (!isAdmin && activeTab === 'phan_cong') {
-      setActiveTab('to_chuc');
-    }
-  }, [isAdmin, activeTab]);
-
-  // Chỉ phản ứng khi initialTab thay đổi từ bên ngoài (ví dụ URL routing)
-  useEffect(() => {
-    if (isAdmin && initialTab) {
-      setActiveTab(initialTab);
-    }
-  }, [isAdmin, initialTab]);
+  // Khóa chặt theo mode phân hệ: 'to_chuc' (Cơ cấu tổ chức) hoặc 'phan_cong' (Phân công quản lý)
+  const currentMode = mode || initialTab || 'to_chuc';
+  const activeTab: 'to_chuc' | 'phan_cong' = currentMode === 'phan_cong' && isAdmin ? 'phan_cong' : 'to_chuc';
 
   // Dữ liệu đơn vị
   const [treeData, setTreeData] = useState<DonViTreeItem[]>([]);
@@ -570,97 +533,147 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
     localStorage.setItem(STORAGE_PHAN_CONG, JSON.stringify(sanitized));
     api.savePhanCongDiaBan(sanitized, user.ho_ten, user.id).catch(console.error);
 
-    // Đồng bộ sang Hồ sơ địa bàn
+    // Đồng bộ sang Hồ sơ địa bàn (bảo toàn hồ sơ hiện có, cập nhật cán bộ phụ trách)
     try {
       const rawRecords = localStorage.getItem(STORAGE_DIA_BAN_RECORDS);
-      if (rawRecords) {
-        const records: DiaBanRecord[] = JSON.parse(rawRecords);
-        if (Array.isArray(records)) {
-          const todayStr = new Date().toLocaleDateString('vi-VN');
-          const updated = records.map((r) => {
-            const assignItem = sanitized.find((a) => a.don_vi_ids?.includes(r.id));
-            const existingHistory: LichSuPhuTrachDiaBan[] = Array.isArray(r.lich_su_phu_trach)
-              ? r.lich_su_phu_trach
-              : [];
+      const records: DiaBanRecord[] = rawRecords ? JSON.parse(rawRecords) : [];
+      const todayStr = new Date().toLocaleDateString('vi-VN');
 
-            if (assignItem) {
-              const userObj = usersList.find((u) => u.id === assignItem.user_id);
-              const newTen = userObj ? userObj.ho_ten : assignItem.user_name || 'Cán bộ cơ quan';
-              const newChucVu = userObj?.chuc_danh || 'Ủy viên UBKT Đảng ủy';
+      // 1. Cập nhật các bản ghi hồ sơ địa bàn hiện có
+      const updated = (records || []).map((r) => {
+        const assignedItems = sanitized.filter((a) => a.don_vi_ids?.includes(r.id));
+        const existingHistory: LichSuPhuTrachDiaBan[] = Array.isArray(r.lich_su_phu_trach)
+          ? r.lich_su_phu_trach
+          : [];
 
-              if (r.can_bo_phu_trach_id !== assignItem.user_id) {
-                const updatedHistory = existingHistory.map((item, idx) => {
-                  if (idx === existingHistory.length - 1 && !item.den_ngay) {
-                    return { ...item, den_ngay: todayStr };
-                  }
-                  return item;
-                });
-
-                const newEntry: LichSuPhuTrachDiaBan = {
-                  id: 'ls-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-                  can_bo_id: assignItem.user_id,
-                  can_bo_ten: newTen,
-                  can_bo_chuc_vu: newChucVu,
-                  tu_ngay: todayStr,
-                  den_ngay: undefined,
-                  van_ban_phan_cong: `Phân công theo dõi địa bàn (${todayStr})`,
-                  created_at: new Date().toISOString(),
-                };
-
-                return {
-                  ...r,
-                  can_bo_phu_trach_id: assignItem.user_id,
-                  can_bo_phu_trach_ten: newTen,
-                  can_bo_chuc_vu: newChucVu,
-                  thoi_gian_phan_cong: todayStr,
-                  lich_su_phu_trach: [...updatedHistory, newEntry],
-                  thoi_diem_cap_nhat_gan_nhat:
-                    new Date().toLocaleDateString('vi-VN') +
-                    ' ' +
-                    new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-                  nguoi_cap_nhat_gan_nhat: user.ho_ten,
-                };
-              }
-
-              return {
-                ...r,
-                can_bo_phu_trach_id: assignItem.user_id,
-                can_bo_phu_trach_ten: newTen,
-                can_bo_chuc_vu: newChucVu,
-              };
-            } else {
-              // Bị gỡ phân công
-              if (r.can_bo_phu_trach_id) {
-                const updatedHistory = existingHistory.map((item, idx) => {
-                  if (idx === existingHistory.length - 1 && !item.den_ngay) {
-                    return { ...item, den_ngay: todayStr };
-                  }
-                  return item;
-                });
-                return {
-                  ...r,
-                  can_bo_phu_trach_id: undefined,
-                  can_bo_phu_trach_ten: 'Chưa phân công',
-                  can_bo_chuc_vu: '',
-                  lich_su_phu_trach: updatedHistory,
-                  thoi_diem_cap_nhat_gan_nhat:
-                    new Date().toLocaleDateString('vi-VN') +
-                    ' ' +
-                    new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-                  nguoi_cap_nhat_gan_nhat: user.ho_ten,
-                };
-              }
-              return r;
-            }
+        if (assignedItems.length > 0) {
+          const canBoIds = assignedItems.map((a) => a.user_id);
+          const canBoNames = assignedItems.map((a) => {
+            const u = usersList.find((x) => x.id === a.user_id);
+            return 'Đ/c ' + (u ? u.ho_ten : a.user_name || 'Cán bộ');
           });
-          localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(updated));
-          setDiaBanRecords(updated);
-          api.saveDiaBanRecords(updated).catch(console.error);
-          window.dispatchEvent(
-            new CustomEvent('ubkt_diaban_records_updated', { detail: updated }),
-          );
+          const newTen = canBoNames.join(', ');
+          const newChucVu = assignedItems
+            .map((a) => {
+              const u = usersList.find((x) => x.id === a.user_id);
+              return u?.chuc_danh || '';
+            })
+            .filter(Boolean)
+            .join(', ');
+
+          const isPrimaryChanged = r.can_bo_phu_trach_id !== canBoIds[0];
+          if (isPrimaryChanged) {
+            const updatedHistory = existingHistory.map((item, idx) => {
+              if (idx === existingHistory.length - 1 && !item.den_ngay) {
+                return { ...item, den_ngay: todayStr };
+              }
+              return item;
+            });
+
+            const newEntry: LichSuPhuTrachDiaBan = {
+              id: 'ls-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+              can_bo_id: canBoIds[0],
+              can_bo_ten: newTen,
+              can_bo_chuc_vu: newChucVu,
+              tu_ngay: todayStr,
+              den_ngay: undefined,
+              van_ban_phan_cong: `Phân công theo dõi địa bàn (${todayStr})`,
+              created_at: new Date().toISOString(),
+            };
+
+            return {
+              ...r,
+              can_bo_phu_trach_id: canBoIds[0],
+              can_bo_phu_trach_ids: canBoIds,
+              can_bo_phu_trach_ten: newTen,
+              can_bo_chuc_vu: newChucVu,
+              thoi_gian_phan_cong: todayStr,
+              lich_su_phu_trach: [...updatedHistory, newEntry],
+              thoi_diem_cap_nhat_gan_nhat:
+                new Date().toLocaleDateString('vi-VN') +
+                ' ' +
+                new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+              nguoi_cap_nhat_gan_nhat: user.ho_ten,
+            };
+          }
+
+          return {
+            ...r,
+            can_bo_phu_trach_id: canBoIds[0],
+            can_bo_phu_trach_ids: canBoIds,
+            can_bo_phu_trach_ten: newTen,
+            can_bo_chuc_vu: newChucVu,
+          };
+        } else {
+          // Bị gỡ phân công
+          if (r.can_bo_phu_trach_id) {
+            const updatedHistory = existingHistory.map((item, idx) => {
+              if (idx === existingHistory.length - 1 && !item.den_ngay) {
+                return { ...item, den_ngay: todayStr };
+              }
+              return item;
+            });
+            return {
+              ...r,
+              can_bo_phu_trach_id: undefined,
+              can_bo_phu_trach_ids: [],
+              can_bo_phu_trach_ten: 'Chưa phân công',
+              can_bo_chuc_vu: '',
+              lich_su_phu_trach: updatedHistory,
+              thoi_diem_cap_nhat_gan_nhat:
+                new Date().toLocaleDateString('vi-VN') +
+                ' ' +
+                new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+              nguoi_cap_nhat_gan_nhat: user.ho_ten,
+            };
+          }
+          return {
+            ...r,
+            can_bo_phu_trach_ids: [],
+          };
         }
-      }
+      });
+
+      // 2. Tự động bổ sung hồ sơ địa bàn cho các đơn vị trong danh mục chưa có hồ sơ
+      const existingIds = new Set(updated.map((r) => r.id));
+      allDonVi.forEach((u) => {
+        if (!existingIds.has(u.id)) {
+          const assignedItems = sanitized.filter((a) => a.don_vi_ids?.includes(u.id));
+          const canBoIds = assignedItems.map((a) => a.user_id);
+          const canBoNames = assignedItems.map((a) => {
+            const usr = usersList.find((x) => x.id === a.user_id);
+            return 'Đ/c ' + (usr ? usr.ho_ten : a.user_name || 'Cán bộ');
+          });
+          updated.push({
+            id: u.id,
+            ten_dia_ban: u.ten,
+            loai_to_chuc: u.loai,
+            trang_thai_to_chuc: u.trang_thai,
+            can_bo_phu_trach_id: canBoIds[0],
+            can_bo_phu_trach_ids: canBoIds,
+            can_bo_phu_trach_ten: canBoNames.length > 0 ? canBoNames.join(', ') : 'Chưa phân công',
+            can_bo_chuc_vu: '',
+            thoi_gian_phan_cong: canBoIds.length > 0 ? todayStr : 'Chưa có',
+            van_ban_phan_cong: canBoIds.length > 0 ? `Quyết định phân công (${todayStr})` : 'Chưa ban hành',
+            tinh_trang_bao_cao_thang: 'CHUA_NOP',
+            thang_hien_tai: 'T10/2026',
+            so_van_de_theo_doi: 0,
+            danh_sach_van_de: [],
+            so_chi_dao_chua_hoan_thanh: 0,
+            danh_sach_chi_dao: [],
+            thoi_diem_cap_nhat_gan_nhat: todayStr,
+            nguoi_cap_nhat_gan_nhat: user.ho_ten,
+            so_luong_tai_lieu: 0,
+          });
+        }
+      });
+
+      localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(updated));
+      setDiaBanRecords(updated);
+      api.saveDiaBanRecords(updated).catch(console.error);
+      window.dispatchEvent(
+        new CustomEvent('ubkt_diaban_records_updated', { detail: updated }),
+      );
     } catch (e) {
       console.error('Lỗi đồng bộ hồ sơ địa bàn:', e);
     }
@@ -690,7 +703,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
         }
         return a;
       });
-      setAssignSuccess(`Đã bỏ phân công đơn vị khỏi ${userName}`);
+      setAssignSuccess(`Đã bỏ phân công đơn vị khỏi đồng chí ${userName}`);
     } else {
       let foundUserRecord = false;
       updatedAssignments = assignments.map((a) => {
@@ -703,12 +716,8 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
             don_vi_ids: [...currentUnits, unitId],
             updated_at: new Date().toISOString(),
           };
-        } else {
-          return {
-            ...a,
-            don_vi_ids: (a.don_vi_ids || []).filter((id) => id !== unitId),
-          };
         }
+        return a;
       });
 
       if (!foundUserRecord) {
@@ -720,9 +729,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
         });
       }
 
-      setAssignSuccess(
-        `Đã chuyển giao đơn vị cho ${userName} (đảm bảo duy nhất 1 cán bộ phụ trách)`,
-      );
+      setAssignSuccess(`Đã phân công đơn vị cho đồng chí ${userName}`);
     }
 
     saveAssignmentsToStorage(updatedAssignments);
@@ -844,65 +851,42 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
   return (
     <div className="space-y-5 pb-12">
       {/* ──────────────────────────────────────────────────────────────────────── */}
-      {/* KHU VỰC A: THANH TIÊU ĐỀ VÀ THAO TÁC CHÍNH                               */}
+      {/* KHU VỰC A: THANH TIÊU ĐỀ PHÂN HỆ                                         */}
       {/* ──────────────────────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-sm">
-              <Building2 className="w-5 h-5" />
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-sm ${
+              activeTab === 'phan_cong' ? 'bg-indigo-600 text-white' : 'bg-blue-600 text-white'
+            }`}>
+              {activeTab === 'phan_cong' ? <Users className="w-5 h-5" /> : <Building2 className="w-5 h-5" />}
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-900 tracking-tight">Cơ cấu tổ chức</h2>
+              <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+                {activeTab === 'phan_cong' ? 'Phân công quản lý' : 'Cơ cấu tổ chức'}
+              </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Quản lý danh mục tổ chức đảng, cơ quan và các đơn vị trực thuộc trong phạm vi được
-                phân quyền
+                {activeTab === 'phan_cong'
+                  ? 'Phân công cán bộ UBKT Đảng ủy phụ trách, theo dõi các tổ chức đảng theo nghiệp vụ'
+                  : 'Quản lý danh mục tổ chức đảng, cơ quan và các đơn vị trực thuộc trong toàn Đảng bộ'}
               </p>
             </div>
           </div>
         </div>
 
-        {/* Nút điều hướng 2 Tabs chính */}
+        {/* Thông tin thống kê nhanh độc lập theo từng phân hệ (Không hiển thị nút bấm/tab của phân hệ khác) */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
-            <button
-              onClick={() => {
-                setActiveTab('to_chuc');
-                if (typeof window !== 'undefined' && window.history && window.history.replaceState) {
-                  window.history.replaceState(null, '', window.location.pathname + '#don-vi');
-                }
-              }}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
-                activeTab === 'to_chuc'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200'
-              }`}
-            >
-              <FolderTree className="w-4 h-4" />
-              <span>Cơ cấu tổ chức ({allDonVi.filter((u) => !u.deleted_at).length})</span>
-            </button>
-
-            {/* Phân công quản lý chỉ hiển thị cho Quản trị viên (ADMIN) */}
-            {isAdmin && (
-              <button
-                id="tab-phan-cong"
-                onClick={() => {
-                  setActiveTab('phan_cong');
-                  if (typeof window !== 'undefined' && window.history && window.history.replaceState) {
-                    window.history.replaceState(null, '', window.location.pathname + '#phan-cong');
-                  }
-                }}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
-                  activeTab === 'phan_cong'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200'
-                }`}
-              >
-                <Users className="w-4 h-4" />
-                <span>Phân công quản lý</span>
-              </button>
-            )}
-          </div>
+          {activeTab === 'to_chuc' ? (
+            <div className="flex items-center space-x-2 bg-blue-50 px-3.5 py-1.5 rounded-xl border border-blue-200 text-xs font-bold text-blue-800">
+              <FolderTree className="w-4 h-4 text-blue-600" />
+              <span>Tổng số: {allDonVi.filter((u) => !u.deleted_at).length} tổ chức đảng</span>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-2 bg-indigo-50 px-3.5 py-1.5 rounded-xl border border-indigo-200 text-xs font-bold text-indigo-800">
+              <Users className="w-4 h-4 text-indigo-600" />
+              <span>{usersList.length} cán bộ · {assignments.reduce((sum, a) => sum + (a.don_vi_ids?.length || 0), 0)} lượt phân công</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1304,14 +1288,11 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
                   );
                 })()}
 
-                {/* Banner quy định 1 cán bộ phụ trách 1 đơn vị */}
-                <div className="mb-3 px-3.5 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-start space-x-2">
-                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                {/* Hướng dẫn nghiệp vụ phân công */}
+                <div className="mb-3 px-3.5 py-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-start space-x-2">
+                  <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
                   <div className="leading-relaxed">
-                    <strong>Quy định phân công:</strong> Mỗi tổ chức Đảng / Chi bộ chỉ giao cho{' '}
-                    <strong>duy nhất 01 đồng chí cán bộ phụ trách</strong>. Khi tích chọn đơn vị
-                    đang do cán bộ khác quản lý, hệ thống sẽ tự động chuyển giao về cho cán bộ đang
-                    chọn.
+                    <strong>Nghiệp vụ phân công:</strong> Tích chọn tổ chức để phân công cho đồng chí đang chọn. Hệ thống liên kết dữ liệu theo mã định danh ổn định của tổ chức và cán bộ, hỗ trợ phân công nhiều cán bộ cùng phụ trách một địa bàn theo yêu cầu công tác.
                   </div>
                 </div>
 
@@ -1339,7 +1320,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
                     .map((d) => {
                       const curAssign = assignments.find((a) => a.user_id === selectedAssignUserId);
                       const isChecked = Boolean(curAssign?.don_vi_ids?.includes(d.id));
-                      const otherAssign = assignments.find(
+                      const otherAssigns = assignments.filter(
                         (a) => a.user_id !== selectedAssignUserId && a.don_vi_ids?.includes(d.id),
                       );
 
@@ -1349,7 +1330,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
                           className={`flex items-center justify-between p-2.5 rounded-lg border transition cursor-pointer ${
                             isChecked
                               ? 'bg-blue-50/60 border-blue-300'
-                              : otherAssign
+                              : otherAssigns.length > 0
                               ? 'bg-amber-50/30 border-amber-200 hover:bg-amber-50/60'
                               : 'bg-white border-slate-200 hover:bg-slate-50'
                           }`}
@@ -1402,26 +1383,27 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
                               );
                             })()}
 
-                            {otherAssign && !isChecked && (
+                            {otherAssigns.length > 0 && !isChecked && (
                               <span
                                 className="text-[11px] font-medium text-amber-800 bg-amber-100/70 hover:bg-amber-200/80 px-2.5 py-1 rounded-md border border-amber-300 flex items-center space-x-1 transition"
-                                title="Bấm vào để chuyển giao đơn vị này cho cán bộ đang chọn"
+                                title="Đơn vị đang được phân công"
                               >
                                 <span>
-                                  Đang giao: <strong>{otherAssign.user_name}</strong>
-                                </span>
-                                <span className="text-[10px] text-amber-700 font-normal italic ml-1">
-                                  (Chọn để chuyển)
+                                  Đang giao: <strong>{otherAssigns.map((a) => a.user_name).join(', ')}</strong>
                                 </span>
                               </span>
                             )}
                             {isChecked && (
                               <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200 flex items-center space-x-1">
                                 <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Đang phụ trách</span>
+                                <span>
+                                  {otherAssigns.length > 0
+                                    ? `Đang phụ trách (cùng đ/c ${otherAssigns.map((a) => a.user_name).join(', ')})`
+                                    : 'Đang phụ trách'}
+                                </span>
                               </span>
                             )}
-                            {!isChecked && !otherAssign && (
+                            {!isChecked && otherAssigns.length === 0 && (
                               <span className="text-[11px] text-slate-400 italic">
                                 Chưa phân công
                               </span>

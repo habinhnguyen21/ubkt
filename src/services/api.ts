@@ -454,6 +454,23 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       item.sync_status = 'synced';
       saveMockDb(db);
       await centralDataService.saveDoc('don_vi', item.id, item);
+
+      // Tự động đồng bộ tên và trạng thái sang hồ sơ địa bàn
+      try {
+        const rawRecs = localStorage.getItem('ubkt_ho_so_dia_ban_records');
+        if (rawRecs) {
+          const recs: any[] = JSON.parse(rawRecs);
+          const rIdx = recs.findIndex((r) => r.id === item.id);
+          if (rIdx !== -1) {
+            recs[rIdx].ten_dia_ban = item.ten;
+            if (input.trang_thai) recs[rIdx].trang_thai_to_chuc = input.trang_thai;
+            recs[rIdx].thoi_diem_cap_nhat_gan_nhat = new Date().toLocaleDateString('vi-VN');
+            localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(recs));
+            await centralDataService.saveDoc('ho_so_dia_ban_records', item.id, recs[rIdx]);
+          }
+        }
+      } catch {}
+
       return item as T;
     }
 
@@ -1938,8 +1955,8 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       try {
         const rawUser = localStorage.getItem('ubkt_current_user');
         const currentUser = rawUser ? JSON.parse(rawUser) : null;
-        if (currentUser?.vai_tro !== 'ADMIN') {
-          throw new Error('Từ chối truy cập: Tài khoản Biên tập viên không có quyền xem dữ liệu phân công quản lý.');
+        if (!currentUser) {
+          return [] as T;
         }
         const raw = localStorage.getItem('ubkt_phan_cong_dia_ban');
         if (raw) {
@@ -1955,9 +1972,6 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         }
         return [] as T;
       } catch (err) {
-        if (err instanceof Error && err.message.includes('Từ chối truy cập')) {
-          throw err;
-        }
         return [] as T;
       }
     }

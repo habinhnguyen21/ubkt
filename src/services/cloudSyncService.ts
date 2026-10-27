@@ -196,7 +196,7 @@ export const cloudSyncService = {
 
       if (isAdminUser && phanCongList.length > 0) {
         onProgress?.('Đang lưu thông tin phân công cán bộ...');
-        await saveArrayToCollection('phan_cong_dia_ban', phanCongList, (p) => p.don_vi_id || p.id || 'pc');
+        await saveArrayToCollection('phan_cong_dia_ban', phanCongList, (p) => p.user_id || p.id || 'pc');
       }
 
       // Lưu cấu hình hệ thống
@@ -874,11 +874,11 @@ export const cloudSyncService = {
       const cloudPhanCong = phanCongSnap.docs.map((d) => d.data());
       const pcMap = new Map<string, any>();
       currentPhanCong.forEach((p) => {
-        const k = p.id || p.don_vi_id;
+        const k = p.user_id || p.id;
         if (k && !cloudTombstones.has(k)) pcMap.set(k, p);
       });
       cloudPhanCong.forEach((c) => {
-        const k = c.id || c.don_vi_id;
+        const k = c.user_id || c.id;
         if (k && cloudTombstones.has(k)) {
           pcMap.delete(k);
           this.deleteItemFromCloud('phan_cong_dia_ban', k).catch(() => {});
@@ -886,7 +886,7 @@ export const cloudSyncService = {
           pcMap.set(k, c);
         }
       });
-      const cloudPcKeys = new Set(cloudPhanCong.map((p) => p.id || p.don_vi_id));
+      const cloudPcKeys = new Set(cloudPhanCong.map((p) => p.user_id || p.id));
       const isAdminUser = (() => {
         try {
           const raw = localStorage.getItem('ubkt_current_user');
@@ -898,13 +898,13 @@ export const cloudSyncService = {
 
       if (isAdminUser) {
         currentPhanCong.forEach((p) => {
-          const k = p.id || p.don_vi_id;
+          const k = p.user_id || p.id;
           if (k && !cloudPcKeys.has(k)) {
-            itemsToPushToCloud.push({ collection: 'phan_cong_dia_ban', id: p.id || p.don_vi_id, data: p });
+            itemsToPushToCloud.push({ collection: 'phan_cong_dia_ban', id: k, data: p });
           }
         });
-        localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(Array.from(pcMap.values())));
       }
+      localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(Array.from(pcMap.values())));
 
       // Cấu hình Google Drive
       if (gdriveDoc.exists()) {

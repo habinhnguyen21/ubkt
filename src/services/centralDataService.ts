@@ -504,7 +504,8 @@ export const centralDataService = {
         break;
       }
       case 'phan_cong_dia_ban': {
-        const idx = memoryCache.phanCongList.findIndex((p) => p.id === item.id);
+        const targetKey = item.user_id || item.id;
+        const idx = memoryCache.phanCongList.findIndex((p) => (p.user_id || p.id) === targetKey);
         if (idx !== -1) memoryCache.phanCongList[idx] = item;
         else memoryCache.phanCongList.push(item);
         break;
@@ -539,7 +540,7 @@ export const centralDataService = {
         memoryCache.users = memoryCache.users.filter((u) => u.id !== id);
         break;
       case 'phan_cong_dia_ban':
-        memoryCache.phanCongList = memoryCache.phanCongList.filter((p) => p.id !== id);
+        memoryCache.phanCongList = memoryCache.phanCongList.filter((p) => (p.user_id || p.id) !== id);
         break;
     }
   },

@@ -399,6 +399,7 @@ export interface DiaBanRecord {
   loai_to_chuc: string;
   trang_thai_to_chuc?: TrangThaiDonVi;
   can_bo_phu_trach_id?: string;
+  can_bo_phu_trach_ids?: string[];
   can_bo_phu_trach_ten?: string;
   can_bo_chuc_vu?: string;
   thoi_gian_phan_cong?: string;
