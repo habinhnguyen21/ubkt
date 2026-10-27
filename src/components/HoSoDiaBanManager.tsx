@@ -836,6 +836,59 @@ export function HoSoDiaBanManager({ user }: Props) {
     );
   };
 
+  // Quyền nộp báo cáo / thao tác: Người được phân công quản lý hoặc Admin
+  const isUserAssignedToRecord = useCallback((record?: DiaBanRecord | null): boolean => {
+    if (!record || !user) return false;
+    if (user.vai_tro === 'ADMIN') return true;
+
+    // 1. So khớp can_bo_phu_trach_id hoặc can_bo_phu_trach_ids với user.id
+    if (record.can_bo_phu_trach_id && record.can_bo_phu_trach_id === user.id) {
+      return true;
+    }
+    if (Array.isArray(record.can_bo_phu_trach_ids) && record.can_bo_phu_trach_ids.includes(user.id)) {
+      return true;
+    }
+
+    // 2. So khớp theo tên hoặc tên đăng nhập
+    const normUserTen = (user.ho_ten || '').toLowerCase().trim();
+    const normUserNick = (user.ten_dang_nhap || '').toLowerCase().trim();
+    const normRecordCb = (record.can_bo_phu_trach_ten || '')
+      .toLowerCase()
+      .replace(/^đ\/c\s*/i, '')
+      .replace(/^đồng chí\s*/i, '')
+      .trim();
+
+    if (normRecordCb && normUserTen) {
+      if (normRecordCb === normUserTen || normRecordCb.includes(normUserTen) || normUserTen.includes(normRecordCb)) {
+        return true;
+      }
+    }
+
+    if (normRecordCb && normUserNick) {
+      if (normRecordCb.includes(normUserNick) || normUserNick.includes(normRecordCb)) {
+        return true;
+      }
+    }
+
+    return false;
+  }, [user]);
+
+  const isOfficerOfGroup = useCallback((group: { can_bo_id?: string; can_bo_ten: string; records: DiaBanRecord[] }): boolean => {
+    if (!user) return false;
+    if (user.vai_tro === 'ADMIN') return true;
+    if (group.can_bo_id && group.can_bo_id === user.id) return true;
+    const normUserTen = (user.ho_ten || '').toLowerCase().trim();
+    const normUserNick = (user.ten_dang_nhap || '').toLowerCase().trim();
+    const normGroupTen = (group.can_bo_ten || '')
+      .toLowerCase()
+      .replace(/^đ\/c\s*/i, '')
+      .replace(/^đồng chí\s*/i, '')
+      .trim();
+    if (normGroupTen && normUserTen && (normGroupTen.includes(normUserTen) || normUserTen.includes(normGroupTen))) return true;
+    if (normGroupTen && normUserNick && (normGroupTen.includes(normUserNick) || normUserNick.includes(normGroupTen))) return true;
+    return false;
+  }, [user]);
+
   // Lọc danh sách địa bàn
   const filteredRecords = useMemo(() => {
     return (records || []).filter((r) => {
@@ -929,57 +982,7 @@ export function HoSoDiaBanManager({ user }: Props) {
     return (chuongTrinhList || []).filter((ct) => ct && ct.loai_chuong_trinh === 'NHIEM_KY');
   }, [chuongTrinhList]);
 
-  // Quyền nộp báo cáo / thao tác: Người được phân công quản lý hoặc Admin
-  const isUserAssignedToRecord = (record?: DiaBanRecord | null): boolean => {
-    if (!record || !user) return false;
-    if (user.vai_tro === 'ADMIN') return true;
 
-    // 1. So khớp can_bo_phu_trach_id hoặc can_bo_phu_trach_ids với user.id
-    if (record.can_bo_phu_trach_id && record.can_bo_phu_trach_id === user.id) {
-      return true;
-    }
-    if (Array.isArray(record.can_bo_phu_trach_ids) && record.can_bo_phu_trach_ids.includes(user.id)) {
-      return true;
-    }
-
-    // 2. So khớp theo tên hoặc tên đăng nhập
-    const normUserTen = (user.ho_ten || '').toLowerCase().trim();
-    const normUserNick = (user.ten_dang_nhap || '').toLowerCase().trim();
-    const normRecordCb = (record.can_bo_phu_trach_ten || '')
-      .toLowerCase()
-      .replace(/^đ\/c\s*/i, '')
-      .replace(/^đồng chí\s*/i, '')
-      .trim();
-
-    if (normRecordCb && normUserTen) {
-      if (normRecordCb === normUserTen || normRecordCb.includes(normUserTen) || normUserTen.includes(normRecordCb)) {
-        return true;
-      }
-    }
-
-    if (normRecordCb && normUserNick) {
-      if (normRecordCb.includes(normUserNick) || normUserNick.includes(normRecordCb)) {
-        return true;
-      }
-    }
-
-    return false;
-  };
-
-  const isOfficerOfGroup = (group: { can_bo_id?: string; can_bo_ten: string; records: DiaBanRecord[] }): boolean => {
-    if (user.vai_tro === 'ADMIN') return true;
-    if (group.can_bo_id && group.can_bo_id === user.id) return true;
-    const normUserTen = (user.ho_ten || '').toLowerCase().trim();
-    const normUserNick = (user.ten_dang_nhap || '').toLowerCase().trim();
-    const normGroupTen = (group.can_bo_ten || '')
-      .toLowerCase()
-      .replace(/^đ\/c\s*/i, '')
-      .replace(/^đồng chí\s*/i, '')
-      .trim();
-    if (normGroupTen && normUserTen && (normGroupTen.includes(normUserTen) || normUserTen.includes(normGroupTen))) return true;
-    if (normGroupTen && normUserNick && (normGroupTen.includes(normUserNick) || normUserNick.includes(normGroupTen))) return true;
-    return false;
-  };
 
   // Quyền quản lý vấn đề / chỉ đạo / hoàn thành hồ sơ địa bàn: Quản trị viên, Ban biên tập hoặc Cán bộ phụ trách địa bàn (kế thừa đầy đủ hồ sơ)
   const canManageSelectedRecord = canEdit || (selectedRecord ? isUserAssignedToRecord(selectedRecord) : false);

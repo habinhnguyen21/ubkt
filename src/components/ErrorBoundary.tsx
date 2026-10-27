@@ -38,6 +38,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
       localStorage.removeItem('ubkt_current_user');
       localStorage.removeItem('ubkt_session_token');
       localStorage.removeItem('ubkt_active_tab');
+      sessionStorage.clear();
     } catch {
       // ignore
     }
@@ -89,10 +90,29 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             <h2 style={{ fontSize: 20, fontWeight: 700, color: '#0f172a', margin: '0 0 8px' }}>
               Đã phát hiện gián đoạn hiển thị
             </h2>
-            <p style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6, margin: '0 0 24px' }}>
+            <p style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6, margin: '0 0 16px' }}>
               Hệ thống đã tự động bảo vệ dữ liệu để tránh xung đột phiên làm việc hoặc bộ nhớ đệm
               cũ của trình duyệt. Vui lòng bấm làm mới hoặc khôi phục phiên để tiếp tục sử dụng.
             </p>
+
+            {this.state.error && (
+              <div
+                style={{
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  borderRadius: 8,
+                  padding: '8px 12px',
+                  marginBottom: 20,
+                  fontSize: 12,
+                  color: '#b91c1c',
+                  fontWeight: 500,
+                  wordBreak: 'break-word',
+                  textAlign: 'left',
+                }}
+              >
+                ⚠️ <strong>Lỗi:</strong> {this.state.error.message || String(this.state.error)}
+              </div>
+            )}
 
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
               <button
