@@ -33,8 +33,12 @@ if (typeof window !== 'undefined') {
 
 export function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('ubkt_current_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('ubkt_current_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
 
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);

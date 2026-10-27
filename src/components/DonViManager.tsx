@@ -182,15 +182,19 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
     setLoading(true);
     try {
       const [tree, flat, users, savedAssignments, savedDiaBan] = await Promise.all([
-        api.getDonViTree(),
-        api.getAllDonVi(),
-        api.getAllUsers().catch(() => []),
-        isAdmin ? api.getPhanCongDiaBan().catch(() => []) : Promise.resolve([]),
-        api.getDiaBanRecords().catch(() => []),
+        api.getDonViTree().catch(() => [] as DonViTreeItem[]),
+        api.getAllDonVi().catch(() => [] as DonVi[]),
+        api.getAllUsers().catch(() => [] as User[]),
+        isAdmin ? api.getPhanCongDiaBan().catch(() => [] as PhanCongDiaBan[]) : Promise.resolve([]),
+        api.getDiaBanRecords().catch(() => [] as DiaBanRecord[]),
       ]);
-      setTreeData(tree);
-      setAllDonVi(flat);
-      setUsersList(users);
+      const safeTree = Array.isArray(tree) ? tree : [];
+      const safeFlat = Array.isArray(flat) ? flat : [];
+      const safeUsers = Array.isArray(users) ? users : [];
+
+      setTreeData(safeTree);
+      setAllDonVi(safeFlat);
+      setUsersList(safeUsers);
 
       if (isAdmin && Array.isArray(savedAssignments) && savedAssignments.length > 0) {
         const sanitized = sanitizeStrictAssignments(savedAssignments);
@@ -204,19 +208,19 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
       }
 
       // Nếu chưa chọn đơn vị nào, chọn đơn vị đầu tiên
-      if (!selectedUnitId && flat.length > 0) {
-        setSelectedUnitId(flat[0].id);
+      if (!selectedUnitId && safeFlat.length > 0) {
+        setSelectedUnitId(safeFlat[0].id);
       }
 
       // Nếu đang mở detailUnit, cập nhật lại thông tin mới nhất
       if (detailUnit) {
-        const refreshed = flat.find((u) => u.id === detailUnit.id);
+        const refreshed = safeFlat.find((u) => u.id === detailUnit.id);
         if (refreshed) setDetailUnit(refreshed);
       }
 
       // Tab phân công: nếu chưa chọn user nào, chọn user đầu tiên
-      if (users.length > 0 && !selectedAssignUserId) {
-        setSelectedAssignUserId(users[0].id);
+      if (safeUsers.length > 0 && !selectedAssignUserId) {
+        setSelectedAssignUserId(safeUsers[0].id);
       }
     } catch (err) {
       console.error('Lỗi nạp danh sách đơn vị:', err);
@@ -235,12 +239,13 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
   // Tải lại danh sách cán bộ khi chuyển tab phân công
   const reloadUsers = async (selectNewId?: string) => {
     try {
-      const users = await api.getAllUsers();
-      setUsersList(users);
+      const users = await api.getAllUsers().catch(() => [] as User[]);
+      const safeUsers = Array.isArray(users) ? users : [];
+      setUsersList(safeUsers);
       if (selectNewId) {
         setSelectedAssignUserId(selectNewId);
-      } else if (users.length > 0 && !selectedAssignUserId) {
-        setSelectedAssignUserId(users[0].id);
+      } else if (safeUsers.length > 0 && !selectedAssignUserId) {
+        setSelectedAssignUserId(safeUsers[0].id);
       }
     } catch (err) {
       console.error('Lỗi nạp danh sách tài khoản:', err);

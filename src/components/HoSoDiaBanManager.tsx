@@ -3,6 +3,8 @@ import { api } from '../services/api';
 import type {
   User,
   DiaBanRecord,
+  DonVi,
+  PhanCongDiaBan,
   BaoCaoThangStatus,
   BaoCaoThangItem,
   VanDeTheoDoi,
@@ -471,9 +473,11 @@ export function HoSoDiaBanManager({ user }: Props) {
 
   // Nạp danh sách đơn vị và người dùng (Tự động đồng bộ với các tài khoản được phân công quản trị)
   const syncUsersAndRecords = (usrs: User[]) => {
-    setUsersList(usrs);
+    const safeUsrs = Array.isArray(usrs) ? usrs : [];
+    setUsersList(safeUsrs);
     setRecords((prev) => {
-      const userMap = new Map(usrs.map((u) => [u.id, u]));
+      if (!Array.isArray(prev)) return [];
+      const userMap = new Map(safeUsrs.map((u) => [u.id, u]));
       let changed = false;
       const updated = prev.map((r) => {
         if (r.can_bo_phu_trach_id) {
@@ -500,24 +504,26 @@ export function HoSoDiaBanManager({ user }: Props) {
   // Nạp và đồng bộ toàn diện dữ liệu: Cơ cấu tổ chức (dùng chung) + Phân công quản lý + Hồ sơ địa bàn
   const loadData = useCallback(() => {
     Promise.all([
-      api.getAllDonVi(),
-      api.getAllUsers(),
-      api.getDiaBanRecords().catch(() => []),
-      api.getPhanCongDiaBan().catch(() => []),
+      api.getAllDonVi().catch(() => [] as DonVi[]),
+      api.getAllUsers().catch(() => [] as User[]),
+      api.getDiaBanRecords().catch(() => [] as DiaBanRecord[]),
+      api.getPhanCongDiaBan().catch(() => [] as PhanCongDiaBan[]),
     ])
-      .then(([dvs, usrs, serverRecords, serverAssignments]) => {
+      .then(([rawDvs, rawUsrs, serverRecords, serverAssignments]) => {
+        const dvs = Array.isArray(rawDvs) ? rawDvs : [];
+        const usrs = Array.isArray(rawUsrs) ? rawUsrs : [];
         syncUsersAndRecords(usrs);
 
         setRecords((prev) => {
           const dvMap = new Map(dvs.map((d) => [d.id, d]));
-          const baseRecords = Array.isArray(serverRecords) && serverRecords.length > 0 ? serverRecords : prev;
+          const baseRecords = Array.isArray(serverRecords) && serverRecords.length > 0 ? serverRecords : (Array.isArray(prev) ? prev : []);
           const recMap = new Map(baseRecords.map((r) => [r.id, r]));
 
           const combined: DiaBanRecord[] = [];
 
           // 1. Duyệt qua tất cả các tổ chức đảng trong danh mục chung Cơ cấu tổ chức
           dvs
-            .filter((dv) => !dv.deleted_at)
+            .filter((dv) => dv && !dv.deleted_at)
             .forEach((dv) => {
               const existing = recMap.get(dv.id);
 
@@ -629,8 +635,11 @@ export function HoSoDiaBanManager({ user }: Props) {
 
   const loadChuongTrinh = () => {
     api.getAllChuongTrinh()
-      .then(setChuongTrinhList)
-      .catch((err) => console.error('Lỗi nạp chương trình KT-GS:', err));
+      .then((res) => setChuongTrinhList(Array.isArray(res) ? res : []))
+      .catch((err) => {
+        console.error('Lỗi nạp chương trình KT-GS:', err);
+        setChuongTrinhList([]);
+      });
   };
 
   useEffect(() => {
