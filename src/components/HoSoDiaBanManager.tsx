@@ -517,7 +517,7 @@ export function HoSoDiaBanManager({ user }: Props) {
         setRecords((prev) => {
           const dvMap = new Map(dvs.map((d) => [d.id, d]));
           const baseRecords = Array.isArray(serverRecords) && serverRecords.length > 0 ? serverRecords : (Array.isArray(prev) ? prev : []);
-          const recMap = new Map(baseRecords.map((r) => [r.id, r]));
+          const recMap = new Map(baseRecords.filter(Boolean).map((r) => [r.id, r]));
 
           const combined: DiaBanRecord[] = [];
 
@@ -529,13 +529,13 @@ export function HoSoDiaBanManager({ user }: Props) {
 
               // Tìm tất cả các phân công cho đơn vị này
               const assignedList = Array.isArray(serverAssignments)
-                ? serverAssignments.filter((a) => a.don_vi_ids?.includes(dv.id))
+                ? serverAssignments.filter((a) => Array.isArray(a?.don_vi_ids) && a.don_vi_ids.includes(dv.id))
                 : [];
 
-              const canBoIds = assignedList.map((a) => a.user_id);
+              const canBoIds = assignedList.map((a) => a.user_id).filter(Boolean);
               const canBoNames = assignedList.map((a) => {
                 const u = usrs.find((x) => x.id === a.user_id);
-                return 'Đ/c ' + (u ? u.ho_ten : a.user_name || 'Cán bộ');
+                return 'Đ/c ' + (u?.ho_ten || a.user_name || 'Cán bộ');
               });
               const canBoChucVus = assignedList
                 .map((a) => {
@@ -558,13 +558,13 @@ export function HoSoDiaBanManager({ user }: Props) {
                 // Cập nhật tên mới nhất từ danh mục và phân công hiện tại
                 combined.push({
                   ...existing,
-                  ten_dia_ban: dv.ten, // Luôn đồng bộ tên mới nhất từ danh mục chung
-                  loai_to_chuc: dv.loai,
-                  trang_thai_to_chuc: dv.trang_thai,
+                  ten_dia_ban: dv.ten || existing.ten_dia_ban || 'Tổ chức đảng',
+                  loai_to_chuc: dv.loai || existing.loai_to_chuc,
+                  trang_thai_to_chuc: dv.trang_thai || existing.trang_thai_to_chuc || 'DANG_HOAT_DONG',
                   can_bo_phu_trach_id: primaryId,
                   can_bo_phu_trach_ids: hasAssignments
                     ? canBoIds
-                    : existing.can_bo_phu_trach_ids || (primaryId ? [primaryId] : []),
+                    : (Array.isArray(existing.can_bo_phu_trach_ids) ? existing.can_bo_phu_trach_ids : (primaryId ? [primaryId] : [])),
                   can_bo_phu_trach_ten: displayTen,
                   can_bo_chuc_vu: displayChucVu,
                 });
@@ -572,9 +572,9 @@ export function HoSoDiaBanManager({ user }: Props) {
                 // Bổ sung hồ sơ mới cho đơn vị mới
                 combined.push({
                   id: dv.id,
-                  ten_dia_ban: dv.ten,
-                  loai_to_chuc: dv.loai,
-                  trang_thai_to_chuc: dv.trang_thai,
+                  ten_dia_ban: dv.ten || 'Tổ chức đảng',
+                  loai_to_chuc: dv.loai || 'CHI_BO',
+                  trang_thai_to_chuc: dv.trang_thai || 'DANG_HOAT_DONG',
                   can_bo_phu_trach_id: primaryId,
                   can_bo_phu_trach_ids: canBoIds,
                   can_bo_phu_trach_ten: displayTen,
@@ -595,8 +595,8 @@ export function HoSoDiaBanManager({ user }: Props) {
             });
 
           // 2. Bảo toàn các hồ sơ cũ nếu đơn vị không còn trong danh mục (đã kết thúc/giải thể)
-          baseRecords.forEach((r) => {
-            if (!dvMap.has(r.id)) {
+          baseRecords.filter(Boolean).forEach((r) => {
+            if (r && r.id && !dvMap.has(r.id)) {
               combined.push({
                 ...r,
                 trang_thai_to_chuc: 'CHAM_DUT',
@@ -604,8 +604,11 @@ export function HoSoDiaBanManager({ user }: Props) {
             }
           });
 
-          localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(combined));
-          api.saveDiaBanRecords(combined).catch(() => {});
+          try {
+            localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(combined));
+          } catch {
+            // ignore
+          }
           return combined;
         });
       })
@@ -615,14 +618,22 @@ export function HoSoDiaBanManager({ user }: Props) {
   useEffect(() => {
     loadData();
 
-    // Lắng nghe các sự kiện cập nhật
-    const handleSync = () => loadData();
+    // Lắng nghe các sự kiện cập nhật có cơ chế debounce 300ms chống vòng lặp liên tục
+    let syncTimer: any = null;
+    const handleSync = () => {
+      clearTimeout(syncTimer);
+      syncTimer = setTimeout(() => {
+        loadData();
+      }, 300);
+    };
+
     window.addEventListener('ubkt_data_synced', handleSync);
     window.addEventListener('ubkt_assignments_updated', handleSync);
     window.addEventListener('ubkt_users_updated', handleSync);
     window.addEventListener('ubkt_diaban_records_updated', handleSync);
 
     return () => {
+      clearTimeout(syncTimer);
       window.removeEventListener('ubkt_data_synced', handleSync);
       window.removeEventListener('ubkt_assignments_updated', handleSync);
       window.removeEventListener('ubkt_users_updated', handleSync);
@@ -712,15 +723,18 @@ export function HoSoDiaBanManager({ user }: Props) {
       const targetTen = e?.detail?.tenDonVi;
       if (targetId || targetTen) {
         setRecords((currentRecords) => {
-          const match = currentRecords.find(
+          const match = (currentRecords || []).find(
             (r) =>
-              (targetId && r.id === targetId) ||
-              (targetTen && r.ten_dia_ban.toLowerCase().includes(targetTen.toLowerCase()))
+              r &&
+              ((targetId && r.id === targetId) ||
+                (targetTen && (r.ten_dia_ban || '').toLowerCase().includes(String(targetTen).toLowerCase())))
           );
           if (match) {
-            setSelectedRecord(match);
-            setModalTab('chuong_trinh_nhiem_ky');
-            localStorage.removeItem('ubkt_target_dia_ban_id');
+            setTimeout(() => {
+              setSelectedRecord(match);
+              setModalTab('chuong_trinh_nhiem_ky');
+              localStorage.removeItem('ubkt_target_dia_ban_id');
+            }, 0);
           }
           return currentRecords;
         });
@@ -731,11 +745,13 @@ export function HoSoDiaBanManager({ user }: Props) {
     const pendingId = localStorage.getItem('ubkt_target_dia_ban_id');
     if (pendingId) {
       setRecords((currentRecords) => {
-        const match = currentRecords.find((r) => r.id === pendingId);
+        const match = (currentRecords || []).find((r) => r && r.id === pendingId);
         if (match) {
-          setSelectedRecord(match);
-          setModalTab('chuong_trinh_nhiem_ky');
-          localStorage.removeItem('ubkt_target_dia_ban_id');
+          setTimeout(() => {
+            setSelectedRecord(match);
+            setModalTab('chuong_trinh_nhiem_ky');
+            localStorage.removeItem('ubkt_target_dia_ban_id');
+          }, 0);
         }
         return currentRecords;
       });
@@ -822,13 +838,14 @@ export function HoSoDiaBanManager({ user }: Props) {
 
   // Lọc danh sách địa bàn
   const filteredRecords = useMemo(() => {
-    return records.filter((r) => {
-      const q = searchQuery.toLowerCase().trim();
+    return (records || []).filter((r) => {
+      if (!r) return false;
+      const q = (searchQuery || '').toLowerCase().trim();
       const matchQuery =
         !q ||
-        r.ten_dia_ban.toLowerCase().includes(q) ||
-        r.can_bo_phu_trach_ten?.toLowerCase().includes(q) ||
-        r.van_ban_phan_cong?.toLowerCase().includes(q);
+        (r.ten_dia_ban || '').toLowerCase().includes(q) ||
+        (r.can_bo_phu_trach_ten || '').toLowerCase().includes(q) ||
+        (r.van_ban_phan_cong || '').toLowerCase().includes(q);
 
       let matchCanBo = true;
       if (filterCanBo === 'MINE') {
@@ -848,9 +865,9 @@ export function HoSoDiaBanManager({ user }: Props) {
 
       let matchVanDe = true;
       if (filterVanDe === 'HAS_ISSUE') {
-        matchVanDe = r.so_van_de_theo_doi > 0;
+        matchVanDe = (r.so_van_de_theo_doi || 0) > 0;
       } else if (filterVanDe === 'HAS_DIRECTIVE') {
-        matchVanDe = r.so_chi_dao_chua_hoan_thanh > 0;
+        matchVanDe = (r.so_chi_dao_chua_hoan_thanh || 0) > 0;
       }
 
       let matchTrangThai = true;
@@ -862,36 +879,39 @@ export function HoSoDiaBanManager({ user }: Props) {
 
       return matchQuery && matchCanBo && matchBaoCao && matchVanDe && matchTrangThai;
     });
-  }, [records, searchQuery, filterCanBo, filterBaoCao, filterVanDe, filterTrangThaiHoSo, user.id]);
+  }, [records, searchQuery, filterCanBo, filterBaoCao, filterVanDe, filterTrangThaiHoSo, user?.id]);
 
   // Thống kê nhanh
   const stats = useMemo(() => {
-    const total = records.length;
-    const dangTheoDoi = records.filter(
+    const list = Array.isArray(records) ? records.filter(Boolean) : [];
+    const total = list.length;
+    const dangTheoDoi = list.filter(
       (r) => (r.trang_thai_ho_so || 'DANG_THEO_DOI') === 'DANG_THEO_DOI'
     ).length;
-    const daKetThuc = records.filter((r) => r.trang_thai_ho_so === 'DA_KET_THUC').length;
-    const daNop = records.filter(
+    const daKetThuc = list.filter((r) => r.trang_thai_ho_so === 'DA_KET_THUC').length;
+    const daNop = list.filter(
       (r) => r.tinh_trang_bao_cao_thang === 'DA_NOP_DUNG_HAN' || r.tinh_trang_bao_cao_thang === 'DA_NOP_MUON'
     ).length;
-    const chuaNop = records.filter((r) => r.tinh_trang_bao_cao_thang === 'CHUA_NOP').length;
-    const tongVanDe = records.reduce((acc, cur) => acc + (cur.so_van_de_theo_doi || 0), 0);
-    const tongChiDao = records.reduce((acc, cur) => acc + (cur.so_chi_dao_chua_hoan_thanh || 0), 0);
-    const myCount = records.filter((r) => isUserAssignedToRecord(r)).length;
+    const chuaNop = list.filter((r) => r.tinh_trang_bao_cao_thang === 'CHUA_NOP').length;
+    const tongVanDe = list.reduce((acc, cur) => acc + (cur.so_van_de_theo_doi || 0), 0);
+    const tongChiDao = list.reduce((acc, cur) => acc + (cur.so_chi_dao_chua_hoan_thanh || 0), 0);
+    const myCount = list.filter((r) => isUserAssignedToRecord(r)).length;
     return { total, dangTheoDoi, daKetThuc, daNop, chuaNop, tongVanDe, tongChiDao, myCount };
-  }, [records, user.id]);
+  }, [records, user?.id]);
 
   // Các văn bản thay đổi, bổ sung liên quan đến địa bàn đang chọn
   const relatedThayDoiList = useMemo(() => {
     if (!selectedRecord) return [];
     const list: (ThayDoiBoSungKtGs & { ten_chuong_trinh?: string; khoa_nhiem_ky?: string })[] = [];
-    chuongTrinhList.forEach((ct) => {
+    const diaBanTen = (selectedRecord.ten_dia_ban || '').toLowerCase();
+
+    (chuongTrinhList || []).forEach((ct) => {
       (ct.danh_sach_thay_doi_bo_sung || []).forEach((td) => {
+        const tdDonViTen = (td.ten_don_vi || '').toLowerCase();
         const isMatchDonVi =
           td.don_vi_id === selectedRecord.id ||
           td.don_vi_id === 'all' ||
-          (td.ten_don_vi && selectedRecord.ten_dia_ban.toLowerCase().includes(td.ten_don_vi.toLowerCase())) ||
-          (td.ten_don_vi && td.ten_don_vi.toLowerCase().includes(selectedRecord.ten_dia_ban.toLowerCase()));
+          (tdDonViTen && diaBanTen && (diaBanTen.includes(tdDonViTen) || tdDonViTen.includes(diaBanTen)));
         if (isMatchDonVi) {
           list.push({
             ...td,
@@ -906,12 +926,12 @@ export function HoSoDiaBanManager({ user }: Props) {
 
   // Chương trình nhiệm kỳ áp dụng cho toàn Đảng bộ / địa bàn
   const activeNhiemKyPrograms = useMemo(() => {
-    return chuongTrinhList.filter((ct) => ct.loai_chuong_trinh === 'NHIEM_KY');
+    return (chuongTrinhList || []).filter((ct) => ct && ct.loai_chuong_trinh === 'NHIEM_KY');
   }, [chuongTrinhList]);
 
   // Quyền nộp báo cáo / thao tác: Người được phân công quản lý hoặc Admin
-  const isUserAssignedToRecord = (record: DiaBanRecord): boolean => {
-    if (!user) return false;
+  const isUserAssignedToRecord = (record?: DiaBanRecord | null): boolean => {
+    if (!record || !user) return false;
     if (user.vai_tro === 'ADMIN') return true;
 
     // 1. So khớp can_bo_phu_trach_id hoặc can_bo_phu_trach_ids với user.id
@@ -2191,10 +2211,12 @@ export function HoSoDiaBanManager({ user }: Props) {
       }
     >();
 
-    filteredRecords.forEach((r) => {
+    const safeRecords = Array.isArray(filteredRecords) ? filteredRecords.filter(Boolean) : [];
+
+    safeRecords.forEach((r) => {
       const assignedIds =
         Array.isArray(r.can_bo_phu_trach_ids) && r.can_bo_phu_trach_ids.length > 0
-          ? r.can_bo_phu_trach_ids
+          ? r.can_bo_phu_trach_ids.filter(Boolean)
           : r.can_bo_phu_trach_id && r.can_bo_phu_trach_ten !== 'Chưa phân công'
           ? [r.can_bo_phu_trach_id]
           : [];
@@ -2214,7 +2236,8 @@ export function HoSoDiaBanManager({ user }: Props) {
         groupsMap.get(key)!.records.push(r);
       } else {
         assignedIds.forEach((cbId) => {
-          const usr = usersList.find((u) => u.id === cbId);
+          if (!cbId) return;
+          const usr = Array.isArray(usersList) ? usersList.find((u) => u && u.id === cbId) : undefined;
           const cbTen = usr ? `Đ/c ${usr.ho_ten}` : r.can_bo_phu_trach_ten || 'Cán bộ phụ trách';
           const cbChucVu =
             usr?.chuc_danh || (usr?.vai_tro === 'ADMIN' ? 'Chủ nhiệm UBKT' : 'Ủy viên UBKT');
@@ -2237,7 +2260,7 @@ export function HoSoDiaBanManager({ user }: Props) {
     const assignedList = Array.from(groupsMap.values()).filter((g) => g.can_bo_id !== undefined);
     const unassigned = Array.from(groupsMap.values()).find((g) => g.can_bo_id === undefined);
 
-    assignedList.sort((a, b) => a.can_bo_ten.localeCompare(b.can_bo_ten, 'vi'));
+    assignedList.sort((a, b) => (a.can_bo_ten || '').localeCompare(b.can_bo_ten || '', 'vi'));
 
     if (unassigned && unassigned.records.length > 0) {
       assignedList.push(unassigned);
@@ -2248,14 +2271,15 @@ export function HoSoDiaBanManager({ user }: Props) {
 
   // Bộ lọc cho Kho tài liệu địa bàn (sắp xếp giảm dần theo ngày ban hành)
   const filteredKhoFiles = useMemo(() => {
-    const q = searchKhoQuery.toLowerCase().trim();
-    return files
+    const q = (searchKhoQuery || '').toLowerCase().trim();
+    return (files || [])
       .filter((f) => {
+        if (!f) return false;
         if (filterKhoNhom !== 'ALL' && f.loai_tai_lieu !== filterKhoNhom) return false;
         if (filterKhoDiaBan !== 'ALL' && f.don_vi_id !== filterKhoDiaBan) return false;
         if (filterKhoLoaiFile !== 'ALL' && f.loai_file !== filterKhoLoaiFile) return false;
         if (q) {
-          const matchName = f.ten_file.toLowerCase().includes(q);
+          const matchName = Boolean(f.ten_file && f.ten_file.toLowerCase().includes(q));
           const matchDesc = Boolean((f.trich_yeu || f.mo_ta) && (f.trich_yeu || f.mo_ta)!.toLowerCase().includes(q));
           const matchUnit = Boolean(f.ten_don_vi && f.ten_don_vi.toLowerCase().includes(q));
           const matchSigner = Boolean(f.nguoi_ky && f.nguoi_ky.toLowerCase().includes(q));
@@ -3279,29 +3303,37 @@ export function HoSoDiaBanManager({ user }: Props) {
                           {/* Địa bàn áp dụng - TÍCH HỢP NHIỀU ĐỊA BÀN */}
                           <td className="py-3 px-3.5">
                             <div className="flex flex-wrap items-center gap-1.5">
-                              {bc.danh_sach_ten_don_vi.map((ten, dIdx) => {
-                                const targetUnitId = bc.danh_sach_don_vi_ids[dIdx];
-                                return (
-                                  <button
-                                    key={dIdx}
-                                    type="button"
-                                    onClick={() => {
-                                      const matchedRec = records.find((r) => r.id === targetUnitId);
-                                      if (matchedRec) {
-                                        setSelectedRecord(matchedRec);
-                                        setModalTab('bao_cao');
-                                      }
-                                    }}
-                                    className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-[#133863] border border-blue-200 hover:bg-blue-100 transition cursor-pointer"
-                                    title="Nhấn để mở xem hồ sơ của địa bàn này"
-                                  >
-                                    <Building2 className="w-3 h-3 text-[#133863]" />
-                                    <span>{ten}</span>
-                                  </button>
-                                );
-                              })}
+                              {Array.isArray(bc.danh_sach_ten_don_vi) && bc.danh_sach_ten_don_vi.length > 0 ? (
+                                bc.danh_sach_ten_don_vi.map((ten, dIdx) => {
+                                  const targetUnitId = Array.isArray(bc.danh_sach_don_vi_ids) ? bc.danh_sach_don_vi_ids[dIdx] : undefined;
+                                  return (
+                                    <button
+                                      key={dIdx}
+                                      type="button"
+                                      onClick={() => {
+                                        if (targetUnitId) {
+                                          const matchedRec = records.find((r) => r.id === targetUnitId);
+                                          if (matchedRec) {
+                                            setSelectedRecord(matchedRec);
+                                            setModalTab('bao_cao');
+                                          }
+                                        }
+                                      }}
+                                      className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-[#133863] border border-blue-200 hover:bg-blue-100 transition cursor-pointer"
+                                      title="Nhấn để mở xem hồ sơ của địa bàn này"
+                                    >
+                                      <Building2 className="w-3 h-3 text-[#133863]" />
+                                      <span>{ten}</span>
+                                    </button>
+                                  );
+                                })
+                              ) : (
+                                <span className="text-slate-500 font-medium">
+                                  {(bc as any).ten_don_vi || 'Địa bàn chung'}
+                                </span>
+                              )}
                             </div>
-                            {bc.danh_sach_don_vi_ids.length > 1 && (
+                            {Array.isArray(bc.danh_sach_don_vi_ids) && bc.danh_sach_don_vi_ids.length > 1 && (
                               <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1.5 py-0.2 inline-block mt-1">
                                 ✓ Tích hợp {bc.danh_sach_don_vi_ids.length} địa bàn
                               </span>
