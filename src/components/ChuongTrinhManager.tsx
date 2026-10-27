@@ -185,7 +185,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   >('ALL');
   const [timeViewMode, setTimeViewMode] = useState<'QUY' | 'THANG'>('QUY');
   const [currentPageHn, setCurrentPageHn] = useState<number>(1);
-  const pageSizeHn = 8;
+  const [pageSizeHn, setPageSizeHn] = useState<number>(10);
 
   // Modal Thêm mới / Chỉnh sửa Chương trình Hàng năm (Phần năm)
   const [isHnModalOpen, setIsHnModalOpen] = useState(false);
@@ -235,7 +235,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
   // Phân trang cho Nhiệm kỳ
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const pageSize = 5;
+  const [pageSize, setPageSize] = useState<number>(10);
 
   // Chương trình đang chọn để hiển thị chi tiết (Card 2)
   const [selectedProgram, setSelectedProgram] = useState<ChuongTrinhKtGs | null>(null);
@@ -2465,13 +2465,32 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
         {/* ── THANH PHÂN TRANG ────────────────────────────────────────── */}
         <div className="px-4 py-3 bg-white border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
-          <div>
-            Hiển thị{' '}
-            <strong className="text-slate-800">
-              {filteredList.length === 0 ? 0 : (currentPage - 1) * pageSize + 1} -{' '}
-              {Math.min(currentPage * pageSize, filteredList.length)}
-            </strong>{' '}
-            / <strong className="text-slate-800">{filteredList.length}</strong> kết quả
+          <div className="flex flex-wrap items-center gap-2">
+            <span>Hiển thị</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="px-2 py-1 bg-white border border-slate-300 rounded font-semibold text-slate-700 text-xs focus:outline-none focus:ring-1 focus:ring-blue-600 cursor-pointer shadow-2xs"
+            >
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={15}>15</option>
+              <option value={20}>20</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+            <span>bản ghi / trang •</span>
+            <span>
+              <strong className="text-slate-800">
+                {filteredList.length === 0 ? 0 : (currentPage - 1) * pageSize + 1} -{' '}
+                {Math.min(currentPage * pageSize, filteredList.length)}
+              </strong>{' '}
+              / <strong className="text-slate-800">{filteredList.length}</strong> chương trình kiểm tra, giám sát
+            </span>
           </div>
 
           <div className="flex items-center space-x-1">
@@ -2480,34 +2499,57 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
               disabled={currentPage <= 1}
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               className="p-1.5 border border-slate-200 rounded text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              title="Trang trước"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
 
-            {Array.from({ length: Math.max(1, Math.ceil(filteredList.length / pageSize)) }).map((_, i) => {
-              const pageNum = i + 1;
-              const isActive = pageNum === currentPage;
-              return (
-                <button
-                  key={pageNum}
-                  type="button"
-                  onClick={() => setCurrentPage(pageNum)}
-                  className={`w-7 h-7 rounded text-xs font-semibold transition cursor-pointer ${
-                    isActive
-                      ? 'bg-blue-600 text-white shadow-2xs'
-                      : 'border border-slate-200 text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  {pageNum}
-                </button>
-              );
-            })}
+            {(() => {
+              const totalPages = Math.max(1, Math.ceil(filteredList.length / pageSize));
+              let pages: (number | string)[] = [];
+              if (totalPages <= 7) {
+                pages = Array.from({ length: totalPages }, (_, i) => i + 1);
+              } else {
+                if (currentPage <= 4) {
+                  pages = [1, 2, 3, 4, 5, '...', totalPages];
+                } else if (currentPage >= totalPages - 3) {
+                  pages = [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+                } else {
+                  pages = [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages];
+                }
+              }
+              return pages.map((p, idx) => {
+                if (typeof p === 'string') {
+                  return (
+                    <span key={`ellipsis-${idx}`} className="px-1 text-slate-400 font-bold">
+                      ...
+                    </span>
+                  );
+                }
+                const isActive = p === currentPage;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setCurrentPage(p)}
+                    className={`w-7 h-7 rounded text-xs font-semibold transition cursor-pointer ${
+                      isActive
+                        ? 'bg-blue-600 text-white shadow-2xs'
+                        : 'border border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                );
+              });
+            })()}
 
             <button
               type="button"
               disabled={currentPage >= Math.ceil(filteredList.length / pageSize)}
               onClick={() => setCurrentPage((p) => Math.min(Math.ceil(filteredList.length / pageSize), p + 1))}
               className="p-1.5 border border-slate-200 rounded text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              title="Trang sau"
             >
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
@@ -4322,13 +4364,33 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
                 {/* Phân trang Chương trình Hàng năm */}
                 <div className="px-4 py-3 bg-white border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
-                  <div>
-                    Hiển thị{' '}
-                    <strong className="text-slate-800">
-                      {filteredHangNamList.length === 0 ? 0 : (currentPageHn - 1) * pageSizeHn + 1} -{' '}
-                      {Math.min(currentPageHn * pageSizeHn, filteredHangNamList.length)}
-                    </strong>{' '}
-                    / <strong className="text-slate-800">{filteredHangNamList.length}</strong> chương trình kiểm tra, giám sát
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>Hiển thị</span>
+                    <select
+                      value={pageSizeHn}
+                      onChange={(e) => {
+                        setPageSizeHn(Number(e.target.value));
+                        setCurrentPageHn(1);
+                      }}
+                      className="px-2 py-1 bg-white border border-slate-300 rounded font-semibold text-slate-700 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-600 shadow-2xs cursor-pointer"
+                    >
+                      <option value={5}>5</option>
+                      <option value={8}>8</option>
+                      <option value={10}>10</option>
+                      <option value={15}>15</option>
+                      <option value={20}>20</option>
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                    <span>bản ghi / trang •</span>
+                    <span>
+                      <strong className="text-slate-800">
+                        {filteredHangNamList.length === 0 ? 0 : (currentPageHn - 1) * pageSizeHn + 1} -{' '}
+                        {Math.min(currentPageHn * pageSizeHn, filteredHangNamList.length)}
+                      </strong>{' '}
+                      / <strong className="text-slate-800">{filteredHangNamList.length}</strong> chương trình kiểm tra, giám sát
+                    </span>
                   </div>
 
                   <div className="flex items-center space-x-1">
@@ -4337,34 +4399,57 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                       disabled={currentPageHn <= 1}
                       onClick={() => setCurrentPageHn((p) => Math.max(1, p - 1))}
                       className="p-1.5 border border-slate-200 rounded text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      title="Trang trước"
                     >
                       <ChevronLeft className="w-3.5 h-3.5" />
                     </button>
 
-                    {Array.from({ length: Math.max(1, Math.ceil(filteredHangNamList.length / pageSizeHn)) }).map((_, i) => {
-                      const pageNum = i + 1;
-                      const isActive = pageNum === currentPageHn;
-                      return (
-                        <button
-                          key={pageNum}
-                          type="button"
-                          onClick={() => setCurrentPageHn(pageNum)}
-                          className={`w-7 h-7 rounded text-xs font-semibold transition cursor-pointer ${
-                            isActive
-                              ? 'bg-emerald-700 text-white shadow-2xs'
-                              : 'border border-slate-200 text-slate-700 hover:bg-slate-50'
-                          }`}
-                        >
-                          {pageNum}
-                        </button>
-                      );
-                    })}
+                    {(() => {
+                      const totalPages = Math.max(1, Math.ceil(filteredHangNamList.length / pageSizeHn));
+                      let pages: (number | string)[] = [];
+                      if (totalPages <= 7) {
+                        pages = Array.from({ length: totalPages }, (_, i) => i + 1);
+                      } else {
+                        if (currentPageHn <= 4) {
+                          pages = [1, 2, 3, 4, 5, '...', totalPages];
+                        } else if (currentPageHn >= totalPages - 3) {
+                          pages = [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+                        } else {
+                          pages = [1, '...', currentPageHn - 1, currentPageHn, currentPageHn + 1, '...', totalPages];
+                        }
+                      }
+                      return pages.map((p, idx) => {
+                        if (typeof p === 'string') {
+                          return (
+                            <span key={`ellipsis-hn-${idx}`} className="px-1 text-slate-400 font-bold">
+                              ...
+                            </span>
+                          );
+                        }
+                        const isActive = p === currentPageHn;
+                        return (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setCurrentPageHn(p)}
+                            className={`w-7 h-7 rounded text-xs font-semibold transition cursor-pointer ${
+                              isActive
+                                ? 'bg-emerald-700 text-white shadow-2xs'
+                                : 'border border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        );
+                      });
+                    })()}
 
                     <button
                       type="button"
                       disabled={currentPageHn >= Math.ceil(filteredHangNamList.length / pageSizeHn)}
                       onClick={() => setCurrentPageHn((p) => Math.min(Math.ceil(filteredHangNamList.length / pageSizeHn), p + 1))}
                       className="p-1.5 border border-slate-200 rounded text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      title="Trang sau"
                     >
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
