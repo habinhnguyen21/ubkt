@@ -9,6 +9,8 @@ import type {
   ThayDoiBoSungKtGs,
   LoaiHinhKtGs,
   LoaiChuongTrinh,
+  PhanCongDiaBan,
+  DiaBanRecord,
 } from '../types';
 import {
   isGoogleDriveConfigured,
@@ -124,9 +126,167 @@ interface ChuongTrinhManagerProps {
 }
 
 export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, onDataChanged }) => {
+  const isAdmin = user.vai_tro === 'ADMIN';
+
   const [list, setList] = useState<ChuongTrinhKtGs[]>([]);
   const [allDonVi, setAllDonVi] = useState<DonVi[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Dữ liệu phân công quản lý & cán bộ (tự động đồng bộ với phân hệ Phân công quản lý hiện có)
+  const [assignments, setAssignments] = useState<PhanCongDiaBan[]>(() => {
+    try {
+      const saved = localStorage.getItem('ubkt_phan_cong_dia_ban');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [usersList, setUsersList] = useState<User[]>(() => {
+    try {
+      const saved = localStorage.getItem('ubkt_users');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [diaBanRecords, setDiaBanRecords] = useState<DiaBanRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('ubkt_dia_ban_records');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Hàm trích xuất họ và tên các cán bộ được phân công phụ trách từ phân hệ Phân công quản lý
+  const getAssignedOfficers = (item: ChuongTrinhKtGs): string[] => {
+    if (!isAdmin) return [];
+
+    const matchedUnits: DonVi[] = [];
+
+    // 1. Đối chiếu theo ID đơn vị
+    const candidateIds = [item.doi_tuong_don_vi_id, item.chi_dang_bo_id, item.don_vi_id].filter(Boolean) as string[];
+    for (const id of candidateIds) {
+      const found = allDonVi.find((d) => d.id === id);
+      if (found && !matchedUnits.some((m) => m.id === found.id)) {
+        matchedUnits.push(found);
+      }
+    }
+
+    // 2. Đối chiếu theo tên đơn vị / đối tượng
+    const candidateNames = [
+      item.doi_tuong,
+      item.ten_chi_dang_bo,
+      item.ten_don_vi,
+      item.chu_the_ap_dung,
+    ].filter(Boolean) as string[];
+
+    for (const rawName of candidateNames) {
+      const cleanName = rawName.trim().toLowerCase();
+      if (!cleanName || cleanName === 'toàn đảng bộ') continue;
+
+      const found = allDonVi.find((d) => {
+        const dName = d.ten.trim().toLowerCase();
+        if (dName === cleanName) return true;
+        if (d.ma && d.ma.trim().toLowerCase() === cleanName) return true;
+        const dNoPrefix = dName.replace(/^(chi bộ|đảng bộ|chi ủy)\s+/i, '').trim();
+        const cleanNoPrefix = cleanName.replace(/^(chi bộ|đảng bộ|chi ủy)\s+/i, '').trim();
+        if (
+          dNoPrefix &&
+          cleanNoPrefix &&
+          (dNoPrefix === cleanNoPrefix || dName.includes(cleanNoPrefix) || cleanName.includes(dNoPrefix))
+        ) {
+          return true;
+        }
+        return false;
+      });
+
+      if (found && !matchedUnits.some((m) => m.id === found.id)) {
+        matchedUnits.push(found);
+      }
+    }
+
+    const targetUnitIds = Array.from(new Set([...candidateIds, ...matchedUnits.map((u) => u.id)]));
+    const officerNames: string[] = [];
+
+    // Tìm trong danh sách phân công địa bàn (assignments)
+    if (Array.isArray(assignments)) {
+      for (const a of assignments) {
+        if (!Array.isArray(a?.don_vi_ids)) continue;
+        const isAssigned = targetUnitIds.some((uid) => a.don_vi_ids.includes(uid));
+        if (isAssigned) {
+          const usr = usersList.find((u) => u.id === a.user_id);
+          const rawName = usr?.ho_ten || a.user_name || '';
+          const cleanName = rawName.replace(/^(Đ\/c|Đồng chí)\s+/i, '').trim();
+          if (cleanName && !officerNames.includes(cleanName)) {
+            officerNames.push(cleanName);
+          }
+        }
+      }
+    }
+
+    // Dự phòng tìm trong danh sách hồ sơ địa bàn nếu assignments chưa nạp xong
+    if (officerNames.length === 0 && Array.isArray(diaBanRecords)) {
+      for (const rec of diaBanRecords) {
+        const isMatch =
+          targetUnitIds.includes(rec.id) ||
+          candidateNames.some((cn) => {
+            const cLower = cn.trim().toLowerCase();
+            const rLower = (rec.ten_dia_ban || '').trim().toLowerCase();
+            return cLower && rLower && (cLower === rLower || rLower.includes(cLower) || cLower.includes(rLower));
+          });
+
+        if (isMatch) {
+          if (Array.isArray(rec.can_bo_phu_trach_ids) && rec.can_bo_phu_trach_ids.length > 0) {
+            for (const uid of rec.can_bo_phu_trach_ids) {
+              const usr = usersList.find((u) => u.id === uid);
+              if (usr?.ho_ten) {
+                const clean = usr.ho_ten.replace(/^(Đ\/c|Đồng chí)\s+/i, '').trim();
+                if (clean && !officerNames.includes(clean)) officerNames.push(clean);
+              }
+            }
+          }
+          if (officerNames.length === 0 && rec.can_bo_phu_trach_id) {
+            const usr = usersList.find((u) => u.id === rec.can_bo_phu_trach_id);
+            if (usr?.ho_ten) {
+              const clean = usr.ho_ten.replace(/^(Đ\/c|Đồng chí)\s+/i, '').trim();
+              if (clean && !officerNames.includes(clean)) officerNames.push(clean);
+            }
+          }
+          if (officerNames.length === 0 && rec.can_bo_phu_trach_ten && rec.can_bo_phu_trach_ten !== 'Chưa phân công') {
+            const parts = rec.can_bo_phu_trach_ten
+              .split(/[,;\n]+/)
+              .map((s) => s.replace(/^(Đ\/c|Đồng chí)\s+/i, '').trim())
+              .filter(Boolean);
+            for (const p of parts) {
+              if (!officerNames.includes(p)) officerNames.push(p);
+            }
+          }
+        }
+      }
+    }
+
+    return officerNames;
+  };
+
+  // Render hiển thị tên cán bộ hoặc "Chưa phân công"
+  const renderAssignedOfficers = (item: ChuongTrinhKtGs) => {
+    const officers = getAssignedOfficers(item);
+    if (officers.length === 0) {
+      return (
+        <span className="text-slate-400 italic text-xs font-normal">
+          Chưa phân công
+        </span>
+      );
+    }
+    return (
+      <div className="font-semibold text-slate-800 text-xs leading-snug" title={officers.join(', ')}>
+        {officers.join(', ')}
+      </div>
+    );
+  };
 
   // Chuyển đổi giữa 2 phân hệ: 'NHIEM_KY' (Toàn khóa / Nhiệm kỳ) và 'HANG_NAM' (Phần năm công tác)
   const [activeTab, setActiveTab] = useState<LoaiChuongTrinh>(() => {
@@ -499,6 +659,17 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
           return found || programs[0];
         });
       }
+
+      if (isAdmin) {
+        const [savedAssignments, savedUsers, savedDiaBan] = await Promise.all([
+          api.getPhanCongDiaBan().catch(() => [] as PhanCongDiaBan[]),
+          api.getAllUsers().catch(() => [] as User[]),
+          api.getDiaBanRecords().catch(() => [] as DiaBanRecord[]),
+        ]);
+        if (Array.isArray(savedAssignments)) setAssignments(savedAssignments);
+        if (Array.isArray(savedUsers)) setUsersList(savedUsers);
+        if (Array.isArray(savedDiaBan)) setDiaBanRecords(savedDiaBan);
+      }
     } catch (err) {
       console.error('Lỗi tải danh sách chương trình:', err);
     } finally {
@@ -511,13 +682,69 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     const handleUpdate = () => {
       loadData();
     };
+
+    const handleAssignmentsChanged = (e: Event) => {
+      const ce = e as CustomEvent<PhanCongDiaBan[]>;
+      if (ce.detail && Array.isArray(ce.detail)) {
+        setAssignments(ce.detail);
+      } else {
+        try {
+          const saved = localStorage.getItem('ubkt_phan_cong_dia_ban');
+          if (saved) setAssignments(JSON.parse(saved));
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    const handleDiaBanChanged = (e: Event) => {
+      const ce = e as CustomEvent<DiaBanRecord[]>;
+      if (ce.detail && Array.isArray(ce.detail)) {
+        setDiaBanRecords(ce.detail);
+      } else {
+        try {
+          const saved = localStorage.getItem('ubkt_dia_ban_records');
+          if (saved) setDiaBanRecords(JSON.parse(saved));
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    const handleUsersChanged = () => {
+      api.getAllUsers().then((usrs) => {
+        if (Array.isArray(usrs)) setUsersList(usrs);
+      }).catch(() => {});
+    };
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'ubkt_phan_cong_dia_ban' && e.newValue) {
+        try { setAssignments(JSON.parse(e.newValue)); } catch {}
+      } else if (e.key === 'ubkt_dia_ban_records' && e.newValue) {
+        try { setDiaBanRecords(JSON.parse(e.newValue)); } catch {}
+      } else if (e.key === 'ubkt_users' && e.newValue) {
+        try { setUsersList(JSON.parse(e.newValue)); } catch {}
+      }
+    };
+
     window.addEventListener('ubkt_chuong_trinh_updated', handleUpdate);
     window.addEventListener('ubkt_kho_du_lieu_updated', handleUpdate);
+    window.addEventListener('ubkt_assignments_updated', handleAssignmentsChanged);
+    window.addEventListener('ubkt_diaban_records_updated', handleDiaBanChanged);
+    window.addEventListener('ubkt_users_updated', handleUsersChanged);
+    window.addEventListener('ubkt_data_synced', handleUpdate);
+    window.addEventListener('storage', handleStorage);
+
     return () => {
       window.removeEventListener('ubkt_chuong_trinh_updated', handleUpdate);
       window.removeEventListener('ubkt_kho_du_lieu_updated', handleUpdate);
+      window.removeEventListener('ubkt_assignments_updated', handleAssignmentsChanged);
+      window.removeEventListener('ubkt_diaban_records_updated', handleDiaBanChanged);
+      window.removeEventListener('ubkt_users_updated', handleUsersChanged);
+      window.removeEventListener('ubkt_data_synced', handleUpdate);
+      window.removeEventListener('storage', handleStorage);
     };
-  }, []);
+  }, [isAdmin]);
 
   // Danh sách các tổ chức Chi bộ & Đảng bộ trực thuộc
   const chiDangBoList = useMemo(() => {
@@ -1020,6 +1247,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         const matchSoVB = Boolean(item.so_van_ban && item.so_van_ban.toLowerCase().includes(q));
         const matchChuThe = Boolean(item.chu_the && item.chu_the.toLowerCase().includes(q));
         const matchLinhVuc = Boolean(item.linh_vuc && item.linh_vuc.toLowerCase().includes(q));
+        const matchCanBo = Boolean(isAdmin && getAssignedOfficers(item).some((cb) => cb.toLowerCase().includes(q)));
         if (
           !matchTitle &&
           !matchDoiTuong &&
@@ -1027,7 +1255,8 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
           !matchNoiDungVB &&
           !matchSoVB &&
           !matchChuThe &&
-          !matchLinhVuc
+          !matchLinhVuc &&
+          !matchCanBo
         ) {
           return false;
         }
@@ -1047,6 +1276,10 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     currentMonth,
     currentYear,
     customCoQuanList,
+    isAdmin,
+    assignments,
+    usersList,
+    diaBanRecords,
   ]);
 
   const renderLoaiHinhBadge = (loaiHinh?: LoaiHinhKtGs | null) => {
@@ -2189,6 +2422,9 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                 <th className="py-3 px-3 w-36">SỐ HIỆU VĂN BẢN</th>
                 <th className="py-3 px-3 w-40">CƠ QUAN BAN HÀNH</th>
                 <th className="py-3 px-3 w-36">CHỦ THỂ ÁP DỤNG</th>
+                {isAdmin && (
+                  <th className="py-3 px-3 w-44">CÁN BỘ ĐƯỢC PHÂN CÔNG</th>
+                )}
                 <th className="py-3 px-3 w-44 text-center">THAY ĐỔI, BỔ SUNG & ĐỐI CHIẾU</th>
                 <th className="py-3 px-4 min-w-[220px]">NỘI DUNG KIỂM TRA, GIÁM SÁT</th>
                 <th className="py-3 px-3 w-32">THỜI GIAN</th>
@@ -2200,14 +2436,14 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
+                  <td colSpan={isAdmin ? 12 : 11} className="py-12 text-center text-slate-400">
                     <span className="inline-block animate-spin mr-2">⟳</span>
                     Đang nạp dữ liệu chương trình...
                   </td>
                 </tr>
               ) : filteredList.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
+                  <td colSpan={isAdmin ? 12 : 11} className="py-12 text-center text-slate-400">
                     Không tìm thấy chương trình phù hợp với bộ lọc hiện tại.
                   </td>
                 </tr>
@@ -2295,6 +2531,13 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                             </span>
                           )}
                         </td>
+
+                        {/* BỔ SUNG CỘT CÁN BỘ ĐƯỢC PHÂN CÔNG (CHỈ DÀNH CHO ADMIN) */}
+                        {isAdmin && (
+                          <td className="py-3.5 px-3">
+                            {renderAssignedOfficers(item)}
+                          </td>
+                        )}
 
                         {/* 6. THAY ĐỔI, BỔ SUNG & ĐỐI CHIẾU */}
                         <td className="py-3.5 px-3 text-center">
@@ -4117,6 +4360,9 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                         <th className="py-3 px-3 w-40">CƠ QUAN BAN HÀNH</th>
                         <th className="py-3 px-2 w-28 text-center">LOẠI HÌNH</th>
                         <th className="py-3 px-3 w-48">ĐỐI TƯỢNG KT-GS</th>
+                        {isAdmin && (
+                          <th className="py-3 px-3 w-48">CÁN BỘ ĐƯỢC PHÂN CÔNG</th>
+                        )}
                         <th className="py-3 px-4 min-w-[220px]">NỘI DUNG KIỂM TRA, GIÁM SÁT</th>
                         <th className="py-3 px-3 w-32">THỜI GIAN</th>
                         <th className="py-3 px-3 w-32 text-center">TRẠNG THÁI</th>
@@ -4127,14 +4373,14 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                     <tbody className="divide-y divide-slate-100">
                       {loading ? (
                         <tr>
-                          <td colSpan={10} className="py-12 text-center text-slate-400">
+                          <td colSpan={isAdmin ? 11 : 10} className="py-12 text-center text-slate-400">
                             <span className="inline-block animate-spin mr-2">⟳</span>
                             Đang nạp dữ liệu chương trình kiểm tra, giám sát...
                           </td>
                         </tr>
                       ) : filteredHangNamList.length === 0 ? (
                         <tr>
-                          <td colSpan={10} className="py-12 text-center text-slate-400">
+                          <td colSpan={isAdmin ? 11 : 10} className="py-12 text-center text-slate-400">
                             Không tìm thấy chương trình nào phù hợp với bộ lọc hiện tại. Vui lòng bấm &quot;Xóa toàn bộ lọc&quot; để hiển thị lại.
                           </td>
                         </tr>
@@ -4206,6 +4452,13 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                                     })()}
                                   </div>
                                 </td>
+
+                                {/* BỔ SUNG CỘT CÁN BỘ ĐƯỢC PHÂN CÔNG (CHỈ DÀNH CHO ADMIN) */}
+                                {isAdmin && (
+                                  <td className="py-3.5 px-3">
+                                    {renderAssignedOfficers(item)}
+                                  </td>
+                                )}
 
                                 {/* 6. NỘI DUNG KIỂM TRA, GIÁM SÁT */}
                                 <td className="py-3.5 px-4 text-xs text-slate-700 leading-relaxed">
