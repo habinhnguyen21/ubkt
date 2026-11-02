@@ -26,6 +26,29 @@ const ThongKeManager = lazy(() => import('./components/ThongKeManager'));
 
 type TabKey = 'tong_quan' | 'don_vi' | 'phan_cong' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
 
+const HASH_TO_TAB: Record<string, TabKey> = {
+  '#tong-quan': 'tong_quan',
+  '#tong_quan': 'tong_quan',
+  '#don-vi': 'don_vi',
+  '#don_vi': 'don_vi',
+  '#phan-cong': 'phan_cong',
+  '#phan_cong': 'phan_cong',
+  '#chuong-trinh': 'chuong_trinh',
+  '#chuong_trinh': 'chuong_trinh',
+  '#ho-so-dia-ban': 'ho_so_dia_ban',
+  '#ho_so_dia_ban': 'ho_so_dia_ban',
+  '#don-thu': 'don_thu',
+  '#don_thu': 'don_thu',
+  '#lich-thang': 'lich_thang',
+  '#lich_thang': 'lich_thang',
+  '#kho-pdf': 'kho_pdf',
+  '#kho_pdf': 'kho_pdf',
+  '#thong-ke': 'thong_ke',
+  '#thong_ke': 'thong_ke',
+  '#bao-cao': 'bao_cao',
+  '#bao_cao': 'bao_cao',
+};
+
 /**
  * Hằng số cấu hình thời gian tự động khóa phiên làm việc khi không có thao tác chuột/bàn phím/chạm (15 phút).
  */
@@ -70,6 +93,10 @@ export function App() {
   });
 
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
+    if (typeof window !== 'undefined' && window.location.hash) {
+      const fromHash = HASH_TO_TAB[window.location.hash.toLowerCase()];
+      if (fromHash) return fromHash;
+    }
     const saved = localStorage.getItem('ubkt_active_tab');
     const validTabs: TabKey[] = ['tong_quan', 'don_vi', 'phan_cong', 'chuong_trinh', 'ho_so_dia_ban', 'don_thu', 'lich_thang', 'kho_pdf', 'thong_ke', 'bao_cao'];
     if (saved && validTabs.includes(saved as TabKey)) {
@@ -135,20 +162,18 @@ export function App() {
       return;
     }
 
-    if (hash === '#tong-quan') setActiveTab('tong_quan');
-    else if (hash === '#phan-cong') {
-      if (user?.vai_tro === 'ADMIN') {
-        setActiveTab('phan_cong');
+    const targetTab = HASH_TO_TAB[hash];
+    if (targetTab) {
+      if (targetTab === 'phan_cong') {
+        if (user?.vai_tro === 'ADMIN') {
+          setActiveTab('phan_cong');
+        } else {
+          setActiveTab('don_vi');
+        }
       } else {
-        setActiveTab('don_vi');
+        setActiveTab(targetTab);
       }
     }
-    else if (hash === '#don-vi') { setActiveTab('don_vi'); }
-    else if (hash === '#chuong-trinh') setActiveTab('chuong_trinh');
-    else if (hash === '#ho-so-dia-ban') setActiveTab('ho_so_dia_ban');
-    else if (hash === '#don-thu') setActiveTab('don_thu');
-    else if (hash === '#lich-thang') setActiveTab('lich_thang');
-    else if (hash === '#kho-pdf') setActiveTab('kho_pdf');
   }, []);
 
   useEffect(() => {
