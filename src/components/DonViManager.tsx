@@ -1,5 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
+import {
+  reconcileById,
+  reconcileTreeById,
+  isSameData,
+  captureActiveInput,
+  restoreActiveInput,
+} from '../utils/syncUtils';
 import type {
   DonVi,
   DonViTreeItem,
@@ -78,6 +85,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
   const [treeData, setTreeData] = useState<DonViTreeItem[]>([]);
   const [allDonVi, setAllDonVi] = useState<DonVi[]>([]);
   const [loading, setLoading] = useState(false);
+  const hasInitialLoadedRef = useRef(false);
 
   // Danh mục Loại hình tổ chức
   const [loaiHinhList] = useState<LoaiHinhToChuc[]>(() => {
@@ -178,33 +186,47 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
   // ──────────────────────────────────────────────────────────────────────────
   // Nạp dữ liệu
   // ──────────────────────────────────────────────────────────────────────────
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (silent = false) => {
+    const showSpinner = !silent && !hasInitialLoadedRef.current;
+    if (showSpinner) {
+      setLoading(true);
+    }
     try {
       const [tree, flat, users, savedAssignments, savedDiaBan] = await Promise.all([
-        api.getDonViTree().catch(() => [] as DonViTreeItem[]),
-        api.getAllDonVi().catch(() => [] as DonVi[]),
-        api.getAllUsers().catch(() => [] as User[]),
-        isAdmin ? api.getPhanCongDiaBan().catch(() => [] as PhanCongDiaBan[]) : Promise.resolve([]),
-        api.getDiaBanRecords().catch(() => [] as DiaBanRecord[]),
+        api.getDonViTree(),
+        api.getAllDonVi(),
+        api.getAllUsers(),
+        isAdmin ? api.getPhanCongDiaBan() : Promise.resolve([]),
+        api.getDiaBanRecords(),
       ]);
+      const activeInputSnap = captureActiveInput();
       const safeTree = Array.isArray(tree) ? tree : [];
       const safeFlat = Array.isArray(flat) ? flat : [];
       const safeUsers = Array.isArray(users) ? users : [];
 
-      setTreeData(safeTree);
-      setAllDonVi(safeFlat);
-      setUsersList(safeUsers);
+      setTreeData((prev) => reconcileTreeById(prev, safeTree));
+      setAllDonVi((prev) => reconcileById(prev, safeFlat, (u) => u.id));
+      setUsersList((prev) => reconcileById(prev, safeUsers, (u) => u.id));
 
       if (isAdmin && Array.isArray(savedAssignments) && savedAssignments.length > 0) {
         const sanitized = sanitizeStrictAssignments(savedAssignments);
-        setAssignments(sanitized);
-        localStorage.setItem(STORAGE_PHAN_CONG, JSON.stringify(sanitized));
+        setAssignments((prev) => {
+          const reconciled = reconcileById(prev, sanitized, (a) => a.user_id);
+          if (reconciled !== prev) {
+            localStorage.setItem(STORAGE_PHAN_CONG, JSON.stringify(reconciled));
+          }
+          return reconciled;
+        });
       }
 
       if (Array.isArray(savedDiaBan) && savedDiaBan.length > 0) {
-        setDiaBanRecords(savedDiaBan);
-        localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(savedDiaBan));
+        setDiaBanRecords((prev) => {
+          const reconciled = reconcileById(prev, savedDiaBan, (r) => r.id);
+          if (reconciled !== prev) {
+            localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(reconciled));
+          }
+          return reconciled;
+        });
       }
 
       // Nếu chưa chọn đơn vị nào, chọn đơn vị đầu tiên
@@ -212,43 +234,54 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
         setSelectedUnitId(safeFlat[0].id);
       }
 
-      // Nếu đang mở detailUnit, cập nhật lại thông tin mới nhất
+      // Nếu đang mở detailUnit, cập nhật lại thông tin mới nhất nếu có thay đổi
       if (detailUnit) {
         const refreshed = safeFlat.find((u) => u.id === detailUnit.id);
-        if (refreshed) setDetailUnit(refreshed);
+        if (refreshed && !isSameData(detailUnit, refreshed)) {
+          setDetailUnit(refreshed);
+        }
       }
 
       // Tab phân công: nếu chưa chọn user nào, chọn user đầu tiên
       if (safeUsers.length > 0 && !selectedAssignUserId) {
         setSelectedAssignUserId(safeUsers[0].id);
       }
+      hasInitialLoadedRef.current = true;
+      restoreActiveInput(activeInputSnap);
     } catch (err) {
-      console.error('Lỗi nạp danh sách đơn vị:', err);
+      // Giữ nguyên dữ liệu cũ khi lỗi
+      console.warn('Lỗi nạp danh sách đơn vị (giữ nguyên dữ liệu cũ):', err);
     } finally {
-      setLoading(false);
+      if (showSpinner) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    loadData();
-    const handleSynced = () => loadData();
+    loadData(false);
+    const handleSynced = () => loadData(true);
     window.addEventListener('ubkt_data_synced', handleSynced);
-    return () => window.removeEventListener('ubkt_data_synced', handleSynced);
+    window.addEventListener('ubkt_don_vi_updated', handleSynced);
+    return () => {
+      window.removeEventListener('ubkt_data_synced', handleSynced);
+      window.removeEventListener('ubkt_don_vi_updated', handleSynced);
+    };
   }, []);
 
   // Tải lại danh sách cán bộ khi chuyển tab phân công
   const reloadUsers = async (selectNewId?: string) => {
     try {
-      const users = await api.getAllUsers().catch(() => [] as User[]);
+      const users = await api.getAllUsers();
       const safeUsers = Array.isArray(users) ? users : [];
-      setUsersList(safeUsers);
+      setUsersList((prev) => reconcileById(prev, safeUsers, (u) => u.id));
       if (selectNewId) {
         setSelectedAssignUserId(selectNewId);
       } else if (safeUsers.length > 0 && !selectedAssignUserId) {
         setSelectedAssignUserId(safeUsers[0].id);
       }
     } catch (err) {
-      console.error('Lỗi nạp danh sách tài khoản:', err);
+      console.warn('Lỗi nạp danh sách tài khoản (giữ nguyên dữ liệu cũ):', err);
     }
   };
 
@@ -275,11 +308,15 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
       if (!isAdmin) return;
       const customEvent = e as CustomEvent<PhanCongDiaBan[]>;
       if (customEvent?.detail && Array.isArray(customEvent.detail)) {
-        setAssignments(sanitizeStrictAssignments(customEvent.detail));
+        const sanitized = sanitizeStrictAssignments(customEvent.detail);
+        setAssignments((prev) => reconcileById(prev, sanitized, (a) => a.user_id));
       } else {
         try {
           const saved = localStorage.getItem(STORAGE_PHAN_CONG);
-          if (saved) setAssignments(sanitizeStrictAssignments(JSON.parse(saved)));
+          if (saved) {
+            const sanitized = sanitizeStrictAssignments(JSON.parse(saved));
+            setAssignments((prev) => reconcileById(prev, sanitized, (a) => a.user_id));
+          }
         } catch {}
       }
     };
@@ -287,11 +324,16 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
     const handleDiaBanRecordsUpdated = (e?: Event) => {
       const customEvent = e as CustomEvent<DiaBanRecord[]>;
       if (customEvent?.detail && Array.isArray(customEvent.detail)) {
-        setDiaBanRecords(customEvent.detail);
+        setDiaBanRecords((prev) => reconcileById(prev, customEvent.detail, (r) => r.id));
       } else {
         try {
           const saved = localStorage.getItem(STORAGE_DIA_BAN_RECORDS);
-          if (saved) setDiaBanRecords(JSON.parse(saved));
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) {
+              setDiaBanRecords((prev) => reconcileById(prev, parsed, (r) => r.id));
+            }
+          }
         } catch {}
       }
     };
@@ -854,7 +896,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
   const selectedUnit = allDonVi.find((u) => u.id === selectedUnitId) || null;
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className="space-y-5 pb-12 min-h-[600px]">
       {/* ──────────────────────────────────────────────────────────────────────── */}
       {/* KHU VỰC A: THANH TIÊU ĐỀ PHÂN HỆ                                         */}
       {/* ──────────────────────────────────────────────────────────────────────── */}
@@ -968,7 +1010,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
 
             <button
               type="button"
-              onClick={loadData}
+              onClick={() => loadData(false)}
               className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition cursor-pointer"
               title="Làm mới dữ liệu từ máy chủ"
             >

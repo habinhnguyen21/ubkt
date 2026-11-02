@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Landmark,
   ClipboardCheck,
@@ -7,6 +7,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { api } from '../services/api';
+import { reconcileById, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import type { AppInfo, ChuongTrinhKtGs, DonThu, DonVi, User } from '../types';
 import {
   computeDashboardStats,
@@ -39,6 +40,7 @@ export function TongQuanExecutiveDashboard({
   const [loading, setLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const hasInitialLoadedRef = useRef(false);
 
   // Modal xem nhiệm vụ quá hạn
   const [showOverdueModal, setShowOverdueModal] = useState<boolean>(false);
@@ -51,36 +53,61 @@ export function TongQuanExecutiveDashboard({
     linhVuc: 'ALL',
   });
 
-  // Tải dữ liệu từ backend
-  const loadData = useCallback(async (isRefresh = false) => {
-    if (isRefresh) {
-      setIsRefreshing(true);
-    } else {
-      setLoading(true);
+  // Tải dữ liệu từ backend (chỉ hiện loading ở lần tải đầu tiên, đồng bộ nền không hiện spinner)
+  const loadData = useCallback(async (isRefresh = false, silent = false) => {
+    const isFirstLoad = !hasInitialLoadedRef.current;
+    if (!silent) {
+      if (isRefresh) {
+        setIsRefreshing(true);
+      } else if (isFirstLoad) {
+        setLoading(true);
+      }
+      setLoadError(null);
     }
-    setLoadError(null);
 
     try {
       const [units, tasks, complaints] = await Promise.all([
-        api.getAllDonVi().catch(() => [] as DonVi[]),
-        api.getAllChuongTrinh().catch(() => [] as ChuongTrinhKtGs[]),
-        api.getAllDonThu().catch(() => [] as DonThu[]),
+        api.getAllDonVi(),
+        api.getAllChuongTrinh(),
+        api.getAllDonThu(),
       ]);
+      const activeInputSnap = captureActiveInput();
 
-      setDonViList(units);
-      setChuongTrinhList(tasks);
-      setDonThuList(complaints);
+      setDonViList((prev) => reconcileById(prev, Array.isArray(units) ? units : [], (u) => u.id));
+      setChuongTrinhList((prev) => reconcileById(prev, Array.isArray(tasks) ? tasks : [], (t) => t.id));
+      setDonThuList((prev) => reconcileById(prev, Array.isArray(complaints) ? complaints : [], (c) => c.id));
+      hasInitialLoadedRef.current = true;
+      restoreActiveInput(activeInputSnap);
     } catch (err: any) {
-      console.error('Lỗi nạp dữ liệu trang Tổng quan:', err);
-      setLoadError(err?.message || 'Không thể tải dữ liệu tổng quan');
+      console.warn('Lỗi nạp dữ liệu trang Tổng quan (giữ nguyên dữ liệu cũ):', err);
+      if (isFirstLoad && !silent) {
+        setLoadError(err?.message || 'Không thể tải dữ liệu tổng quan');
+      }
     } finally {
-      setLoading(false);
-      setIsRefreshing(false);
+      if (!silent) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    loadData();
+    loadData(false, false);
+
+    const handleBackgroundSync = () => {
+      loadData(false, true);
+    };
+    window.addEventListener('ubkt_data_synced', handleBackgroundSync);
+    window.addEventListener('ubkt_don_vi_updated', handleBackgroundSync);
+    window.addEventListener('ubkt_chuong_trinh_updated', handleBackgroundSync);
+    window.addEventListener('ubkt_don_thu_updated', handleBackgroundSync);
+
+    return () => {
+      window.removeEventListener('ubkt_data_synced', handleBackgroundSync);
+      window.removeEventListener('ubkt_don_vi_updated', handleBackgroundSync);
+      window.removeEventListener('ubkt_chuong_trinh_updated', handleBackgroundSync);
+      window.removeEventListener('ubkt_don_thu_updated', handleBackgroundSync);
+    };
   }, [loadData]);
 
   // Tính toán số liệu thống kê hoàn toàn động
@@ -153,7 +180,7 @@ export function TongQuanExecutiveDashboard({
   }
 
   return (
-    <div className="w-full space-y-3.5 font-sans pb-8 animate-fadeIn">
+    <div className="w-full space-y-3.5 font-sans pb-8 min-h-[560px]">
       {/* ── BỘ LỌC NĂM VÀ ĐIỀU KIỆN THỐNG KÊ ────────────────────────── */}
       <DashboardFilters
         filters={filters}

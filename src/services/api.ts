@@ -161,6 +161,7 @@ async function requestApi<T>(
     const res = await fetch(endpoint, {
       method,
       headers,
+      cache: 'no-store',
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
 

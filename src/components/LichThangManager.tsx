@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
+import { reconcileById, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import type { ChuongTrinhKtGs, LoaiHinhKtGs, TrangThaiKtGs, User } from '../types';
 import {
   Calendar,
@@ -18,21 +19,40 @@ export const LichThangManager: React.FC<LichThangManagerProps> = ({ user: _user 
   const [_loading, setLoading] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const hasInitialLoadedRef = useRef(false);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (silent = false) => {
+    const showSpinner = !silent && !hasInitialLoadedRef.current;
+    if (showSpinner) {
+      setLoading(true);
+    }
     try {
       const programs = await api.getAllChuongTrinh();
-      setList(programs);
+      const activeInputSnap = captureActiveInput();
+      if (Array.isArray(programs)) {
+        setList((prev) => reconcileById(prev, programs, (p) => p.id));
+      }
+      hasInitialLoadedRef.current = true;
+      restoreActiveInput(activeInputSnap);
     } catch (err) {
-      console.error('Lỗi tải dữ liệu lịch KT-GS:', err);
+      // Giữ nguyên dữ liệu cũ khi lỗi
+      console.warn('Lỗi tải dữ liệu lịch KT-GS (giữ nguyên dữ liệu cũ):', err);
     } finally {
-      setLoading(false);
+      if (showSpinner) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    loadData();
+    loadData(false);
+    const handleSync = () => loadData(true);
+    window.addEventListener('ubkt_data_synced', handleSync);
+    window.addEventListener('ubkt_chuong_trinh_updated', handleSync);
+    return () => {
+      window.removeEventListener('ubkt_data_synced', handleSync);
+      window.removeEventListener('ubkt_chuong_trinh_updated', handleSync);
+    };
   }, []);
 
   // Danh sách các năm có trong hệ thống
@@ -138,7 +158,7 @@ export const LichThangManager: React.FC<LichThangManagerProps> = ({ user: _user 
   };
 
   return (
-    <div className="space-y-6 pb-12 font-sans">
+    <div className="space-y-6 pb-12 font-sans min-h-[560px]">
       {/* ── HEADER ──────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

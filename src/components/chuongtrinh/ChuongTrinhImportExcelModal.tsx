@@ -3,6 +3,7 @@ import type { ChuongTrinhKtGs, DonVi } from '../../types';
 import {
   downloadChuongTrinhImportTemplate,
   parseAndValidateChuongTrinhFile,
+  findBestMatchingDonVi,
   getTrangThaiLabel,
   formatDateVn,
   type ImportRowData,
@@ -116,7 +117,7 @@ export const ChuongTrinhImportExcelModal: React.FC<ChuongTrinhImportExcelModalPr
       setImportResult(null);
 
       try {
-        const result = await parseAndValidateChuongTrinhFile(droppedFile, existingList);
+        const result = await parseAndValidateChuongTrinhFile(droppedFile, existingList, donViList);
         setRows(result.rows);
         setValidCount(result.validRows.length);
         setInvalidCount(result.invalidRows.length);
@@ -149,7 +150,22 @@ export const ChuongTrinhImportExcelModal: React.FC<ChuongTrinhImportExcelModalPr
     setErrorMessage(null);
 
     try {
-      const itemsToImport = validRows.map((r) => r.rawPayload);
+      const activeUnits = (donViList || []).filter((d) => d && !d.deleted_at);
+      const itemsToImport = validRows.map((r) => {
+        const payload = { ...r.rawPayload };
+        if (!payload.don_vi_id && activeUnits.length > 0) {
+          const matchedUnit =
+            findBestMatchingDonVi(payload.chu_the, activeUnits) ||
+            findBestMatchingDonVi(payload.co_quan_ban_hanh, activeUnits) ||
+            findBestMatchingDonVi(payload.doi_tuong, activeUnits);
+          if (matchedUnit) {
+            payload.don_vi_id = matchedUnit.id;
+            payload.chu_the_don_vi_id = payload.chu_the_don_vi_id || matchedUnit.id;
+            payload.ten_don_vi = payload.ten_don_vi || matchedUnit.ten;
+          }
+        }
+        return payload;
+      });
       const res = await onBatchImport(itemsToImport, duplicateAction);
 
       if (res && res.success) {

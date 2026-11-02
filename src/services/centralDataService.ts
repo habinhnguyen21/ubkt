@@ -9,6 +9,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db as firestoreDb } from './firebase';
+import { isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import type {
   DonVi,
   ChuongTrinhKtGs,
@@ -170,10 +171,16 @@ export const centralDataService = {
     const unsubTombstones = onSnapshot(
       collection(firestoreDb, 'tombstones'),
       (snap) => {
+        let changed = false;
         snap.docs.forEach((d) => {
-          memoryCache.tombstones.add(d.id);
+          if (!memoryCache.tombstones.has(d.id)) {
+            memoryCache.tombstones.add(d.id);
+            changed = true;
+          }
         });
-        persistCacheToLocalStorage();
+        if (changed) {
+          persistCacheToLocalStorage();
+        }
       },
       (err) => console.warn('[Realtime] Lỗi lắng nghe tombstones:', err)
     );
@@ -192,10 +199,13 @@ export const centralDataService = {
         });
         // Sắp xếp thứ tự
         items.sort((a, b) => (a.thu_tu || 0) - (b.thu_tu || 0));
+        if (isSameData(memoryCache.donViList, items)) return;
         memoryCache.donViList = items;
         persistCacheToLocalStorage();
+        const activeSnap = captureActiveInput();
         window.dispatchEvent(new CustomEvent('ubkt_don_vi_updated'));
         window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
+        restoreActiveInput(activeSnap);
       },
       (err) => console.warn('[Realtime] Lỗi lắng nghe don_vi:', err)
     );
@@ -211,10 +221,13 @@ export const centralDataService = {
             items.push({ ...(d.data() as ChuongTrinhKtGs), id: d.id });
           }
         });
+        if (isSameData(memoryCache.chuongTrinhList, items)) return;
         memoryCache.chuongTrinhList = items;
         persistCacheToLocalStorage();
+        const activeSnap = captureActiveInput();
         window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
         window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
+        restoreActiveInput(activeSnap);
       },
       (err) => console.warn('[Realtime] Lỗi lắng nghe chuong_trinh:', err)
     );
@@ -230,9 +243,12 @@ export const centralDataService = {
             items.push({ ...d.data(), id: d.id });
           }
         });
+        if (isSameData(memoryCache.hoSoDiaBanRecords, items)) return;
         memoryCache.hoSoDiaBanRecords = items;
         persistCacheToLocalStorage();
+        const activeSnap = captureActiveInput();
         window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+        restoreActiveInput(activeSnap);
       },
       (err) => console.warn('[Realtime] Lỗi lắng nghe ho_so_dia_ban_records:', err)
     );
@@ -248,10 +264,13 @@ export const centralDataService = {
             items.push({ ...(d.data() as HoSoDiaBanFile), id: d.id });
           }
         });
+        if (isSameData(memoryCache.hoSoDiaBanFiles, items)) return;
         memoryCache.hoSoDiaBanFiles = items;
         persistCacheToLocalStorage();
+        const activeSnap = captureActiveInput();
         window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
         window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+        restoreActiveInput(activeSnap);
       },
       (err) => console.warn('[Realtime] Lỗi lắng nghe ho_so_dia_ban_files:', err)
     );
@@ -267,10 +286,13 @@ export const centralDataService = {
             items.push({ ...(d.data() as BaoCaoThangItem), id: d.id });
           }
         });
+        if (isSameData(memoryCache.baoCaoThangList, items)) return;
         memoryCache.baoCaoThangList = items;
         persistCacheToLocalStorage();
+        const activeSnap = captureActiveInput();
         window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
         window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+        restoreActiveInput(activeSnap);
       },
       (err) => console.warn('[Realtime] Lỗi lắng nghe bao_cao_thang:', err)
     );
@@ -286,9 +308,12 @@ export const centralDataService = {
             items.push({ ...(d.data() as PdfKhoItem), id: d.id });
           }
         });
+        if (isSameData(memoryCache.pdfFiles, items)) return;
         memoryCache.pdfFiles = items;
         persistCacheToLocalStorage();
+        const activeSnap = captureActiveInput();
         window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+        restoreActiveInput(activeSnap);
       },
       (err) => console.warn('[Realtime] Lỗi lắng nghe pdf_files:', err)
     );
@@ -304,9 +329,12 @@ export const centralDataService = {
             items.push({ ...(d.data() as DonThu), id: d.id });
           }
         });
+        if (isSameData(memoryCache.donThuList, items)) return;
         memoryCache.donThuList = items;
         persistCacheToLocalStorage();
+        const activeSnap = captureActiveInput();
         window.dispatchEvent(new CustomEvent('ubkt_don_thu_updated'));
+        restoreActiveInput(activeSnap);
       },
       (err) => console.warn('[Realtime] Lỗi lắng nghe don_thu:', err)
     );
@@ -322,9 +350,12 @@ export const centralDataService = {
             items.push({ ...(d.data() as User), id: d.id });
           }
         });
+        if (isSameData(memoryCache.users, items)) return;
         memoryCache.users = items;
         persistCacheToLocalStorage();
+        const activeSnap = captureActiveInput();
         window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
+        restoreActiveInput(activeSnap);
       },
       (err) => console.warn('[Realtime] Lỗi lắng nghe users:', err)
     );
@@ -340,9 +371,12 @@ export const centralDataService = {
             items.push({ ...d.data(), id: d.id });
           }
         });
+        if (isSameData(memoryCache.phanCongList, items)) return;
         memoryCache.phanCongList = items;
         persistCacheToLocalStorage();
+        const activeSnap = captureActiveInput();
         window.dispatchEvent(new CustomEvent('ubkt_assignments_updated'));
+        restoreActiveInput(activeSnap);
       },
       (err) => console.warn('[Realtime] Lỗi lắng nghe phan_cong_dia_ban:', err)
     );

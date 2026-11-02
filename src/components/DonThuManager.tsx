@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
+import { reconcileById, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import type {
   DonThu,
   LoaiDonThu,
@@ -173,22 +174,41 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const hasInitialLoadedRef = useRef(false);
 
-  // Nạp dữ liệu
-  const loadData = async () => {
-    setLoading(true);
+  // Nạp dữ liệu (chỉ hiện loading ở lần tải đầu tiên, đồng bộ nền không hiện spinner)
+  const loadData = async (silent = false) => {
+    const showSpinner = !silent && !hasInitialLoadedRef.current;
+    if (showSpinner) {
+      setLoading(true);
+    }
     try {
       const items = await api.getAllDonThu();
-      setDataList(items);
+      const activeInputSnap = captureActiveInput();
+      if (Array.isArray(items)) {
+        setDataList((prev) => reconcileById(prev, items, (d) => d.id));
+      }
+      hasInitialLoadedRef.current = true;
+      restoreActiveInput(activeInputSnap);
     } catch (err) {
-      console.error('Lỗi khi tải danh sách đơn thư:', err);
+      // Giữ nguyên dữ liệu cũ khi lỗi
+      console.warn('Lỗi khi tải danh sách đơn thư (giữ nguyên dữ liệu cũ):', err);
     } finally {
-      setLoading(false);
+      if (showSpinner) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    loadData();
+    loadData(false);
+    const handleSync = () => loadData(true);
+    window.addEventListener('ubkt_data_synced', handleSync);
+    window.addEventListener('ubkt_don_thu_updated', handleSync);
+    return () => {
+      window.removeEventListener('ubkt_data_synced', handleSync);
+      window.removeEventListener('ubkt_don_thu_updated', handleSync);
+    };
   }, []);
 
   // Tính toán thời hạn và cảnh báo quá hạn cho từng đơn
@@ -585,7 +605,7 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
   };
 
   return (
-    <div className="space-y-5 pb-12 font-sans">
+    <div className="space-y-5 pb-12 font-sans min-h-[600px]">
       {/* ── HEADER TIÊU ĐỀ PHÂN HỆ ────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
@@ -609,7 +629,7 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
 
         <div className="flex items-center flex-wrap gap-2 w-full md:w-auto">
           <button
-            onClick={loadData}
+            onClick={() => loadData(false)}
             title="Tải lại dữ liệu mới nhất"
             className="p-2 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition cursor-pointer"
           >

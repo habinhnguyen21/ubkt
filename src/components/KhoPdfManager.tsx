@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { cloudSyncService } from '../services/cloudSyncService';
 import { centralDataService } from '../services/centralDataService';
+import { reconcileById, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import type { ChuongTrinhKtGs, PdfKhoItem, User, DonVi, HoSoDiaBanFile } from '../types';
 import {
   FileText,
@@ -72,6 +73,7 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
   const [allPrograms, setAllPrograms] = useState<ChuongTrinhKtGs[]>([]);
   const [allDonVi, setAllDonVi] = useState<DonVi[]>([]);
   const [loading, setLoading] = useState(false);
+  const hasInitialLoadedRef = useRef(false);
 
   // Google Drive Modal & State
   const [isGdriveModalOpen, setIsGdriveModalOpen] = useState(false);
@@ -139,14 +141,18 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
   const canEdit = user.vai_tro === 'ADMIN' || user.vai_tro === 'BIEN_TAP';
 
   // Nạp dữ liệu tổng hợp & đồng bộ 2 chiều với Hồ sơ địa bàn
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (silent = false) => {
+    const showSpinner = !silent && !hasInitialLoadedRef.current;
+    if (showSpinner) {
+      setLoading(true);
+    }
     try {
       const [pdfs, programs, donVis] = await Promise.all([
         api.getAllPdfs(),
         api.getAllChuongTrinh(),
         api.getAllDonVi(),
       ]);
+      const activeInputSnap = captureActiveInput();
 
       // Nạp và hợp nhất thêm tệp trực tiếp từ LocalStorage để bảo đảm đồng bộ tức thời
       const seenIds = new Set<string>();
@@ -209,22 +215,27 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
           console.error('Lỗi nạp tệp hồ sơ địa bàn bổ sung:', err);
         }
 
-      setDataList(combinedList);
-      setAllPrograms(programs);
-      setAllDonVi(donVis);
+      setDataList((prev) => reconcileById(prev, combinedList, (item) => item.id));
+      setAllPrograms((prev) => reconcileById(prev, Array.isArray(programs) ? programs : [], (p) => p.id));
+      setAllDonVi((prev) => reconcileById(prev, Array.isArray(donVis) ? donVis : [], (d) => d.id));
+      hasInitialLoadedRef.current = true;
+      restoreActiveInput(activeInputSnap);
     } catch (err) {
-      console.error('Lỗi nạp kho dữ liệu:', err);
+      // Giữ nguyên dữ liệu cũ khi lỗi
+      console.warn('Lỗi nạp kho dữ liệu (giữ nguyên dữ liệu cũ):', err);
     } finally {
-      setLoading(false);
+      if (showSpinner) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    loadData();
+    loadData(false);
 
-    // Lắng nghe các sự kiện cập nhật để đồng bộ thời gian thực
+    // Lắng nghe các sự kiện cập nhật để đồng bộ thời gian thực (không hiện spinner)
     const handleSync = () => {
-      loadData();
+      loadData(true);
     };
 
     window.addEventListener('ubkt_diaban_records_updated', handleSync);
@@ -243,7 +254,7 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
         api.autoScanAndSyncUnaggregatedFiles().then((res) => {
           if (res.aggregatedCount > 0 || res.syncedDriveCount > 0) {
             console.log(`[Kho dữ liệu] Tự động quét & đồng bộ ngầm: gom ${res.aggregatedCount} tệp, đẩy Drive ${res.syncedDriveCount} tệp.`);
-            loadData();
+            loadData(true);
           }
         }).catch((e) => console.warn('[Kho dữ liệu] Lỗi quét đồng bộ ngầm:', e));
       }
@@ -971,7 +982,7 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
   }, [dataList, allPrograms]);
 
   return (
-    <div className="space-y-5 pb-12 font-sans">
+    <div className="space-y-5 pb-12 font-sans min-h-[600px]">
       {/* ── HEADER ───────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center space-x-3.5">
@@ -1043,7 +1054,7 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
 
           <button
             type="button"
-            onClick={loadData}
+            onClick={() => loadData(false)}
             disabled={loading}
             className="p-2 text-slate-600 hover:text-[#133863] hover:bg-slate-100 rounded-lg border border-slate-200 transition cursor-pointer"
             title="Đồng bộ & làm mới dữ liệu"

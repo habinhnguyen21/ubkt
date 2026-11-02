@@ -237,7 +237,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
         <div className="bg-gradient-to-r from-blue-50/80 via-indigo-50/70 to-slate-50 border border-blue-200/80 rounded-xl p-3.5 flex items-center justify-between shadow-xs">
           <div className="flex items-center space-x-3">
             <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-white transition ${autoSyncEnabled ? 'bg-blue-600 shadow-xs' : 'bg-slate-400'}`}>
-              <RefreshCw className={`w-4 h-4 ${autoSyncEnabled ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
+              <RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} />
             </div>
             <div>
               <div className="flex items-center gap-2">

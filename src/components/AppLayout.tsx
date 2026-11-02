@@ -42,12 +42,9 @@ export function AppLayout({
 }: LayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [isSilentSyncing, setIsSilentSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => cloudSyncService.getLastSyncedAt());
 
   useEffect(() => {
-    const handleStart = () => setIsSilentSyncing(true);
-    const handleEnd = () => setIsSilentSyncing(false);
     const handleStatusChanged = (e: Event) => {
       const ce = e as CustomEvent<{ lastSyncedAt?: string }>;
       if (ce.detail?.lastSyncedAt) {
@@ -55,16 +52,11 @@ export function AppLayout({
       } else {
         setLastSyncTime(cloudSyncService.getLastSyncedAt());
       }
-      setIsSilentSyncing(false);
     };
 
-    window.addEventListener('ubkt_silent_sync_start', handleStart);
-    window.addEventListener('ubkt_silent_sync_end', handleEnd);
     window.addEventListener('ubkt_sync_status_changed', handleStatusChanged);
 
     return () => {
-      window.removeEventListener('ubkt_silent_sync_start', handleStart);
-      window.removeEventListener('ubkt_silent_sync_end', handleEnd);
       window.removeEventListener('ubkt_sync_status_changed', handleStatusChanged);
     };
   }, []);
@@ -129,9 +121,9 @@ export function AppLayout({
                 // ignore
               }
               onTabChange('tong_quan');
-              window.location.reload();
+              onRefresh();
             }}
-            title="Bấm vào logo để tải lại trang và quay về trang tổng quan"
+            title="Bấm vào logo để đồng bộ dữ liệu nền và quay về trang tổng quan"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -263,26 +255,26 @@ export function AppLayout({
             onClick={onOpenCloudSync}
             title={`Đồng bộ Đám mây 2 chiều (Tự động 30s ẩn) - Lần cuối: ${lastSyncTime || 'Chưa rõ'}`}
             style={{
-              background: isSilentSyncing ? '#eff6ff' : '#f8fafc',
-              border: isSilentSyncing ? '1.5px solid #3b82f6' : '1px solid #cbd5e1',
+              background: '#f8fafc',
+              border: '1px solid #cbd5e1',
               borderRadius: 6,
               padding: '4px 10px',
               cursor: 'pointer',
-              color: isSilentSyncing ? '#1d4ed8' : '#334155',
+              color: '#334155',
               fontSize: 12,
               display: 'flex',
               alignItems: 'center',
               gap: 6,
               fontWeight: 600,
-              boxShadow: isSilentSyncing ? '0 0 8px rgba(59,130,246,0.25)' : 'none',
-              transition: 'all 0.2s ease',
+              minWidth: 175,
+              justifyContent: 'center',
+              transition: 'background 0.2s ease, border-color 0.2s ease',
             }}
           >
             <span
               style={{
                 fontSize: 13,
                 display: 'inline-block',
-                animation: isSilentSyncing ? 'spin 1.2s linear infinite' : 'none',
               }}
             >
               ☁️
@@ -298,9 +290,7 @@ export function AppLayout({
               }}
             />
             <span>
-              {isSilentSyncing
-                ? 'Đang đồng bộ ẩn...'
-                : lastSyncTime
+              {lastSyncTime
                 ? `Đồng bộ ẩn (30s) · ${lastSyncTime}`
                 : 'Đồng bộ ẩn (30s)'}
             </span>
@@ -395,7 +385,7 @@ export function AppLayout({
         </header>
 
         {/* Page content */}
-        <main style={{ flex: 1, overflow: 'auto', padding: 20 }}>
+        <main style={{ flex: 1, overflow: 'auto', padding: 20, minHeight: 560 }}>
           {children}
         </main>
 

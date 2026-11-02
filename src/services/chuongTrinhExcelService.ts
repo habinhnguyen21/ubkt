@@ -14,6 +14,134 @@ export const DANH_MUC_LINH_VUC_CHUAN = [
 ];
 
 /**
+ * Chuẩn hóa tên đơn vị / cơ quan để so khớp chính xác:
+ * - Chuyển chữ thường, bỏ dấu tiếng Việt (NFD + bỏ dấu kết hợp, đ -> d) để "Ủy" và "Uỷ" khớp nhau
+ * - Thay "tổ dân phố" bằng "tdp"
+ * - Gộp khoảng trắng
+ * - Bỏ các tiền tố "chi bộ", "đảng bộ", "chi ủy", "ban", "uỷ ban kiểm tra"... khi cần
+ */
+export function normalizeUnitName(s?: string | null, stripPrefix = true): string {
+  if (!s) return '';
+  let norm = String(s)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/[-–—,._/():;"'`]/g, ' ')
+    .replace(/\bto\s+dan\s+pho\b/g, 'tdp')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (stripPrefix && norm) {
+    const prefixRegex =
+      /^(?:uy ban kiem tra dang uy|uy ban kiem tra|ubkt dang uy|ubkt|ban thuong vu dang uy|ban thuong vu|btv dang uy|btv|ban chap hanh dang bo|ban chap hanh|bch dang bo|bch|dang bo co so|dang bo bo phan|dang bo|dang uy|chi bo co so|chi bo|chi uy|ban)\s+/i;
+    let prev = '';
+    while (norm && norm !== prev) {
+      prev = norm;
+      const stripped = norm.replace(prefixRegex, '').trim();
+      if (stripped) {
+        norm = stripped;
+      } else {
+        break;
+      }
+    }
+  }
+
+  return norm;
+}
+
+/**
+ * Tìm đơn vị khớp tốt nhất trong danh mục DonVi (bỏ qua đơn vị đã xóa deleted_at):
+ * 1. Ưu tiên khớp chính xác sau chuẩn hóa (cả tên đầy đủ và tên đã bỏ tiền tố).
+ * 2. Chỉ khi không có khớp chính xác mới dùng so khớp "chứa" (includes),
+ *    nhưng BẮT BUỘC độ dài chuỗi ngắn hơn >= 70% chuỗi dài hơn,
+ *    và KHÔNG dùng khi tên đơn vị chuẩn hóa ngắn hơn 4 ký tự (tránh "Chi bộ 1" khớp nhầm).
+ * 3. Nếu nhiều đơn vị cùng khớp thì chọn đơn vị có độ tương đồng cao nhất.
+ */
+export function findBestMatchingDonVi(
+  rawName?: string | null,
+  donViList?: DonVi[] | null
+): DonVi | null {
+  if (!rawName || !Array.isArray(donViList) || donViList.length === 0) return null;
+
+  const fullQuery = normalizeUnitName(rawName, false);
+  const strippedQuery = normalizeUnitName(rawName, true);
+  if (!fullQuery || fullQuery === 'toan dang bo' || strippedQuery === 'toan dang bo') {
+    return null;
+  }
+
+  const activeUnits = donViList.filter((d) => d && !d.deleted_at);
+  if (activeUnits.length === 0) return null;
+
+  let bestExactUnit: DonVi | null = null;
+  let bestExactScore = 0;
+
+  for (const unit of activeUnits) {
+    const unitFull = normalizeUnitName(unit.ten, false);
+    const unitStripped = normalizeUnitName(unit.ten, true);
+    const unitMa = unit.ma ? normalizeUnitName(unit.ma, false) : '';
+
+    if (!unitFull) continue;
+
+    if (unitFull === fullQuery || (unitMa && unitMa === fullQuery)) {
+      const score = 1.01;
+      if (score > bestExactScore) {
+        bestExactScore = score;
+        bestExactUnit = unit;
+      }
+      continue;
+    }
+
+    if (strippedQuery && unitStripped && unitStripped === strippedQuery) {
+      const score = 1.0;
+      if (score > bestExactScore) {
+        bestExactScore = score;
+        bestExactUnit = unit;
+      }
+    }
+  }
+
+  if (bestExactUnit) {
+    return bestExactUnit;
+  }
+
+  // Bước 2: So khớp "chứa" (includes) chặt chẽ với ngưỡng >= 70% và độ dài tên đơn vị chuẩn hóa >= 4 ký tự
+  let bestContainsUnit: DonVi | null = null;
+  let bestContainsRatio = 0;
+
+  for (const unit of activeUnits) {
+    const unitStripped = normalizeUnitName(unit.ten, true);
+    const unitFull = normalizeUnitName(unit.ten, false);
+
+    // Không dùng so khớp chứa khi tên đơn vị chuẩn hóa ngắn hơn 4 ký tự (VD: "Chi bộ 1" -> "1")
+    if (unitStripped.length < 4 || strippedQuery.length < 4) {
+      continue;
+    }
+
+    const candidates: Array<[string, string]> = [
+      [strippedQuery, unitStripped],
+      [fullQuery, unitFull],
+    ];
+
+    for (const [a, b] of candidates) {
+      if (a.length < 4 || b.length < 4) continue;
+      const shorter = a.length <= b.length ? a : b;
+      const longer = a.length <= b.length ? b : a;
+
+      if (longer.includes(shorter)) {
+        const ratio = shorter.length / longer.length;
+        if (ratio >= 0.7 && ratio > bestContainsRatio) {
+          bestContainsRatio = ratio;
+          bestContainsUnit = unit;
+        }
+      }
+    }
+  }
+
+  return bestContainsUnit;
+}
+
+/**
  * Chuẩn hóa linh hoạt lĩnh vực kiểm tra, giám sát từ mọi biến thể (dấu phẩy, gạch ngang, en-dash, từ khóa...)
  */
 export function normalizeLinhVuc(raw?: string | null): string {
@@ -690,34 +818,29 @@ export async function parseAndValidateChuongTrinhFile(
 
     const tenChuongTrinh = `Kế hoạch ${loaiHinh === 'KIEM_TRA' ? 'kiểm tra' : 'giám sát'} năm ${parsedNam} đối với ${doiTuong}`;
 
-    // Tìm kiếm tổ chức đảng tương ứng trong danh mục chung DonVi
-    const cleanDoiTuong = doiTuong.trim().toLowerCase();
-    const matchedDonVi = (donViList || []).find(
-      (d) =>
-        d.ten.trim().toLowerCase() === cleanDoiTuong ||
-        (d.ma && d.ma.trim().toLowerCase() === cleanDoiTuong),
-    );
+    // Bỏ qua các đơn vị đã xóa (deleted_at) khi đối chiếu
+    const activeUnits = (donViList || []).filter((d) => d && !d.deleted_at);
+
+    // Ưu tiên tìm đơn vị khớp theo chu_the (coQuan) trước, sau đó đối chiếu thêm doiTuong
+    const matchedChuTheUnit = findBestMatchingDonVi(coQuan, activeUnits);
+    const matchedDoiTuongUnit = findBestMatchingDonVi(doiTuong, activeUnits);
+    const primaryUnit = matchedChuTheUnit || matchedDoiTuongUnit;
 
     // Xác định phân loại chủ thể thực hiện và cấp chủ thể chuẩn xác
     let chuTheLoai: ChuTheLoai = 'KHAC';
     let capChuThe: CapChuThe = 'CO_SO';
-    let chuTheDonViId: string | null = null;
+    let chuTheDonViId: string | null = matchedChuTheUnit ? matchedChuTheUnit.id : null;
 
     const lowerCq = (coQuan || '').toLowerCase().trim();
-    const activeUnits = (donViList || []).filter((d) => !d.deleted_at);
-    const rootUnit = activeUnits.find((d) => !d.don_vi_cha_id);
-    const rootId = rootUnit ? rootUnit.id : null;
 
     // 1. Kiểm tra nếu tên cơ quan thuộc về một tổ chức đảng trực thuộc (trường học, chi bộ)
-    const childUnits = activeUnits.filter((d) => d.don_vi_cha_id);
-    let matchedChild: DonVi | undefined;
-    for (const cu of childUnits) {
-      const cuClean = cu.ten.toLowerCase().replace(/^(chi bộ|đảng bộ)\s+/i, '').trim();
-      if (cuClean.length >= 3 && lowerCq.includes(cuClean)) {
-        matchedChild = cu;
-        break;
-      }
-    }
+    const matchedChild =
+      matchedChuTheUnit && matchedChuTheUnit.don_vi_cha_id
+        ? matchedChuTheUnit
+        : findBestMatchingDonVi(
+            coQuan,
+            activeUnits.filter((d) => d.don_vi_cha_id)
+          ) || undefined;
 
     const isSchoolOrSub =
       lowerCq.includes('trường') ||
@@ -729,7 +852,7 @@ export async function parseAndValidateChuongTrinhFile(
 
     if (matchedChild || isSchoolOrSub) {
       capChuThe = 'CO_SO';
-      chuTheDonViId = matchedChild ? matchedChild.id : null;
+      chuTheDonViId = matchedChild ? matchedChild.id : matchedChuTheUnit?.id || null;
       if (lowerCq.includes('kiểm tra') || lowerCq.includes('ubkt')) {
         chuTheLoai = 'UBKT_CO_SO';
       } else if (matchedChild?.loai === 'CHI_BO' || lowerCq.includes('chi bộ')) {
@@ -740,7 +863,7 @@ export async function parseAndValidateChuongTrinhFile(
     } else {
       // Cơ quan cấp Đảng ủy phường
       capChuThe = 'PHUONG';
-      chuTheDonViId = rootId;
+      chuTheDonViId = matchedChuTheUnit ? matchedChuTheUnit.id : null;
       if (lowerCq.includes('thường vụ') || lowerCq.includes('btv')) {
         chuTheLoai = 'BTV';
       } else if (lowerCq.includes('kiểm tra') || lowerCq.includes('ubkt')) {
@@ -757,6 +880,9 @@ export async function parseAndValidateChuongTrinhFile(
       }
     }
 
+    const finalDonViId = primaryUnit ? primaryUnit.id : chuTheDonViId;
+    const finalTenDonVi = primaryUnit ? primaryUnit.ten : null;
+
     const rawPayload: CreateChuongTrinhInput = {
       nam: parsedNam,
       loai_chuong_trinh: 'HANG_NAM',
@@ -765,18 +891,18 @@ export async function parseAndValidateChuongTrinhFile(
       chu_the: coQuan,
       chu_the_loai: chuTheLoai,
       cap_chu_the: capChuThe,
-      chu_the_don_vi_id: chuTheDonViId,
+      chu_the_don_vi_id: matchedChuTheUnit ? matchedChuTheUnit.id : chuTheDonViId,
       co_quan_ban_hanh: coQuan,
       chu_the_ap_dung: doiTuong,
-      don_vi_id: matchedDonVi ? matchedDonVi.id : null,
-      ten_don_vi: matchedDonVi ? matchedDonVi.ten : null,
-      chi_dang_bo_id: matchedDonVi ? matchedDonVi.id : null,
-      ten_chi_dang_bo: matchedDonVi ? matchedDonVi.ten : null,
+      don_vi_id: finalDonViId,
+      ten_don_vi: finalTenDonVi,
+      chi_dang_bo_id: matchedDoiTuongUnit ? matchedDoiTuongUnit.id : finalDonViId,
+      ten_chi_dang_bo: matchedDoiTuongUnit ? matchedDoiTuongUnit.ten : finalTenDonVi,
       loai_hinh: loaiHinh,
       linh_vuc: linhVuc,
-      doi_tuong: matchedDonVi ? matchedDonVi.ten : doiTuong,
+      doi_tuong: matchedDoiTuongUnit ? matchedDoiTuongUnit.ten : doiTuong,
       doi_tuong_loai: 'TO_CHUC',
-      doi_tuong_don_vi_id: matchedDonVi ? matchedDonVi.id : null,
+      doi_tuong_don_vi_id: matchedDoiTuongUnit ? matchedDoiTuongUnit.id : null,
       noi_dung: noiDung,
       ten_chuong_trinh: tenChuongTrinh,
       noi_dung_van_ban: null,

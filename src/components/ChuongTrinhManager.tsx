@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
+import { reconcileById, isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import type {
   ChuongTrinhKtGs,
   CreateChuongTrinhInput,
@@ -66,7 +67,12 @@ import {
 } from 'lucide-react';
 import { ChuongTrinhImportExcelModal } from './chuongtrinh/ChuongTrinhImportExcelModal';
 import { ChinhTienDoNamModal } from './chuongtrinh/ChinhTienDoNamModal';
-import { exportChuongTrinhToExcel, normalizeLinhVuc } from '../services/chuongTrinhExcelService';
+import {
+  exportChuongTrinhToExcel,
+  normalizeLinhVuc,
+  normalizeUnitName,
+  findBestMatchingDonVi,
+} from '../services/chuongTrinhExcelService';
 
 // Chuyển đổi an toàn Base64 Data URL sang Blob URL để xem trực tiếp trong iframe và mở tab mới
 const getBlobUrlFromDataUrl = (dataUrl?: string | null): string | null => {
@@ -160,85 +166,123 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     }
   });
 
-  // Hàm trích xuất họ và tên các cán bộ được phân công phụ trách từ phân hệ Phân công quản lý
-  const getAssignedOfficers = (item: ChuongTrinhKtGs): string[] => {
-    if (!isAdmin) return [];
+  // Danh sách đơn vị đang hoạt động (bỏ qua các đơn vị có deleted_at khi đối chiếu)
+  const activeDonViList = useMemo(
+    () => allDonVi.filter((d) => d && !d.deleted_at),
+    [allDonVi]
+  );
+
+  // So khớp chặt 2 tên đơn vị đã qua normalizeUnitName (dùng cho cả DonVi và DiaBanRecord dự phòng)
+  const isStrictUnitNameMatch = (nameA?: string | null, nameB?: string | null): boolean => {
+    if (!nameA || !nameB) return false;
+    const fullA = normalizeUnitName(nameA, false);
+    const fullB = normalizeUnitName(nameB, false);
+    if (!fullA || !fullB) return false;
+    if (fullA === fullB) return true;
+
+    const stripA = normalizeUnitName(nameA, true);
+    const stripB = normalizeUnitName(nameB, true);
+    if (stripA && stripB && stripA === stripB) return true;
+
+    if (stripA.length < 4 || stripB.length < 4) return false;
+    const shorter = stripA.length <= stripB.length ? stripA : stripB;
+    const longer = stripA.length <= stripB.length ? stripB : stripA;
+    if (longer.includes(shorter) && shorter.length / longer.length >= 0.7) {
+      return true;
+    }
+    return false;
+  };
+
+  // Phân tích chi tiết đơn vị khớp & cán bộ được phân công cho từng chương trình KT-GS
+  const resolveProgramAssignmentInfo = (item: ChuongTrinhKtGs): {
+    officers: string[];
+    matchedUnits: DonVi[];
+    lookupAgencyName: string;
+    status: 'ASSIGNED' | 'NO_UNIT' | 'NO_OFFICER';
+  } => {
+    const lookupAgencyName =
+      (item.chu_the || item.co_quan_ban_hanh || item.ten_don_vi || item.ten_chi_dang_bo || item.doi_tuong || item.chu_the_ap_dung || '').trim() ||
+      'Chưa rõ cơ quan';
+
+    if (!isAdmin) {
+      return { officers: [], matchedUnits: [], lookupAgencyName, status: 'NO_UNIT' };
+    }
 
     const matchedUnits: DonVi[] = [];
 
-    // 1. Đối chiếu theo ID đơn vị
-    const candidateIds = [item.doi_tuong_don_vi_id, item.chi_dang_bo_id, item.don_vi_id].filter(Boolean) as string[];
+    // 1. Đối chiếu theo ID đơn vị đã lưu (bỏ qua đơn vị có deleted_at)
+    // Ưu tiên don_vi_id và chu_the_don_vi_id trước
+    const candidateIds = [
+      item.don_vi_id,
+      item.chu_the_don_vi_id,
+      item.chi_dang_bo_id,
+      item.doi_tuong_don_vi_id,
+    ].filter(Boolean) as string[];
+
     for (const id of candidateIds) {
-      const found = allDonVi.find((d) => d.id === id);
-      if (found && !matchedUnits.some((m) => m.id === found.id)) {
-        matchedUnits.push(found);
+      const found = activeDonViList.find((d) => d.id === id);
+      if (found) {
+        // Nếu là đơn vị gốc (cấp Đảng ủy phường, !don_vi_cha_id) được gán mặc định ở dữ liệu cũ,
+        // kiểm tra xem tên chu_the / co_quan_ban_hanh có thực sự khớp đơn vị gốc hay một đơn vị con khác không
+        if (!found.don_vi_cha_id && item.don_vi_id !== found.id) {
+          const byChuThe = findBestMatchingDonVi(item.chu_the || item.co_quan_ban_hanh, activeDonViList);
+          if (!byChuThe || byChuThe.id !== found.id) {
+            continue;
+          }
+        }
+        if (!matchedUnits.some((m) => m.id === found.id)) {
+          matchedUnits.push(found);
+        }
       }
     }
 
-    // 2. Đối chiếu theo tên đơn vị / đối tượng
+    // 2. Đối chiếu theo tên cơ quan / đơn vị
+    // Ưu tiên chu_the và co_quan_ban_hanh TRƯỚC (vì doi_tuong và chu_the_ap_dung thường là tên cá nhân)
     const candidateNames = [
-      item.doi_tuong,
-      item.ten_chi_dang_bo,
+      item.chu_the,
+      item.co_quan_ban_hanh,
       item.ten_don_vi,
+      item.ten_chi_dang_bo,
+      item.doi_tuong,
       item.chu_the_ap_dung,
     ].filter(Boolean) as string[];
 
     for (const rawName of candidateNames) {
-      const cleanName = rawName.trim().toLowerCase();
-      if (!cleanName || cleanName === 'toàn đảng bộ') continue;
-
-      const found = allDonVi.find((d) => {
-        const dName = d.ten.trim().toLowerCase();
-        if (dName === cleanName) return true;
-        if (d.ma && d.ma.trim().toLowerCase() === cleanName) return true;
-        const dNoPrefix = dName.replace(/^(chi bộ|đảng bộ|chi ủy)\s+/i, '').trim();
-        const cleanNoPrefix = cleanName.replace(/^(chi bộ|đảng bộ|chi ủy)\s+/i, '').trim();
-        if (
-          dNoPrefix &&
-          cleanNoPrefix &&
-          (dNoPrefix === cleanNoPrefix || dName.includes(cleanNoPrefix) || cleanName.includes(dNoPrefix))
-        ) {
-          return true;
-        }
-        return false;
-      });
-
+      const found = findBestMatchingDonVi(rawName, activeDonViList);
       if (found && !matchedUnits.some((m) => m.id === found.id)) {
         matchedUnits.push(found);
       }
     }
 
-    const targetUnitIds = Array.from(new Set([...candidateIds, ...matchedUnits.map((u) => u.id)]));
+    const targetUnitIds = matchedUnits.map((u) => u.id);
     const officerNames: string[] = [];
 
-    // Tìm trong danh sách phân công địa bàn (assignments)
-    if (Array.isArray(assignments)) {
-      for (const a of assignments) {
-        if (!Array.isArray(a?.don_vi_ids)) continue;
-        const isAssigned = targetUnitIds.some((uid) => a.don_vi_ids.includes(uid));
-        if (isAssigned) {
-          const usr = usersList.find((u) => u.id === a.user_id);
-          const rawName = usr?.ho_ten || a.user_name || '';
-          const cleanName = rawName.replace(/^(Đ\/c|Đồng chí)\s+/i, '').trim();
-          if (cleanName && !officerNames.includes(cleanName)) {
-            officerNames.push(cleanName);
+    // 3. Tìm trong danh sách phân công địa bàn (assignments) theo thứ tự ưu tiên đơn vị khớp
+    if (Array.isArray(assignments) && targetUnitIds.length > 0) {
+      for (const uid of targetUnitIds) {
+        for (const a of assignments) {
+          if (!Array.isArray(a?.don_vi_ids)) continue;
+          if (a.don_vi_ids.includes(uid)) {
+            const usr = usersList.find((u) => u.id === a.user_id);
+            const rawName = usr?.ho_ten || a.user_name || '';
+            const cleanName = rawName.replace(/^(Đ\/c|Đồng chí)\s+/i, '').trim();
+            if (cleanName && !officerNames.includes(cleanName)) {
+              officerNames.push(cleanName);
+            }
           }
         }
       }
     }
 
-    // Dự phòng tìm trong danh sách hồ sơ địa bàn nếu assignments chưa nạp xong
+    // 4. Dự phòng tìm trong danh sách hồ sơ địa bàn nếu assignments chưa có
     if (officerNames.length === 0 && Array.isArray(diaBanRecords)) {
       for (const rec of diaBanRecords) {
-        const isMatch =
-          targetUnitIds.includes(rec.id) ||
-          candidateNames.some((cn) => {
-            const cLower = cn.trim().toLowerCase();
-            const rLower = (rec.ten_dia_ban || '').trim().toLowerCase();
-            return cLower && rLower && (cLower === rLower || rLower.includes(cLower) || cLower.includes(rLower));
-          });
+        const isMatchById = targetUnitIds.includes(rec.id);
+        const isMatchByName =
+          !isMatchById &&
+          candidateNames.some((cn) => isStrictUnitNameMatch(cn, rec.ten_dia_ban));
 
-        if (isMatch) {
+        if (isMatchById || isMatchByName) {
           if (Array.isArray(rec.can_bo_phu_trach_ids) && rec.can_bo_phu_trach_ids.length > 0) {
             for (const uid of rec.can_bo_phu_trach_ids) {
               const usr = usersList.find((u) => u.id === uid);
@@ -255,7 +299,11 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
               if (clean && !officerNames.includes(clean)) officerNames.push(clean);
             }
           }
-          if (officerNames.length === 0 && rec.can_bo_phu_trach_ten && rec.can_bo_phu_trach_ten !== 'Chưa phân công') {
+          if (
+            officerNames.length === 0 &&
+            rec.can_bo_phu_trach_ten &&
+            rec.can_bo_phu_trach_ten !== 'Chưa phân công'
+          ) {
             const parts = rec.can_bo_phu_trach_ten
               .split(/[,;\n]+/)
               .map((s) => s.replace(/^(Đ\/c|Đồng chí)\s+/i, '').trim())
@@ -268,23 +316,62 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       }
     }
 
-    return officerNames;
+    const status: 'ASSIGNED' | 'NO_UNIT' | 'NO_OFFICER' =
+      officerNames.length > 0
+        ? 'ASSIGNED'
+        : matchedUnits.length === 0
+        ? 'NO_UNIT'
+        : 'NO_OFFICER';
+
+    return {
+      officers: officerNames,
+      matchedUnits,
+      lookupAgencyName,
+      status,
+    };
   };
 
-  // Render hiển thị tên cán bộ hoặc "Chưa phân công"
+  // Hàm trích xuất họ và tên các cán bộ được phân công phụ trách từ phân hệ Phân công quản lý
+  const getAssignedOfficers = (item: ChuongTrinhKtGs): string[] => {
+    return resolveProgramAssignmentInfo(item).officers;
+  };
+
+  // Render hiển thị tên cán bộ hoặc trạng thái chi tiết kèm tooltip tên cơ quan đang tra cứu
   const renderAssignedOfficers = (item: ChuongTrinhKtGs) => {
-    const officers = getAssignedOfficers(item);
-    if (officers.length === 0) {
+    const info = resolveProgramAssignmentInfo(item);
+    if (info.officers.length > 0) {
+      const unitNames = info.matchedUnits.map((u) => u.ten).join(', ');
+      const tooltip = unitNames
+        ? `Cán bộ phụ trách: ${info.officers.join(', ')}\nĐơn vị khớp: ${unitNames}\nCơ quan tra cứu: ${info.lookupAgencyName}`
+        : `Cán bộ phụ trách: ${info.officers.join(', ')}\nCơ quan tra cứu: ${info.lookupAgencyName}`;
       return (
-        <span className="text-slate-400 italic text-xs font-normal">
-          Chưa phân công
+        <div className="font-semibold text-slate-800 text-xs leading-snug" title={tooltip}>
+          {info.officers.join(', ')}
+        </div>
+      );
+    }
+
+    if (info.status === 'NO_UNIT') {
+      const tooltip = `Chưa tìm thấy đơn vị khớp trong danh mục Cơ cấu tổ chức.\nCơ quan đang tra cứu: "${info.lookupAgencyName}"`;
+      return (
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200/80 text-[11px] font-medium cursor-help"
+          title={tooltip}
+        >
+          <span>Chưa gắn đơn vị</span>
         </span>
       );
     }
+
+    const matchedUnitLabel = info.matchedUnits.map((u) => u.ten).join(', ');
+    const tooltip = `Đã khớp đơn vị: "${matchedUnitLabel}" (tra cứu từ: "${info.lookupAgencyName}"), nhưng đơn vị này hiện chưa được phân công cán bộ phụ trách.`;
     return (
-      <div className="font-semibold text-slate-800 text-xs leading-snug" title={officers.join(', ')}>
-        {officers.join(', ')}
-      </div>
+      <span
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[11px] font-medium cursor-help"
+        title={tooltip}
+      >
+        <span>Đơn vị chưa có người phụ trách</span>
+      </span>
     );
   };
 
@@ -642,55 +729,79 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   const [deleteTarget, setDeleteTarget] = useState<ChuongTrinhKtGs | null>(null);
 
   const canEdit = user.vai_tro === 'ADMIN' || user.vai_tro === 'BIEN_TAP';
+  const hasInitialLoadedRef = useRef(false);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (silent = false) => {
+    const showSpinner = !silent && !hasInitialLoadedRef.current;
+    if (showSpinner) {
+      setLoading(true);
+    }
     try {
       const [programs, units] = await Promise.all([
         api.getAllChuongTrinh(),
         api.getAllDonVi(),
       ]);
-      setList(programs);
-      setAllDonVi(units);
-      if (programs.length > 0) {
+      const activeInputSnap = captureActiveInput();
+      const safePrograms = Array.isArray(programs) ? programs : [];
+      const safeUnits = Array.isArray(units) ? units : [];
+      setList((prev) => reconcileById(prev, safePrograms, (p) => p.id));
+      setAllDonVi((prev) => reconcileById(prev, safeUnits, (u) => u.id));
+      if (safePrograms.length > 0) {
         setSelectedProgram((prev) => {
-          if (!prev) return programs[0];
-          const found = programs.find((p) => p.id === prev.id);
-          return found || programs[0];
+          if (!prev) return safePrograms[0];
+          const found = safePrograms.find((p) => p.id === prev.id);
+          if (!found) return safePrograms[0];
+          return isSameData(prev, found) ? prev : found;
         });
       }
 
       if (isAdmin) {
         const [savedAssignments, savedUsers, savedDiaBan] = await Promise.all([
-          api.getPhanCongDiaBan().catch(() => [] as PhanCongDiaBan[]),
-          api.getAllUsers().catch(() => [] as User[]),
-          api.getDiaBanRecords().catch(() => [] as DiaBanRecord[]),
+          api.getPhanCongDiaBan().catch(() => null),
+          api.getAllUsers().catch(() => null),
+          api.getDiaBanRecords().catch(() => null),
         ]);
-        if (Array.isArray(savedAssignments)) setAssignments(savedAssignments);
-        if (Array.isArray(savedUsers)) setUsersList(savedUsers);
-        if (Array.isArray(savedDiaBan)) setDiaBanRecords(savedDiaBan);
+        if (Array.isArray(savedAssignments)) {
+          setAssignments((prev) => reconcileById(prev, savedAssignments, (a) => a.user_id));
+        }
+        if (Array.isArray(savedUsers)) {
+          setUsersList((prev) => reconcileById(prev, savedUsers, (u) => u.id));
+        }
+        if (Array.isArray(savedDiaBan)) {
+          setDiaBanRecords((prev) => reconcileById(prev, savedDiaBan, (r) => r.id));
+        }
       }
+      hasInitialLoadedRef.current = true;
+      restoreActiveInput(activeInputSnap);
     } catch (err) {
-      console.error('Lỗi tải danh sách chương trình:', err);
+      // Giữ nguyên dữ liệu cũ khi lỗi
+      console.warn('Lỗi tải danh sách chương trình (giữ nguyên dữ liệu cũ):', err);
     } finally {
-      setLoading(false);
+      if (showSpinner) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    loadData();
+    loadData(false);
     const handleUpdate = () => {
-      loadData();
+      loadData(true);
     };
 
     const handleAssignmentsChanged = (e: Event) => {
       const ce = e as CustomEvent<PhanCongDiaBan[]>;
       if (ce.detail && Array.isArray(ce.detail)) {
-        setAssignments(ce.detail);
+        setAssignments((prev) => reconcileById(prev, ce.detail, (a) => a.user_id));
       } else {
         try {
           const saved = localStorage.getItem('ubkt_phan_cong_dia_ban');
-          if (saved) setAssignments(JSON.parse(saved));
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) {
+              setAssignments((prev) => reconcileById(prev, parsed, (a) => a.user_id));
+            }
+          }
         } catch {
           // ignore
         }
@@ -700,11 +811,16 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     const handleDiaBanChanged = (e: Event) => {
       const ce = e as CustomEvent<DiaBanRecord[]>;
       if (ce.detail && Array.isArray(ce.detail)) {
-        setDiaBanRecords(ce.detail);
+        setDiaBanRecords((prev) => reconcileById(prev, ce.detail, (r) => r.id));
       } else {
         try {
           const saved = localStorage.getItem('ubkt_dia_ban_records');
-          if (saved) setDiaBanRecords(JSON.parse(saved));
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) {
+              setDiaBanRecords((prev) => reconcileById(prev, parsed, (r) => r.id));
+            }
+          }
         } catch {
           // ignore
         }
@@ -713,17 +829,28 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
     const handleUsersChanged = () => {
       api.getAllUsers().then((usrs) => {
-        if (Array.isArray(usrs)) setUsersList(usrs);
+        if (Array.isArray(usrs)) {
+          setUsersList((prev) => reconcileById(prev, usrs, (u) => u.id));
+        }
       }).catch(() => {});
     };
 
     const handleStorage = (e: StorageEvent) => {
       if (e.key === 'ubkt_phan_cong_dia_ban' && e.newValue) {
-        try { setAssignments(JSON.parse(e.newValue)); } catch {}
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) setAssignments((prev) => reconcileById(prev, parsed, (a) => a.user_id));
+        } catch {}
       } else if (e.key === 'ubkt_dia_ban_records' && e.newValue) {
-        try { setDiaBanRecords(JSON.parse(e.newValue)); } catch {}
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) setDiaBanRecords((prev) => reconcileById(prev, parsed, (r) => r.id));
+        } catch {}
       } else if (e.key === 'ubkt_users' && e.newValue) {
-        try { setUsersList(JSON.parse(e.newValue)); } catch {}
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) setUsersList((prev) => reconcileById(prev, parsed, (u) => u.id));
+        } catch {}
       }
     };
 
@@ -1489,8 +1616,15 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       const finalPdfName = hnRemovePdf ? null : hnPdfFileName;
       const finalPdfUrl = hnRemovePdf ? null : hnPdfFileUrl;
       const finalPdfSize = hnRemovePdf ? null : hnPdfFileSize;
-      const matchedDonVi = allDonVi.find((d) => d.ten === hnChuThe);
-      const finalDonViId = matchedDonVi ? matchedDonVi.id : hnDonViId;
+
+      // Tự động tìm đơn vị khớp theo chu_the (ưu tiên chu_the trước) bằng findBestMatchingDonVi
+      const matchedChuTheDv = findBestMatchingDonVi(hnChuThe, activeDonViList);
+      const matchedDoiTuongDv = findBestMatchingDonVi(hnDoiTuong, activeDonViList);
+      const explicitDonVi = hnDonViId
+        ? activeDonViList.find((d) => d.id === hnDonViId) || null
+        : null;
+      const primaryDonVi = matchedChuTheDv || explicitDonVi || matchedDoiTuongDv;
+      const finalDonViId = primaryDonVi ? primaryDonVi.id : null;
 
       let finalDriveUrl = finalPdfUrl;
       let driveFileId: string | undefined = undefined;
@@ -1519,14 +1653,6 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         }
       }
 
-      // Tìm tổ chức đảng chuẩn hóa trong allDonVi
-      const cleanDoiTuong = hnDoiTuong.trim().toLowerCase();
-      const matchedDoiTuongDv = allDonVi.find(
-        (d) =>
-          d.ten.trim().toLowerCase() === cleanDoiTuong ||
-          (d.ma && d.ma.trim().toLowerCase() === cleanDoiTuong)
-      );
-
       // Phân loại chủ thể ban hành (BCH, BTV, UBKT, KHAC)
       let chuTheLoai: 'BCH' | 'BTV' | 'UBKT' | 'KHAC' = 'KHAC';
       const lowerChuThe = hnChuThe.toLowerCase();
@@ -1543,13 +1669,18 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         loai_chuong_trinh: 'HANG_NAM',
         nhiem_ky: null,
         has_nhiem_ky: false,
-        chu_the: hnChuThe,
+        chu_the: hnChuThe.trim(),
+        co_quan_ban_hanh: hnChuThe.trim(),
         chu_the_loai: chuTheLoai,
-        chu_the_don_vi_id: finalDonViId,
+        chu_the_don_vi_id: matchedChuTheDv ? matchedChuTheDv.id : finalDonViId,
         don_vi_id: finalDonViId,
-        ten_don_vi: null,
-        chi_dang_bo_id: matchedDoiTuongDv ? matchedDoiTuongDv.id : null,
-        ten_chi_dang_bo: matchedDoiTuongDv ? matchedDoiTuongDv.ten : null,
+        ten_don_vi: primaryDonVi ? primaryDonVi.ten : null,
+        chi_dang_bo_id: matchedDoiTuongDv ? matchedDoiTuongDv.id : finalDonViId,
+        ten_chi_dang_bo: matchedDoiTuongDv
+          ? matchedDoiTuongDv.ten
+          : primaryDonVi
+          ? primaryDonVi.ten
+          : null,
         loai_hinh: hnLoaiHinh,
         linh_vuc: hnLinhVuc || DANH_MUC_LINH_VUC[0],
         doi_tuong: matchedDoiTuongDv ? matchedDoiTuongDv.ten : hnDoiTuong.trim(),
@@ -1877,6 +2008,11 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         }
       }
 
+      // Tự động tìm đơn vị khớp theo chu_the / co_quan_ban_hanh để lưu don_vi_id
+      const matchedChuTheDv = findBestMatchingDonVi(formCoQuanBanHanh, activeDonViList);
+      const matchedApDungDv = findBestMatchingDonVi(formChuTheApDung, activeDonViList);
+      const primaryDonVi = matchedChuTheDv || matchedApDungDv;
+
       const payload: CreateChuongTrinhInput = {
         nam: formTermStartYear || new Date().getFullYear(),
         loai_chuong_trinh: formHasNhiemKy ? 'NHIEM_KY' : 'HANG_NAM',
@@ -1889,6 +2025,12 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         chu_the_ap_dung: formChuTheApDung.trim(),
         thoi_gian_loai: isCA_NHIEM_KY ? 'CA_NHIEM_KY' : 'KHOANG_THOI_GIAN',
         chu_the: formCoQuanBanHanh.trim(),
+        chu_the_don_vi_id: matchedChuTheDv ? matchedChuTheDv.id : primaryDonVi ? primaryDonVi.id : null,
+        don_vi_id: primaryDonVi ? primaryDonVi.id : null,
+        ten_don_vi: primaryDonVi ? primaryDonVi.ten : null,
+        chi_dang_bo_id: matchedApDungDv ? matchedApDungDv.id : primaryDonVi ? primaryDonVi.id : null,
+        ten_chi_dang_bo: matchedApDungDv ? matchedApDungDv.ten : primaryDonVi ? primaryDonVi.ten : null,
+        doi_tuong_don_vi_id: matchedApDungDv ? matchedApDungDv.id : null,
         doi_tuong: formChuTheApDung.trim(),
         noi_dung: formNoiDung.trim(),
         noi_dung_van_ban: formNoiDungVanBan.trim() || null,
@@ -2243,10 +2385,164 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     });
   };
 
+  // ── TỰ ĐỘNG GÁN ĐƠN VỊ CHO CHƯƠNG TRÌNH CŨ & BÁO CÁO CHU_THE CHƯA KHỚP ──────────
+  const [isAutoAssigningUnits, setIsAutoAssigningUnits] = useState(false);
+  const [isUnmatchedReportOpen, setIsUnmatchedReportOpen] = useState(false);
+  const [autoAssignResultMsg, setAutoAssignResultMsg] = useState<string | null>(null);
 
+  // Báo cáo nhanh các tên chu_the / co_quan_ban_hanh không khớp đơn vị nào trong danh mục DonVi
+  const unmatchedChuTheReport = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        chu_the: string;
+        normalized: string;
+        count: number;
+        samplePrograms: string[];
+        years: Set<number>;
+      }
+    >();
+
+    for (const item of list) {
+      const rawChuThe = (item.chu_the || item.co_quan_ban_hanh || '').trim();
+      if (!rawChuThe) continue;
+
+      const matchedById = item.don_vi_id
+        ? activeDonViList.find((d) => d.id === item.don_vi_id)
+        : null;
+      const matchedByChuThe = findBestMatchingDonVi(rawChuThe, activeDonViList);
+
+      if (!matchedById && !matchedByChuThe) {
+        const key = rawChuThe.toLowerCase();
+        const existing = map.get(key);
+        const sampleLabel = item.so_van_ban
+          ? `${item.so_van_ban} (${item.nam})`
+          : `Năm ${item.nam}: ${(item.noi_dung || '').slice(0, 40)}...`;
+        if (existing) {
+          existing.count += 1;
+          existing.years.add(item.nam);
+          if (existing.samplePrograms.length < 3 && !existing.samplePrograms.includes(sampleLabel)) {
+            existing.samplePrograms.push(sampleLabel);
+          }
+        } else {
+          map.set(key, {
+            chu_the: rawChuThe,
+            normalized: normalizeUnitName(rawChuThe, true),
+            count: 1,
+            samplePrograms: [sampleLabel],
+            years: new Set([item.nam]),
+          });
+        }
+      }
+    }
+
+    return Array.from(map.values())
+      .map((entry) => ({
+        chu_the: entry.chu_the,
+        ten_chuan_hoa: entry.normalized,
+        so_chuong_trinh: entry.count,
+        nam: Array.from(entry.years).sort().join(', '),
+        van_ban_mau: entry.samplePrograms.join('; '),
+      }))
+      .sort((a, b) => b.so_chuong_trinh - a.so_chuong_trinh);
+  }, [list, activeDonViList]);
+
+  const handleOpenUnmatchedReport = () => {
+    if (unmatchedChuTheReport.length > 0) {
+      console.group('📊 BÁO CÁO CÁC TÊN CHU_THE CHƯA KHỚP ĐƠN VỊ TRONG DANH MỤC DONVI');
+      console.table(unmatchedChuTheReport);
+      console.groupEnd();
+    } else {
+      console.info('✅ Tất cả tên chu_the trong chương trình KT-GS đều đã khớp với danh mục DonVi.');
+    }
+    setIsUnmatchedReportOpen(true);
+  };
+
+  // Hàm chạy một lần để tự động tìm và gán don_vi_id cho các chương trình cũ
+  const handleAutoAssignUnitsToOldPrograms = async () => {
+    if (activeDonViList.length === 0) {
+      alert('Danh mục đơn vị (DonVi) đang trống. Vui lòng kiểm tra lại tab Cơ cấu tổ chức.');
+      return;
+    }
+
+    setIsAutoAssigningUnits(true);
+    setAutoAssignResultMsg(null);
+    let updatedCount = 0;
+    let alreadyMatchedCount = 0;
+    let unmatchedCount = 0;
+
+    try {
+      for (const item of list) {
+        // Ưu tiên tìm đơn vị theo chu_the và co_quan_ban_hanh trước
+        const matchedByChuThe =
+          findBestMatchingDonVi(item.chu_the, activeDonViList) ||
+          findBestMatchingDonVi(item.co_quan_ban_hanh, activeDonViList);
+
+        const matchedByOther =
+          findBestMatchingDonVi(item.ten_don_vi, activeDonViList) ||
+          findBestMatchingDonVi(item.ten_chi_dang_bo, activeDonViList) ||
+          findBestMatchingDonVi(item.doi_tuong, activeDonViList) ||
+          findBestMatchingDonVi(item.chu_the_ap_dung, activeDonViList);
+
+        const bestUnit = matchedByChuThe || matchedByOther;
+
+        if (!bestUnit) {
+          const existingValid = item.don_vi_id
+            ? activeDonViList.find((d) => d.id === item.don_vi_id)
+            : null;
+          if (existingValid) {
+            alreadyMatchedCount++;
+          } else {
+            unmatchedCount++;
+          }
+          continue;
+        }
+
+        const nextDonViId = bestUnit.id;
+        const nextChuTheDonViId = matchedByChuThe ? matchedByChuThe.id : bestUnit.id;
+        const nextTenDonVi = bestUnit.ten;
+
+        const needsUpdate =
+          item.don_vi_id !== nextDonViId ||
+          item.chu_the_don_vi_id !== nextChuTheDonViId ||
+          !item.ten_don_vi;
+
+        if (needsUpdate) {
+          await api.updateChuongTrinh({
+            ...item,
+            id: item.id,
+            don_vi_id: nextDonViId,
+            chu_the_don_vi_id: nextChuTheDonViId,
+            ten_don_vi: nextTenDonVi,
+          });
+          updatedCount++;
+        } else {
+          alreadyMatchedCount++;
+        }
+      }
+
+      await loadData();
+      onDataChanged?.();
+
+      const summaryMsg = `Đã tự động gán và cập nhật đơn vị (don_vi_id) cho ${updatedCount} chương trình (Đã khớp sẵn: ${alreadyMatchedCount}, Chưa khớp đơn vị: ${unmatchedCount}).`;
+      setAutoAssignResultMsg(summaryMsg);
+
+      // In báo cáo console.table các chu_the chưa khớp để dễ tra cứu
+      if (unmatchedChuTheReport.length > 0) {
+        console.group('📊 BÁO CÁO CÁC TÊN CHU_THE CHƯA KHỚP SAU KHI TỰ ĐỘNG GÁN');
+        console.table(unmatchedChuTheReport);
+        console.groupEnd();
+      }
+      setIsUnmatchedReportOpen(true);
+    } catch (err) {
+      alert('Lỗi khi tự động gán đơn vị: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsAutoAssigningUnits(false);
+    }
+  };
 
   return (
-    <div className="space-y-4 pb-12 font-sans">
+    <div className="space-y-4 pb-12 font-sans min-h-[600px]">
       {/* ── BREADCRUMB ────────────────────────────────────────── */}
       <div className="flex items-center space-x-2 text-xs text-slate-500">
         <Home className="w-3.5 h-3.5 text-slate-400" />
@@ -2303,9 +2599,44 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
           </button>
         </div>
 
-        <div className="flex items-center space-x-2 text-xs text-slate-500">
-          <span className="hidden sm:inline">Tổng số chương trình: <strong className="text-slate-800">{list.length}</strong></span>
-          <span className="hidden sm:inline text-slate-300">•</span>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          {isAdmin && (
+            <>
+              <button
+                type="button"
+                onClick={handleAutoAssignUnitsToOldPrograms}
+                disabled={isAutoAssigningUnits}
+                className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-semibold text-xs transition cursor-pointer disabled:opacity-60"
+                title="Tự động đối chiếu tên chu_the và lưu don_vi_id cho tất cả chương trình hiện có"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 ${isAutoAssigningUnits ? 'animate-spin' : ''}`} />
+                <span>
+                  {isAutoAssigningUnits
+                    ? 'Đang gán đơn vị...'
+                    : 'Tự động gán đơn vị cho các chương trình cũ'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenUnmatchedReport}
+                className={`inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border font-semibold text-xs transition cursor-pointer ${
+                  unmatchedChuTheReport.length > 0
+                    ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                }`}
+                title="Xem danh sách các tên chu_the chưa khớp với đơn vị nào trong danh mục DonVi (đồng thời xuất console.table)"
+              >
+                <AlertCircle
+                  className={`w-3.5 h-3.5 ${
+                    unmatchedChuTheReport.length > 0 ? 'text-amber-600' : 'text-emerald-600'
+                  }`}
+                />
+                <span>Báo cáo chủ thể chưa khớp ({unmatchedChuTheReport.length})</span>
+              </button>
+            </>
+          )}
+          <span className="hidden xl:inline">Tổng số: <strong className="text-slate-800">{list.length}</strong></span>
           <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-amber-50 text-amber-900 border border-amber-200 font-semibold">
             <Sparkles className="w-3.5 h-3.5 text-amber-600" />
             <span>Năm công tác: <strong>{filterNam === 'ALL' ? new Date().getFullYear() : filterNam}</strong></span>
@@ -6312,6 +6643,152 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
           onDataChanged?.();
         }}
       />
+
+      {/* ── MODAL BÁO CÁO NHANH CÁC TÊN CHU_THE CHƯA KHỚP ĐƠN VỊ ───────────── */}
+      {isUnmatchedReportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[88vh]">
+            <div className="px-6 py-4 bg-gradient-to-r from-slate-800 via-slate-800 to-indigo-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 rounded-xl bg-white/10">
+                  <Building2 className="w-5 h-5 text-amber-300" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold">
+                    Báo cáo đối chiếu tên chủ thể (chu_the) với danh mục Đơn vị
+                  </h3>
+                  <p className="text-xs text-slate-300">
+                    Liệt kê các tên chu_the / cơ quan ban hành chưa khớp đơn vị nào trong danh mục Cơ cấu tổ chức (DonVi)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsUnmatchedReportOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4 text-xs">
+              {autoAssignResultMsg && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center justify-between gap-3">
+                  <div className="flex items-center space-x-2 font-semibold">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{autoAssignResultMsg}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                <div className="space-y-0.5">
+                  <div className="font-bold text-slate-800">
+                    Tổng số đơn vị đang hoạt động (không tính deleted_at):{' '}
+                    <span className="text-indigo-700">{activeDonViList.length} đơn vị</span>
+                  </div>
+                  <div className="text-slate-500">
+                    Số tên <code className="px-1 py-0.5 bg-slate-200/70 rounded text-slate-800">chu_the</code> chưa khớp:{' '}
+                    <strong className={unmatchedChuTheReport.length > 0 ? 'text-amber-700' : 'text-emerald-700'}>
+                      {unmatchedChuTheReport.length} tên cơ quan
+                    </strong>{' '}
+                    (Đồng thời đã xuất ra <code className="px-1 py-0.5 bg-slate-200/70 rounded text-slate-800">console.table</code> trong DevTools)
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAutoAssignUnitsToOldPrograms}
+                    disabled={isAutoAssigningUnits}
+                    className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition cursor-pointer disabled:opacity-60"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isAutoAssigningUnits ? 'animate-spin' : ''}`} />
+                    <span>
+                      {isAutoAssigningUnits
+                        ? 'Đang tự động gán...'
+                        : 'Tự động gán đơn vị cho các chương trình cũ'}
+                    </span>
+                  </button>
+
+                  {unmatchedChuTheReport.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const text = unmatchedChuTheReport
+                          .map((r) => `${r.chu_the} (${r.so_chuong_trinh} chương trình - chuẩn hóa: "${r.ten_chuan_hoa}")`)
+                          .join('\n');
+                        navigator.clipboard?.writeText(text);
+                        alert('Đã sao chép danh sách tên chu_the chưa khớp vào bộ nhớ tạm!');
+                      }}
+                      className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs transition cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Sao chép danh sách</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {unmatchedChuTheReport.length === 0 ? (
+                <div className="py-10 text-center bg-emerald-50/50 rounded-xl border border-emerald-200/80 space-y-2">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
+                  <div className="font-bold text-emerald-900 text-sm">
+                    Tất cả tên chủ thể (chu_the) đều đã khớp với danh mục Đơn vị!
+                  </div>
+                  <p className="text-slate-600">
+                    Không có chương trình nào bị thiếu liên kết đơn vị do sai lệch tên cơ quan.
+                  </p>
+                </div>
+              ) : (
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[11px] border-b border-slate-200">
+                      <tr>
+                        <th className="py-2.5 px-3 w-12 text-center">STT</th>
+                        <th className="py-2.5 px-3">Tên chu_the / Cơ quan ban hành (Chưa khớp)</th>
+                        <th className="py-2.5 px-3">Chuỗi sau chuẩn hóa (normalizeUnitName)</th>
+                        <th className="py-2.5 px-3 w-28 text-center">Số chương trình</th>
+                        <th className="py-2.5 px-3">Văn bản / Năm mẫu</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {unmatchedChuTheReport.map((row, index) => (
+                        <tr key={row.chu_the} className="hover:bg-amber-50/40">
+                          <td className="py-2.5 px-3 text-center font-mono text-slate-500">{index + 1}</td>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">{row.chu_the}</td>
+                          <td className="py-2.5 px-3 font-mono text-indigo-700 bg-slate-50/60">
+                            {row.ten_chuan_hoa || '—'}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span className="inline-block px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold">
+                              {row.so_chuong_trinh}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600">{row.van_ban_mau}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              <span className="text-[11px] text-slate-500">
+                Mẹo: Bạn có thể thêm các đơn vị còn thiếu hoặc điều chỉnh tên trong mục <strong>Cơ cấu tổ chức</strong>, sau đó bấm &quot;Tự động gán đơn vị cho các chương trình cũ&quot;.
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsUnmatchedReportOpen(false)}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold transition cursor-pointer"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

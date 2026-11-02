@@ -3,8 +3,6 @@ import { api } from '../services/api';
 import type {
   User,
   DiaBanRecord,
-  DonVi,
-  PhanCongDiaBan,
   BaoCaoThangStatus,
   BaoCaoThangItem,
   VanDeTheoDoi,
@@ -23,6 +21,7 @@ import {
   deleteFileFromGoogleDrive,
 } from '../services/googleDriveService';
 import { centralDataService } from '../services/centralDataService';
+import { reconcileById, isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import {
   MapPin,
   Building2,
@@ -474,7 +473,7 @@ export function HoSoDiaBanManager({ user }: Props) {
   // Nạp danh sách đơn vị và người dùng (Tự động đồng bộ với các tài khoản được phân công quản trị)
   const syncUsersAndRecords = (usrs: User[]) => {
     const safeUsrs = Array.isArray(usrs) ? usrs : [];
-    setUsersList(safeUsrs);
+    setUsersList((prev) => reconcileById(prev, safeUsrs, (u) => u.id));
     setRecords((prev) => {
       if (!Array.isArray(prev)) return [];
       const userMap = new Map(safeUsrs.map((u) => [u.id, u]));
@@ -502,99 +501,102 @@ export function HoSoDiaBanManager({ user }: Props) {
   };
 
   // Nạp và đồng bộ toàn diện dữ liệu: Cơ cấu tổ chức (dùng chung) + Phân công quản lý + Hồ sơ địa bàn
-  const loadData = useCallback(() => {
-    Promise.all([
-      api.getAllDonVi().catch(() => [] as DonVi[]),
-      api.getAllUsers().catch(() => [] as User[]),
-      api.getDiaBanRecords().catch(() => [] as DiaBanRecord[]),
-      api.getPhanCongDiaBan().catch(() => [] as PhanCongDiaBan[]),
-    ])
-      .then(([rawDvs, rawUsrs, serverRecords, serverAssignments]) => {
-        const dvs = Array.isArray(rawDvs) ? rawDvs : [];
-        const usrs = Array.isArray(rawUsrs) ? rawUsrs : [];
-        syncUsersAndRecords(usrs);
+  const loadData = useCallback(async () => {
+    try {
+      const [rawDvs, rawUsrs, serverRecords, serverAssignments] = await Promise.all([
+        api.getAllDonVi(),
+        api.getAllUsers(),
+        api.getDiaBanRecords(),
+        api.getPhanCongDiaBan(),
+      ]);
 
-        setRecords((prev) => {
-          const dvMap = new Map(dvs.map((d) => [d.id, d]));
-          const baseRecords = Array.isArray(serverRecords) && serverRecords.length > 0 ? serverRecords : (Array.isArray(prev) ? prev : []);
-          const recMap = new Map(baseRecords.filter(Boolean).map((r) => [r.id, r]));
+      const activeInputSnap = captureActiveInput();
+      const dvs = Array.isArray(rawDvs) ? rawDvs : [];
+      const usrs = Array.isArray(rawUsrs) ? rawUsrs : [];
+      syncUsersAndRecords(usrs);
 
-          const combined: DiaBanRecord[] = [];
+      setRecords((prev) => {
+        const dvMap = new Map(dvs.map((d) => [d.id, d]));
+        const baseRecords = Array.isArray(serverRecords) && serverRecords.length > 0 ? serverRecords : (Array.isArray(prev) ? prev : []);
+        const recMap = new Map(baseRecords.filter(Boolean).map((r) => [r.id, r]));
 
-          // 1. Duyệt qua tất cả các tổ chức đảng trong danh mục chung Cơ cấu tổ chức
-          dvs
-            .filter((dv) => dv && !dv.deleted_at)
-            .forEach((dv) => {
-              const existing = recMap.get(dv.id);
+        const combined: DiaBanRecord[] = [];
 
-              // Tìm tất cả các phân công cho đơn vị này
-              const assignedList = Array.isArray(serverAssignments)
-                ? serverAssignments.filter((a) => Array.isArray(a?.don_vi_ids) && a.don_vi_ids.includes(dv.id))
-                : [];
+        // 1. Duyệt qua tất cả các tổ chức đảng trong danh mục chung Cơ cấu tổ chức
+        dvs
+          .filter((dv) => dv && !dv.deleted_at)
+          .forEach((dv) => {
+            const existing = recMap.get(dv.id);
 
-              const canBoIds = assignedList.map((a) => a.user_id).filter(Boolean);
-              const canBoNames = assignedList.map((a) => {
-                const u = usrs.find((x) => x.id === a.user_id);
-                return 'Đ/c ' + (u?.ho_ten || a.user_name || 'Cán bộ');
-              });
-              const canBoChucVus = assignedList
-                .map((a) => {
-                  const u = usrs.find((x) => x.id === a.user_id);
-                  return u?.chuc_danh || '';
-                })
-                .filter(Boolean)
-                .join(', ');
+            // Tìm tất cả các phân công cho đơn vị này
+            const assignedList = Array.isArray(serverAssignments)
+              ? serverAssignments.filter((a) => Array.isArray(a?.don_vi_ids) && a.don_vi_ids.includes(dv.id))
+              : [];
 
-              const hasAssignments = assignedList.length > 0;
-              const primaryId = hasAssignments ? canBoIds[0] : existing?.can_bo_phu_trach_id;
-              const displayTen = hasAssignments
-                ? canBoNames.join(', ')
-                : existing?.can_bo_phu_trach_ten || 'Chưa phân công';
-              const displayChucVu = hasAssignments
-                ? canBoChucVus
-                : existing?.can_bo_chuc_vu || '';
-
-              if (existing) {
-                // Cập nhật tên mới nhất từ danh mục và phân công hiện tại
-                combined.push({
-                  ...existing,
-                  ten_dia_ban: dv.ten || existing.ten_dia_ban || 'Tổ chức đảng',
-                  loai_to_chuc: dv.loai || existing.loai_to_chuc,
-                  trang_thai_to_chuc: dv.trang_thai || existing.trang_thai_to_chuc || 'DANG_HOAT_DONG',
-                  can_bo_phu_trach_id: primaryId,
-                  can_bo_phu_trach_ids: hasAssignments
-                    ? canBoIds
-                    : (Array.isArray(existing.can_bo_phu_trach_ids) ? existing.can_bo_phu_trach_ids : (primaryId ? [primaryId] : [])),
-                  can_bo_phu_trach_ten: displayTen,
-                  can_bo_chuc_vu: displayChucVu,
-                });
-              } else {
-                // Bổ sung hồ sơ mới cho đơn vị mới
-                combined.push({
-                  id: dv.id,
-                  ten_dia_ban: dv.ten || 'Tổ chức đảng',
-                  loai_to_chuc: dv.loai || 'CHI_BO',
-                  trang_thai_to_chuc: dv.trang_thai || 'DANG_HOAT_DONG',
-                  can_bo_phu_trach_id: primaryId,
-                  can_bo_phu_trach_ids: canBoIds,
-                  can_bo_phu_trach_ten: displayTen,
-                  can_bo_chuc_vu: displayChucVu,
-                  thoi_gian_phan_cong: hasAssignments ? new Date().toLocaleDateString('vi-VN') : 'Chưa có',
-                  van_ban_phan_cong: hasAssignments ? 'Quyết định phân công' : 'Chưa ban hành',
-                  tinh_trang_bao_cao_thang: 'CHUA_NOP',
-                  thang_hien_tai: 'T10/2026',
-                  so_van_de_theo_doi: 0,
-                  danh_sach_van_de: [],
-                  so_chi_dao_chua_hoan_thanh: 0,
-                  danh_sach_chi_dao: [],
-                  thoi_diem_cap_nhat_gan_nhat: new Date().toLocaleDateString('vi-VN'),
-                  nguoi_cap_nhat_gan_nhat: 'Hệ thống',
-                  so_luong_tai_lieu: 0,
-                });
-              }
+            const canBoIds = assignedList.map((a) => a.user_id).filter(Boolean);
+            const canBoNames = assignedList.map((a) => {
+              const u = usrs.find((x) => x.id === a.user_id);
+              return 'Đ/c ' + (u?.ho_ten || a.user_name || 'Cán bộ');
             });
+            const canBoChucVus = assignedList
+              .map((a) => {
+                const u = usrs.find((x) => x.id === a.user_id);
+                return u?.chuc_danh || '';
+              })
+              .filter(Boolean)
+              .join(', ');
 
-          // 2. Bảo toàn các hồ sơ cũ nếu đơn vị không còn trong danh mục (đã kết thúc/giải thể)
+            const hasAssignments = assignedList.length > 0;
+            const primaryId = hasAssignments ? canBoIds[0] : existing?.can_bo_phu_trach_id;
+            const displayTen = hasAssignments
+              ? canBoNames.join(', ')
+              : existing?.can_bo_phu_trach_ten || 'Chưa phân công';
+            const displayChucVu = hasAssignments
+              ? canBoChucVus
+              : existing?.can_bo_chuc_vu || '';
+
+            if (existing) {
+              // Cập nhật tên mới nhất từ danh mục và phân công hiện tại
+              combined.push({
+                ...existing,
+                ten_dia_ban: dv.ten || existing.ten_dia_ban || 'Tổ chức đảng',
+                loai_to_chuc: dv.loai || existing.loai_to_chuc,
+                trang_thai_to_chuc: dv.trang_thai || existing.trang_thai_to_chuc || 'DANG_HOAT_DONG',
+                can_bo_phu_trach_id: primaryId,
+                can_bo_phu_trach_ids: hasAssignments
+                  ? canBoIds
+                  : (Array.isArray(existing.can_bo_phu_trach_ids) ? existing.can_bo_phu_trach_ids : (primaryId ? [primaryId] : [])),
+                can_bo_phu_trach_ten: displayTen,
+                can_bo_chuc_vu: displayChucVu,
+              });
+            } else {
+              // Bổ sung hồ sơ mới cho đơn vị mới
+              combined.push({
+                id: dv.id,
+                ten_dia_ban: dv.ten || 'Tổ chức đảng',
+                loai_to_chuc: dv.loai || 'CHI_BO',
+                trang_thai_to_chuc: dv.trang_thai || 'DANG_HOAT_DONG',
+                can_bo_phu_trach_id: primaryId,
+                can_bo_phu_trach_ids: canBoIds,
+                can_bo_phu_trach_ten: displayTen,
+                can_bo_chuc_vu: displayChucVu,
+                thoi_gian_phan_cong: hasAssignments ? new Date().toLocaleDateString('vi-VN') : 'Chưa có',
+                van_ban_phan_cong: hasAssignments ? 'Quyết định phân công' : 'Chưa ban hành',
+                tinh_trang_bao_cao_thang: 'CHUA_NOP',
+                thang_hien_tai: 'T10/2026',
+                so_van_de_theo_doi: 0,
+                danh_sach_van_de: [],
+                so_chi_dao_chua_hoan_thanh: 0,
+                danh_sach_chi_dao: [],
+                thoi_diem_cap_nhat_gan_nhat: new Date().toLocaleDateString('vi-VN'),
+                nguoi_cap_nhat_gan_nhat: 'Hệ thống',
+                so_luong_tai_lieu: 0,
+              });
+            }
+          });
+
+        // 2. Bảo toàn các hồ sơ cũ nếu đơn vị không còn trong danh mục (đã kết thúc/giải thể)
+        if (dvs.length > 0) {
           baseRecords.filter(Boolean).forEach((r) => {
             if (r && r.id && !dvMap.has(r.id)) {
               combined.push({
@@ -603,16 +605,26 @@ export function HoSoDiaBanManager({ user }: Props) {
               });
             }
           });
+        }
 
-          try {
-            localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(combined));
-          } catch {
-            // ignore
-          }
-          return combined;
-        });
-      })
-      .catch((err) => console.error('Lỗi nạp dữ liệu hồ sơ địa bàn:', err));
+        // So sánh dữ liệu mới với dữ liệu cũ theo id ổn định; giữ nguyên tham chiếu nếu không đổi
+        const reconciled = reconcileById(prev, combined, (r) => r.id);
+        if (reconciled === prev) {
+          return prev;
+        }
+
+        try {
+          localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(reconciled));
+        } catch {
+          // ignore
+        }
+        return reconciled;
+      });
+      restoreActiveInput(activeInputSnap);
+    } catch (err) {
+      // Nếu lỗi thì giữ nguyên dữ liệu cũ, không xóa hay ghi đè
+      console.warn('Lỗi nạp dữ liệu hồ sơ địa bàn (giữ nguyên dữ liệu cũ):', err);
+    }
   }, []);
 
   useEffect(() => {
@@ -644,13 +656,16 @@ export function HoSoDiaBanManager({ user }: Props) {
   // Danh sách chương trình KT-GS & các văn bản thay đổi, bổ sung
   const [chuongTrinhList, setChuongTrinhList] = useState<ChuongTrinhKtGs[]>([]);
 
-  const loadChuongTrinh = () => {
-    api.getAllChuongTrinh()
-      .then((res) => setChuongTrinhList(Array.isArray(res) ? res : []))
-      .catch((err) => {
-        console.error('Lỗi nạp chương trình KT-GS:', err);
-        setChuongTrinhList([]);
-      });
+  const loadChuongTrinh = async () => {
+    try {
+      const res = await api.getAllChuongTrinh();
+      if (Array.isArray(res)) {
+        setChuongTrinhList((prev) => reconcileById(prev, res, (c) => c.id));
+      }
+    } catch (err) {
+      // Nếu lỗi thì giữ nguyên dữ liệu cũ
+      console.warn('Lỗi nạp chương trình KT-GS (giữ nguyên dữ liệu cũ):', err);
+    }
   };
 
   useEffect(() => {
@@ -675,15 +690,18 @@ export function HoSoDiaBanManager({ user }: Props) {
   // Lắng nghe sự kiện cập nhật phân công và hồ sơ địa bàn từ Cơ cấu tổ chức / Phân công quản lý
   useEffect(() => {
     const handleSyncAssignments = () => {
+      const activeInputSnap = captureActiveInput();
       try {
         const saved = localStorage.getItem(STORAGE_DIA_BAN_RECORDS);
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setRecords(parsed);
+            setRecords((prev) => reconcileById(prev, parsed, (r) => r.id));
             setSelectedRecord((curr) => {
               if (!curr) return null;
-              return parsed.find((r: DiaBanRecord) => r.id === curr.id) || curr;
+              const nextRec = parsed.find((r: DiaBanRecord) => r.id === curr.id);
+              if (!nextRec || isSameData(curr, nextRec)) return curr;
+              return nextRec;
             });
           }
         }
@@ -691,18 +709,26 @@ export function HoSoDiaBanManager({ user }: Props) {
         const rawFiles = localStorage.getItem(STORAGE_HO_SO_FILES);
         if (rawFiles) {
           try {
-            setFiles(JSON.parse(rawFiles));
+            const parsedFiles = JSON.parse(rawFiles);
+            if (Array.isArray(parsedFiles)) {
+              setFiles((prev) => reconcileById(prev, parsedFiles, (f) => f.id));
+            }
           } catch {}
         }
 
         const rawBc = localStorage.getItem(STORAGE_BAO_CAO_THANG);
         if (rawBc) {
           try {
-            setBaoCaoThangList(JSON.parse(rawBc));
+            const parsedBc = JSON.parse(rawBc);
+            if (Array.isArray(parsedBc)) {
+              setBaoCaoThangList((prev) => reconcileById(prev, parsedBc, (b) => b.id));
+            }
           } catch {}
         }
       } catch (err) {
         console.error('Lỗi đồng bộ hồ sơ địa bàn:', err);
+      } finally {
+        restoreActiveInput(activeInputSnap);
       }
     };
 
@@ -2319,7 +2345,7 @@ export function HoSoDiaBanManager({ user }: Props) {
   }, [baoCaoThangList, filterBaoCaoThangMonth, filterBaoCaoThangYear, filterBaoCaoCanBo]);
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className="space-y-5 pb-12 min-h-[600px]">
       {/* ──────────────────────────────────────────────────────────────────────── */}
       {/* 1. HEADER CARD (THEO ĐÚNG MẪU ẢNH NGƯỜI DÙNG CUNG CẤP)                   */}
       {/* ──────────────────────────────────────────────────────────────────────── */}

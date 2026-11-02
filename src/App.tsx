@@ -16,6 +16,7 @@ import { DonThuManager } from './components/DonThuManager';
 import { CloudSyncModal } from './components/CloudSyncModal';
 import { cloudSyncService } from './services/cloudSyncService';
 import { centralDataService } from './services/centralDataService';
+import { isSameData } from './utils/syncUtils';
 
 type TabKey = 'tong_quan' | 'don_vi' | 'phan_cong' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
 
@@ -145,9 +146,10 @@ export function App() {
   const fetchAppInfo = useCallback(async () => {
     try {
       const info = await api.getAppInfo();
-      setAppInfo(info);
+      setAppInfo((prev) => (isSameData(prev, info) ? prev : info));
     } catch (err) {
-      console.error('Lỗi lấy thông tin hệ thống:', err);
+      // Giữ nguyên dữ liệu cũ khi lỗi
+      console.warn('Lỗi lấy thông tin hệ thống:', err);
     }
   }, []);
 
@@ -167,8 +169,8 @@ export function App() {
     // Khởi chạy vòng lặp tự động đồng bộ 2 chiều ẩn định kỳ mỗi 30s
     cloudSyncService.startAutoSync();
 
-    // Đồng bộ ban đầu ngay khi vào app
-    cloudSyncService.smartSync().catch((err) => {
+    // Đồng bộ nền ban đầu ngay khi vào app
+    cloudSyncService.performTwoWaySync(true).catch((err) => {
       console.warn('[App] Lỗi đồng bộ đám mây ban đầu:', err);
     });
 

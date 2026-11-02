@@ -8,6 +8,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db as firestoreDb } from './firebase';
+import { isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import type {
   DonVi,
   ChuongTrinhKtGs,
@@ -402,6 +403,7 @@ export const cloudSyncService = {
   },
 
   _autoSyncTimer: null as any,
+  _visibilityHandler: null as (() => void) | null,
   _isSyncing: false,
 
   // Trạng thái bật/tắt tự động đồng bộ ẩn
@@ -444,7 +446,34 @@ export const cloudSyncService = {
     }
   },
 
-  // Bắt đầu chu trình tự động đồng bộ ẩn định kỳ (mặc định 30s)
+  _clearSyncTimer() {
+    if (this._autoSyncTimer) {
+      clearInterval(this._autoSyncTimer);
+      this._autoSyncTimer = null;
+    }
+  },
+
+  _startSyncTimer() {
+    this._clearSyncTimer();
+    if (!this.isAutoSyncEnabled()) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
+
+    const intervalSec = this.getAutoSyncInterval();
+    this._autoSyncTimer = setInterval(async () => {
+      // Bỏ qua nếu tab đang ẩn, mất kết nối mạng hoặc đang bận đồng bộ
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      if (this._isSyncing) return;
+
+      try {
+        await this.performTwoWaySync(true);
+      } catch {
+        // Chạy ngầm bỏ qua lỗi tạm thời, giữ nguyên dữ liệu cũ
+      }
+    }, intervalSec * 1000);
+  },
+
+  // Bắt đầu chu trình tự động đồng bộ ẩn định kỳ (mặc định 30s) + lắng nghe visibilitychange
   startAutoSync() {
     this.stopAutoSync();
     if (!this.isAutoSyncEnabled()) return;
@@ -452,23 +481,31 @@ export const cloudSyncService = {
     const intervalSec = this.getAutoSyncInterval();
     console.log(`[CloudSync] Đã kích hoạt tự động đồng bộ 2 chiều ẩn định kỳ mỗi ${intervalSec} giây.`);
 
-    this._autoSyncTimer = setInterval(async () => {
-      // Bỏ qua nếu mất kết nối mạng hoặc đang bận đồng bộ
-      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-      if (this._isSyncing) return;
+    this._startSyncTimer();
 
-      try {
-        await this.performTwoWaySync(true);
-      } catch {
-        // Chạy ngầm bỏ qua lỗi tạm thời
-      }
-    }, intervalSec * 1000);
+    if (typeof document !== 'undefined') {
+      this._visibilityHandler = () => {
+        if (!this.isAutoSyncEnabled()) return;
+        if (document.hidden || document.visibilityState === 'hidden') {
+          // Tạm dừng đồng bộ khi tab bị ẩn
+          this._clearSyncTimer();
+        } else if (document.visibilityState === 'visible') {
+          // Đồng bộ lại ngay khi người dùng quay lại tab và khởi động lại bộ đếm
+          if (typeof navigator === 'undefined' || navigator.onLine) {
+            this.performTwoWaySync(true).catch(() => {});
+          }
+          this._startSyncTimer();
+        }
+      };
+      document.addEventListener('visibilitychange', this._visibilityHandler);
+    }
   },
 
   stopAutoSync() {
-    if (this._autoSyncTimer) {
-      clearInterval(this._autoSyncTimer);
-      this._autoSyncTimer = null;
+    this._clearSyncTimer();
+    if (this._visibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this._visibilityHandler);
+      this._visibilityHandler = null;
     }
   },
 
@@ -482,8 +519,12 @@ export const cloudSyncService = {
     if (this._isSyncing) {
       return { success: true, action: 'merged', counts: {} };
     }
+    if (silent && typeof document !== 'undefined' && document.hidden) {
+      return { success: true, action: 'merged', counts: {} };
+    }
     this._isSyncing = true;
-    if (silent) {
+    // Chỉ phát tín hiệu cho đồng bộ thủ công, không hiện spinner khi đồng bộ nền (silent)
+    if (!silent) {
       window.dispatchEvent(new CustomEvent('ubkt_silent_sync_start'));
     }
 
@@ -527,6 +568,12 @@ export const cloudSyncService = {
         if (raw) currentMockDb = JSON.parse(raw);
       } catch {}
 
+      const prevDonVi: DonVi[] = currentMockDb.donViList || [];
+      const prevCt: ChuongTrinhKtGs[] = currentMockDb.chuongTrinhList || [];
+      const prevPdf: PdfKhoItem[] = currentMockDb.pdfFiles || [];
+      const prevDonThu: DonThu[] = currentMockDb.donThuList || [];
+      const prevUsers: User[] = currentMockDb.users || [];
+
       let currentDiaBan: any[] = [];
       try {
         const raw = localStorage.getItem('ubkt_ho_so_dia_ban_records');
@@ -549,6 +596,12 @@ export const cloudSyncService = {
       try {
         const raw = localStorage.getItem('ubkt_phan_cong_dia_ban');
         if (raw) currentPhanCong = JSON.parse(raw);
+      } catch {}
+
+      let prevGdrive: any = null;
+      try {
+        const raw = localStorage.getItem('ubkt_google_drive_config');
+        if (raw) prevGdrive = JSON.parse(raw);
       } catch {}
 
       let deletedDvIds = new Set<string>();
@@ -904,16 +957,35 @@ export const cloudSyncService = {
           }
         });
       }
-      localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(Array.from(pcMap.values())));
-
-      // Cấu hình Google Drive
-      if (gdriveDoc.exists()) {
-        const gcfg = gdriveDoc.data();
-        localStorage.setItem('ubkt_google_drive_config', JSON.stringify(gcfg));
+      const mergedPhanCong = Array.from(pcMap.values());
+      const phanCongChanged = !isSameData(currentPhanCong, mergedPhanCong);
+      if (phanCongChanged) {
+        localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(mergedPhanCong));
       }
 
-      // Lưu trữ cơ sở dữ liệu local
-      localStorage.setItem('ubkt_mock_db', JSON.stringify(currentMockDb));
+      // Cấu hình Google Drive
+      let gdriveChanged = false;
+      if (gdriveDoc.exists()) {
+        const gcfg = gdriveDoc.data();
+        gdriveChanged = !isSameData(prevGdrive, gcfg);
+        if (gdriveChanged) {
+          localStorage.setItem('ubkt_google_drive_config', JSON.stringify(gcfg));
+        }
+      }
+
+      const donViChanged = !isSameData(prevDonVi, currentMockDb.donViList);
+      const ctChanged = !isSameData(prevCt, currentMockDb.chuongTrinhList);
+      const diaBanChanged = !isSameData(currentDiaBan, mergedDiaBan);
+      const filesChanged = !isSameData(currentFiles, mergedFiles);
+      const bcChanged = !isSameData(currentBc, mergedBc);
+      const pdfChanged = !isSameData(prevPdf, currentMockDb.pdfFiles);
+      const donThuChanged = !isSameData(prevDonThu, currentMockDb.donThuList);
+      const usersChanged = !isSameData(prevUsers, currentMockDb.users);
+
+      const mockDbChanged = donViChanged || ctChanged || pdfChanged || donThuChanged || usersChanged;
+      if (mockDbChanged || !silent) {
+        localStorage.setItem('ubkt_mock_db', JSON.stringify(currentMockDb));
+      }
 
       // Đẩy các mục mới ở máy này lên Cloud
       if (itemsToPushToCloud.length > 0) {
@@ -927,20 +999,50 @@ export const cloudSyncService = {
       this.setLastSyncedAt(syncTime);
       localStorage.setItem('ubkt_prod_clean_done', 'true');
 
-      // Phát sự kiện cập nhật
-      window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
-      window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
-      window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
-      window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
-      window.dispatchEvent(new CustomEvent('ubkt_assignments_updated'));
-      window.dispatchEvent(new CustomEvent('ubkt_gdrive_config_updated'));
-      window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
+      const anyDataChanged =
+        donViChanged ||
+        ctChanged ||
+        diaBanChanged ||
+        filesChanged ||
+        bcChanged ||
+        pdfChanged ||
+        donThuChanged ||
+        usersChanged ||
+        phanCongChanged ||
+        gdriveChanged;
+
+      // Bảo vệ ô input đang nhập và chỉ phát sự kiện khi thực sự có dữ liệu thay đổi (hoặc đồng bộ thủ công)
+      const activeInputSnapshot = captureActiveInput();
+      if (anyDataChanged || !silent) {
+        window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
+      }
+      if (ctChanged || !silent) {
+        window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
+      }
+      if (diaBanChanged || filesChanged || bcChanged || donViChanged || !silent) {
+        window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+      }
+      if (pdfChanged || filesChanged || bcChanged || !silent) {
+        window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+      }
+      if (phanCongChanged || !silent) {
+        window.dispatchEvent(new CustomEvent('ubkt_assignments_updated'));
+      }
+      if (gdriveChanged || !silent) {
+        window.dispatchEvent(new CustomEvent('ubkt_gdrive_config_updated'));
+      }
+      if (usersChanged || !silent) {
+        window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
+      }
+      restoreActiveInput(activeInputSnapshot);
+
       window.dispatchEvent(new CustomEvent('ubkt_sync_status_changed', {
         detail: {
           isSyncing: false,
           lastSyncedAt: syncTime,
           mode: silent ? 'auto' : 'manual',
           pushedCount: itemsToPushToCloud.length,
+          hasChanges: anyDataChanged,
         },
       }));
 
@@ -970,7 +1072,7 @@ export const cloudSyncService = {
       };
     } finally {
       this._isSyncing = false;
-      if (silent) {
+      if (!silent) {
         window.dispatchEvent(new CustomEvent('ubkt_silent_sync_end'));
       }
     }
