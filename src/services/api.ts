@@ -26,6 +26,29 @@ import {
 } from './googleDriveService';
 import { cloudSyncService } from './cloudSyncService';
 import { centralDataService } from './centralDataService';
+import {
+  auth,
+  db as firestoreDb,
+  getSecondaryAuth,
+  usernameToAuthEmail,
+} from './firebase';
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  sendPasswordResetEmail,
+} from 'firebase/auth';
+import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
+import {
+  verifyPasswordClient,
+  INITIAL_SEED_ADMIN_HASH,
+  sanitizeUserForCloud,
+  stripSecretsFromUser,
+  validatePasswordPolicy,
+} from '../utils/passwordCrypto';
 
 export const STORAGE_DELETED_DON_VI_IDS = 'ubkt_deleted_don_vi_ids';
 export const STORAGE_DELETED_CHUONG_TRINH_IDS = 'ubkt_deleted_chuong_trinh_ids';
@@ -147,12 +170,6 @@ async function requestApi<T>(
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
-    const rawUser = localStorage.getItem('ubkt_current_user');
-    if (rawUser) {
-      const u = JSON.parse(rawUser);
-      if (u.id) headers['x-user-id'] = u.id;
-      if (u.vai_tro) headers['x-user-role'] = u.vai_tro;
-    }
   } catch {
     // ignore
   }
@@ -215,20 +232,20 @@ interface MockDb {
 
 function getInitialProductionDb(): MockDb {
   const now = new Date().toISOString();
+  const seedAdmin: User & { mat_khau_hash?: string } = {
+    id: '01918a00-0000-7000-8000-000000000000',
+    ten_dang_nhap: 'admin',
+    ho_ten: 'Quản trị viên Hệ thống',
+    vai_tro: 'ADMIN',
+    chuc_danh: 'Chủ nhiệm UBKT',
+    trang_thai: 1,
+    must_change_password: true,
+    mat_khau_hash: INITIAL_SEED_ADMIN_HASH,
+    created_at: now,
+    updated_at: now,
+  };
   return {
-    users: [
-      {
-        id: '01918a00-0000-7000-8000-000000000000',
-        ten_dang_nhap: 'admin',
-        ho_ten: 'Quản trị viên Hệ thống',
-        vai_tro: 'ADMIN',
-        chuc_danh: 'Chủ nhiệm UBKT',
-        trang_thai: 1,
-        must_change_password: false,
-        created_at: now,
-        updated_at: now,
-      },
-    ],
+    users: [seedAdmin],
     donViList: [
       {
         id: '01918a00-0000-7000-8000-000000000001',
@@ -330,59 +347,212 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
   switch (cmd) {
     case 'login': {
       const { req } = args as { req: { ten_dang_nhap: string; mat_khau: string } };
-      const normalizedU = req.ten_dang_nhap.trim().toLowerCase();
-      if (normalizedU === 'admin') {
-        const defaultPasswords = [
-          'Admin@123456',
-          'admin@123456',
-          'admin123',
-          'Admin123',
-          'admin',
-          '123456',
-          'Admin@123',
-        ];
-        const adminUser = db.users.find((u) => u.ten_dang_nhap.toLowerCase() === 'admin') || db.users[0];
-        const customPw = (adminUser as unknown as { mat_khau?: string }).mat_khau;
-        if (defaultPasswords.includes(req.mat_khau) || (customPw && customPw === req.mat_khau)) {
-          adminUser.must_change_password = false;
-          saveMockDb(db);
-          return { user: adminUser, token: 'mock-token-xyz' } as T;
-        }
+      const normalizedU = (req.ten_dang_nhap || '').trim().toLowerCase();
+      if (!normalizedU || !req.mat_khau) {
+        throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
       }
-      const otherUser = db.users.find((u) => u.ten_dang_nhap.toLowerCase() === normalizedU);
-      if (!otherUser) {
-        throw new Error('Tên đăng nhập không tồn tại');
-      }
-      if (otherUser.trang_thai === 0) {
+
+      const authEmail = usernameToAuthEmail(normalizedU);
+      const legacyUser = db.users.find(
+        (u) => u.ten_dang_nhap.toLowerCase() === normalizedU
+      ) as (User & { mat_khau?: string; mat_khau_hash?: string }) | undefined;
+
+      if (legacyUser && legacyUser.trang_thai === 0) {
         throw new Error('Tài khoản đang bị tạm khóa. Vui lòng liên hệ Quản trị viên');
       }
-      const userPw = (otherUser as unknown as { mat_khau?: string }).mat_khau;
-      if (
-        (userPw && userPw === req.mat_khau) ||
-        (userPw && userPw.trim() === req.mat_khau.trim()) ||
-        req.mat_khau === 'Admin@123456'
-      ) {
-        return { user: otherUser, token: 'mock-token-xyz' } as T;
+
+      let firebaseUser = null;
+
+      try {
+        // 1. Đăng nhập chính thức qua Firebase Authentication (Email/Password: <tendangnhap>@ubkt.local)
+        const cred = await signInWithEmailAndPassword(auth, authEmail, req.mat_khau);
+        firebaseUser = cred.user;
+      } catch (authErr: any) {
+        const code = authErr?.code || '';
+        const isNotFoundOrInvalid =
+          code === 'auth/user-not-found' ||
+          code === 'auth/invalid-credential' ||
+          code === 'auth/invalid-login-credentials';
+
+        // 2. Cơ chế tự động chuyển đổi (Seamless Auto-Migration):
+        // Nếu tài khoản cũ chưa có trên Firebase Auth nhưng xác thực khớp mật khẩu hiện có ở bộ nhớ đệm,
+        // tự động khởi tạo tài khoản đó lên Firebase Auth để không mất tài khoản cũ.
+        if (isNotFoundOrInvalid && legacyUser) {
+          let isLegacyValid = false;
+          if (legacyUser.mat_khau_hash) {
+            isLegacyValid = await verifyPasswordClient(req.mat_khau, legacyUser.mat_khau_hash);
+          }
+          if (!isLegacyValid && legacyUser.mat_khau) {
+            const legacyVal = String(legacyUser.mat_khau);
+            if (
+              legacyVal.startsWith('$2a$') ||
+              legacyVal.startsWith('$2b$') ||
+              legacyVal.startsWith('$2y$') ||
+              legacyVal.startsWith('pbkdf2$')
+            ) {
+              isLegacyValid = await verifyPasswordClient(req.mat_khau, legacyVal);
+            } else if (legacyVal === req.mat_khau) {
+              isLegacyValid = true;
+            }
+          }
+          if (
+            !isLegacyValid &&
+            legacyUser.ten_dang_nhap.toLowerCase() === 'admin' &&
+            legacyUser.must_change_password &&
+            !legacyUser.mat_khau_hash &&
+            !legacyUser.mat_khau
+          ) {
+            isLegacyValid = await verifyPasswordClient(req.mat_khau, INITIAL_SEED_ADMIN_HASH);
+          }
+
+          if (isLegacyValid) {
+            try {
+              const createdCred = await createUserWithEmailAndPassword(
+                auth,
+                authEmail,
+                req.mat_khau
+              );
+              firebaseUser = createdCred.user;
+            } catch {
+              throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
+            }
+          }
+        }
+
+        if (!firebaseUser) {
+          if (code === 'auth/too-many-requests') {
+            throw new Error(
+              'Tài khoản này đã nhập sai mật khẩu quá nhiều lần. Vui lòng thử lại sau 15 phút.'
+            );
+          }
+          throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
+        }
       }
-      throw new Error('Mật khẩu không chính xác');
+
+      const uid = firebaseUser.uid;
+      const now = new Date().toISOString();
+
+      // 3. Tải hồ sơ vai trò từ Firestore document users/{uid}
+      let userProfile: User | null = null;
+      try {
+        const userDocSnap = await getDoc(doc(firestoreDb, 'users', uid));
+        if (userDocSnap.exists()) {
+          userProfile = sanitizeUserForCloud({
+            ...(userDocSnap.data() as User),
+            id: uid,
+          }) as User;
+        }
+      } catch (readErr) {
+        console.warn('[Auth] Không thể đọc trực tiếp users/{uid}, kiểm tra dữ liệu di trú:', readErr);
+      }
+
+      // 4. Nếu users/{uid} chưa tồn tại trên Firestore (tài khoản vừa di trú sang UID mới của Firebase Auth)
+      if (!userProfile) {
+        const oldId = legacyUser?.id;
+        userProfile = {
+          id: uid,
+          ten_dang_nhap: legacyUser?.ten_dang_nhap || normalizedU,
+          ho_ten:
+            legacyUser?.ho_ten ||
+            (normalizedU === 'admin' ? 'Quản trị viên Hệ thống' : normalizedU),
+          vai_tro: legacyUser?.vai_tro || (normalizedU === 'admin' ? 'ADMIN' : 'BIEN_TAP'),
+          chuc_danh:
+            legacyUser?.chuc_danh ||
+            (normalizedU === 'admin' ? 'Chủ nhiệm UBKT' : 'Chuyên viên UBKT'),
+          trang_thai: legacyUser?.trang_thai ?? 1,
+          must_change_password: legacyUser?.must_change_password ?? false,
+          created_at: legacyUser?.created_at || now,
+          updated_at: now,
+        };
+
+        // Ghi hồ sơ chuẩn vào users/{uid} (không có trường mật khẩu)
+        try {
+          await setDoc(doc(firestoreDb, 'users', uid), sanitizeUserForCloud(userProfile));
+          if (oldId && oldId !== uid) {
+            // Chuyển tiếp phân công địa bàn từ oldId sang uid mới
+            const oldPcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(
+              () => null
+            );
+            if (oldPcSnap && oldPcSnap.exists()) {
+              const pcData = oldPcSnap.data();
+              await setDoc(doc(firestoreDb, 'phan_cong_dia_ban', uid), {
+                ...pcData,
+                id: uid,
+                user_id: uid,
+                updated_at: now,
+              }).catch(() => {});
+              await deleteDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => {});
+            }
+            await deleteDoc(doc(firestoreDb, 'users', oldId)).catch(() => {});
+          }
+        } catch (migErr) {
+          console.warn('[Auth] Lưu hồ sơ di trú users/{uid}:', migErr);
+        }
+      }
+
+      if (userProfile.trang_thai === 0) {
+        await signOut(auth).catch(() => {});
+        throw new Error('Tài khoản đang bị tạm khóa. Vui lòng liên hệ Quản trị viên');
+      }
+
+      // Cập nhật cache local (loại bỏ hoàn toàn mat_khau & mat_khau_hash)
+      const cleanProfile = stripSecretsFromUser(userProfile) as User;
+      const existingIdx = db.users.findIndex(
+        (u) => u.id === uid || u.ten_dang_nhap.toLowerCase() === normalizedU
+      );
+      if (existingIdx !== -1) {
+        db.users[existingIdx] = cleanProfile;
+      } else {
+        db.users.push(cleanProfile);
+      }
+      saveMockDb(db);
+
+      const idToken = await firebaseUser.getIdToken();
+
+      return {
+        user: cleanProfile,
+        token: idToken,
+      } as T;
     }
 
     case 'change_password': {
       const { req } = args as { req: { user_id: string; mat_khau_cu: string; mat_khau_moi: string } };
-      const user = db.users.find((u) => u.id === req.user_id);
+      const policyError = validatePasswordPolicy(req.mat_khau_moi);
+      if (policyError) {
+        throw new Error(policyError);
+      }
+
+      const currentAuthUser = auth.currentUser;
+      if (!currentAuthUser || !currentAuthUser.email) {
+        throw new Error('Phiên đăng nhập Firebase Auth không hợp lệ. Vui lòng đăng nhập lại.');
+      }
+
+      try {
+        const credential = EmailAuthProvider.credential(currentAuthUser.email, req.mat_khau_cu);
+        await reauthenticateWithCredential(currentAuthUser, credential);
+      } catch {
+        throw new Error('Mật khẩu hiện tại không chính xác');
+      }
+
+      await updatePassword(currentAuthUser, req.mat_khau_moi);
+
+      const targetUid = currentAuthUser.uid;
+      const user = db.users.find((u) => u.id === targetUid || u.id === req.user_id);
       if (user) {
+        delete (user as any).mat_khau;
+        delete (user as any).mat_khau_hash;
         user.must_change_password = false;
-        (user as unknown as { mat_khau?: string }).mat_khau = req.mat_khau_moi;
         user.updated_at = new Date().toISOString();
         saveMockDb(db);
-        cloudSyncService.saveItemToCloud('users', user.id, user);
-        return undefined as T;
+        await centralDataService
+          .saveDoc('users', user.id, sanitizeUserForCloud(user))
+          .catch(() => {});
       }
-      throw new Error('Người dùng không tồn tại');
+      return undefined as T;
     }
 
     case 'get_current_user': {
-      return db.users[0] as T;
+      return stripSecretsFromUser(db.users[0]) as T;
     }
 
     case 'get_all_don_vi': {
@@ -762,43 +932,80 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
     }
 
     case 'get_all_users': {
-      return db.users as T;
+      return db.users.map((u) => stripSecretsFromUser(u)) as T;
     }
 
     case 'create_user': {
       const { req } = args as { req: { ten_dang_nhap: string; ho_ten: string; mat_khau: string; vai_tro: string; chuc_danh?: string } };
-      const exists = db.users.some((u) => u.ten_dang_nhap.toLowerCase() === req.ten_dang_nhap.toLowerCase());
+      const createPolicyErr = validatePasswordPolicy(req.mat_khau);
+      if (createPolicyErr) {
+        throw new Error(createPolicyErr);
+      }
+      const normalizedU = req.ten_dang_nhap.trim().toLowerCase();
+      const exists = db.users.some((u) => u.ten_dang_nhap.toLowerCase() === normalizedU);
       if (exists) throw new Error('Tên đăng nhập đã tồn tại');
+
+      // Tạo tài khoản trên Firebase Authentication qua Secondary App để không làm văng phiên ADMIN hiện tại
+      const secondaryAuth = getSecondaryAuth();
+      const authEmail = usernameToAuthEmail(normalizedU);
+      let newUid = '';
+      try {
+        const cred = await createUserWithEmailAndPassword(secondaryAuth, authEmail, req.mat_khau);
+        newUid = cred.user.uid;
+      } catch (err: any) {
+        if (err?.code === 'auth/email-already-in-use') {
+          throw new Error('Tên đăng nhập này đã tồn tại trên Firebase Authentication.');
+        }
+        throw new Error(err?.message || 'Lỗi khi tạo tài khoản trên Firebase Authentication');
+      } finally {
+        await signOut(secondaryAuth).catch(() => {});
+      }
+
+      const now = new Date().toISOString();
       const newUser: User = {
-        id: 'mock-user-' + Date.now(),
+        id: newUid,
         ten_dang_nhap: req.ten_dang_nhap.trim(),
         ho_ten: req.ho_ten.trim(),
         vai_tro: req.vai_tro as User['vai_tro'],
         chuc_danh: req.chuc_danh || 'Chuyên viên UBKT',
         trang_thai: 1,
-        must_change_password: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        must_change_password: true,
+        created_at: now,
+        updated_at: now,
       };
-      (newUser as unknown as { mat_khau?: string }).mat_khau = req.mat_khau;
       db.users.push(newUser);
       saveMockDb(db);
-      await centralDataService.saveDoc('users', newUser.id, newUser);
+      await centralDataService.saveDoc('users', newUser.id, sanitizeUserForCloud(newUser));
+      const cleanUser = stripSecretsFromUser(newUser);
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('ubkt_users_updated', { detail: newUser }));
+        window.dispatchEvent(new CustomEvent('ubkt_users_updated', { detail: cleanUser }));
       }
-      return newUser as T;
+      return cleanUser as T;
     }
 
     case 'reset_user_password': {
       const { req } = args as { req: { user_id: string; mat_khau_moi: string } };
-      const user = db.users.find((u) => u.id === req.user_id);
+      const resetPolicyErr = validatePasswordPolicy(req.mat_khau_moi);
+      if (resetPolicyErr) {
+        throw new Error(resetPolicyErr);
+      }
+      const user = db.users.find((u) => u.id === req.user_id) as
+        | (User & { mat_khau?: string; mat_khau_hash?: string })
+        | undefined;
       if (!user) throw new Error('Người dùng không tồn tại');
       user.must_change_password = true;
-      (user as unknown as { mat_khau?: string }).mat_khau = req.mat_khau_moi;
+      delete user.mat_khau;
+      delete user.mat_khau_hash;
       user.updated_at = new Date().toISOString();
       saveMockDb(db);
-      await centralDataService.saveDoc('users', user.id, user);
+      await centralDataService.saveDoc('users', user.id, sanitizeUserForCloud(user));
+
+      // Nếu tên đăng nhập là email thực hoặc hỗ trợ gửi email đặt lại mật khẩu từ Firebase Auth
+      const targetEmail = usernameToAuthEmail(user.ten_dang_nhap);
+      if (!targetEmail.endsWith('@ubkt.local')) {
+        await sendPasswordResetEmail(auth, targetEmail).catch(() => {});
+      }
+
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
       }
@@ -807,7 +1014,9 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
 
     case 'update_user': {
       const { req } = args as { req: { user_id: string; ho_ten: string; vai_tro: string; trang_thai: number; chuc_danh?: string } };
-      const user = db.users.find((u) => u.id === req.user_id);
+      const user = db.users.find((u) => u.id === req.user_id) as
+        | (User & { mat_khau?: string; mat_khau_hash?: string })
+        | undefined;
       if (!user) throw new Error('Người dùng không tồn tại');
       user.ho_ten = req.ho_ten;
       user.vai_tro = req.vai_tro as User['vai_tro'];
@@ -815,9 +1024,10 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       if (req.chuc_danh !== undefined) {
         user.chuc_danh = req.chuc_danh;
       }
+      delete user.mat_khau;
       user.updated_at = new Date().toISOString();
       saveMockDb(db);
-      await centralDataService.saveDoc('users', user.id, user);
+      await centralDataService.saveDoc('users', user.id, sanitizeUserForCloud(user));
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
       }
@@ -2041,10 +2251,14 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
 
 export const api = {
   login: (req: { ten_dang_nhap: string; mat_khau: string }) =>
-    requestApi<{ user: User; token: string }>('/api/login', 'POST', { req }, 'login', { req }),
+    mockInvoke<{ user: User; token: string }>('login', { req }),
+
+  logout: async () => {
+    await signOut(auth).catch(() => {});
+  },
 
   changePassword: (req: { user_id: string; mat_khau_cu: string; mat_khau_moi: string }) =>
-    requestApi<void>('/api/change-password', 'POST', { req }, 'change_password', { req }),
+    mockInvoke<void>('change_password', { req }),
 
   getCurrentUser: (user_id: string) =>
     requestApi<User>(`/api/current-user/${user_id}`, 'GET', undefined, 'get_current_user', { user_id }),
@@ -2708,33 +2922,33 @@ export const api = {
     };
   },
 
-  // ── Quản lý người dùng ────────────────────────────────────────────────────
+  // ── Quản lý người dùng (Firebase Authentication + Firestore users/{uid}) ───
   getAllUsers: () =>
-    requestApi<User[]>('/api/users', 'GET', undefined, 'get_all_users'),
+    mockInvoke<User[]>('get_all_users'),
 
   createUser: (
     req: { ten_dang_nhap: string; ho_ten: string; mat_khau: string; vai_tro: string; chuc_danh?: string },
     actor_id: string,
     actor_name: string,
   ) =>
-    requestApi<User>('/api/users', 'POST', { req, actor_id, actor_name }, 'create_user', { req, actor_id, actor_name }),
+    mockInvoke<User>('create_user', { req, actor_id, actor_name }),
 
   resetUserPassword: (
     req: { user_id: string; mat_khau_moi: string },
     actor_id: string,
     actor_name: string,
   ) =>
-    requestApi<void>('/api/users/reset-password', 'POST', { req, actor_id, actor_name }, 'reset_user_password', { req, actor_id, actor_name }),
+    mockInvoke<void>('reset_user_password', { req, actor_id, actor_name }),
 
   updateUser: (
     req: { user_id: string; ho_ten: string; vai_tro: string; trang_thai: number; chuc_danh?: string },
     actor_id: string,
     actor_name: string,
   ) =>
-    requestApi<void>(`/api/users/${req.user_id}`, 'PUT', { req, actor_id, actor_name }, 'update_user', { req, actor_id, actor_name }),
+    mockInvoke<void>('update_user', { req, actor_id, actor_name }),
 
   deleteUser: (user_id: string, actor_id: string, actor_name: string) =>
-    requestApi<void>(`/api/users/${user_id}`, 'DELETE', { actor_id, actor_name }, 'delete_user', { user_id, actor_id, actor_name }),
+    mockInvoke<void>('delete_user', { user_id, actor_id, actor_name }),
 
   // ── Quản lý Đơn thư ────────────────────────────────────────────────────────
   getAllDonThu: () =>

@@ -21,10 +21,14 @@ export const LockScreen: React.FC<LockScreenProps> = ({ user, onUnlock, onLogout
     setLoading(true);
 
     try {
-      await api.login({
+      const res = await api.login({
         ten_dang_nhap: user.ten_dang_nhap,
         mat_khau: password,
       });
+      if (res?.token) {
+        localStorage.setItem('ubkt_session_token', res.token);
+      }
+      setPassword('');
       onUnlock();
     } catch (err: unknown) {
       if (err instanceof Error) {

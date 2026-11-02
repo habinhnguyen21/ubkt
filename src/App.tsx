@@ -5,6 +5,7 @@ import { AppLayout } from './components/AppLayout';
 import { Dashboard } from './components/Dashboard';
 import { LoginModal } from './components/LoginModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { LockScreen } from './components/LockScreen';
 import { DonViManager } from './components/DonViManager';
 import { ChuongTrinhManager } from './components/ChuongTrinhManager';
 import { LichThangManager } from './components/LichThangManager';
@@ -16,9 +17,17 @@ import { DonThuManager } from './components/DonThuManager';
 import { CloudSyncModal } from './components/CloudSyncModal';
 import { cloudSyncService } from './services/cloudSyncService';
 import { centralDataService } from './services/centralDataService';
+import { auth } from './services/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { isSameData } from './utils/syncUtils';
 
 type TabKey = 'tong_quan' | 'don_vi' | 'phan_cong' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
+
+/**
+ * Hằng số cấu hình thời gian tự động khóa phiên làm việc khi không có thao tác chuột/bàn phím/chạm (15 phút).
+ */
+export const SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+const SESSION_LOCKED_STORAGE_KEY = 'ubkt_session_locked';
 
 // Khởi tạo trạng thái môi trường chính thức
 if (typeof window !== 'undefined') {
@@ -49,6 +58,13 @@ export function App() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [accessDeniedMessage, setAccessDeniedMessage] = useState<string | null>(null);
+  const [isSessionLocked, setIsSessionLocked] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SESSION_LOCKED_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
     const saved = localStorage.getItem('ubkt_active_tab');
@@ -160,24 +176,30 @@ export function App() {
     };
     window.addEventListener('ubkt_data_synced', handleDataSynced);
 
-    // Khởi tạo bộ lắng nghe thời gian thực Firestore tập trung (Real-Time Snapshot Sync)
-    const cleanupRealtime = centralDataService.initRealtimeSync();
-    centralDataService.ensureProductionSeed().catch((err) => {
-      console.warn('[App] Lỗi kiểm tra seed dữ liệu gốc:', err);
-    });
+    let cleanupRealtime = () => {};
 
-    // Khởi chạy vòng lặp tự động đồng bộ 2 chiều ẩn định kỳ mỗi 30s
-    cloudSyncService.startAutoSync();
-
-    // Đồng bộ nền ban đầu ngay khi vào app
-    cloudSyncService.performTwoWaySync(true).catch((err) => {
-      console.warn('[App] Lỗi đồng bộ đám mây ban đầu:', err);
+    // Chỉ khởi tạo bộ lắng nghe thời gian thực Firestore tập trung sau khi Firebase Auth đã đăng nhập
+    const unsubAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      cleanupRealtime();
+      if (firebaseUser) {
+        cleanupRealtime = centralDataService.initRealtimeSync();
+        centralDataService.ensureProductionSeed().catch((err) => {
+          console.warn('[App] Lỗi kiểm tra seed dữ liệu gốc:', err);
+        });
+        cloudSyncService.startAutoSync();
+        cloudSyncService.performTwoWaySync(true).catch((err) => {
+          console.warn('[App] Lỗi đồng bộ đám mây ban đầu:', err);
+        });
+      } else {
+        cloudSyncService.stopAutoSync();
+      }
     });
 
     return () => {
       window.removeEventListener('ubkt_data_synced', handleDataSynced);
       cloudSyncService.stopAutoSync();
       cleanupRealtime();
+      unsubAuth();
     };
   }, [fetchAppInfo]);
 
@@ -193,18 +215,76 @@ export function App() {
     return () => window.removeEventListener('ubkt_navigate', handleNav);
   }, [handleTabChange]);
 
+  const handleLockSession = useCallback(() => {
+    setIsSessionLocked(true);
+    try {
+      localStorage.setItem(SESSION_LOCKED_STORAGE_KEY, 'true');
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handleUnlockSession = useCallback(() => {
+    setIsSessionLocked(false);
+    try {
+      localStorage.removeItem(SESSION_LOCKED_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Tự động khóa phiên làm việc (LockScreen) sau SESSION_IDLE_TIMEOUT_MS (15 phút) không có thao tác chuột/bàn phím/chạm
+  useEffect(() => {
+    if (!currentUser || isSessionLocked) return;
+
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const resetIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        handleLockSession();
+      }, SESSION_IDLE_TIMEOUT_MS);
+    };
+
+    const activityEvents: (keyof WindowEventMap)[] = [
+      'mousemove',
+      'mousedown',
+      'keydown',
+      'touchstart',
+      'scroll',
+    ];
+
+    activityEvents.forEach((evt) => {
+      window.addEventListener(evt, resetIdleTimer, { passive: true });
+    });
+
+    resetIdleTimer();
+
+    return () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      activityEvents.forEach((evt) => {
+        window.removeEventListener(evt, resetIdleTimer);
+      });
+    };
+  }, [currentUser, isSessionLocked, handleLockSession]);
+
   const handleLoginSuccess = (user: User, token: string) => {
     setCurrentUser(user);
+    setIsSessionLocked(false);
     localStorage.setItem('ubkt_current_user', JSON.stringify(user));
     localStorage.setItem('ubkt_session_token', token);
+    localStorage.removeItem(SESSION_LOCKED_STORAGE_KEY);
     fetchAppInfo();
     checkUrlRouting(user);
   };
 
   const handleLogout = () => {
+    api.logout().catch(() => {});
     setCurrentUser(null);
+    setIsSessionLocked(false);
     localStorage.removeItem('ubkt_current_user');
     localStorage.removeItem('ubkt_session_token');
+    localStorage.removeItem(SESSION_LOCKED_STORAGE_KEY);
     if (typeof window !== 'undefined' && window.location.hash) {
       window.location.hash = '';
     }
@@ -295,6 +375,7 @@ export function App() {
           activeTab={activeTab}
           onTabChange={handleTabChange}
           onLogout={handleLogout}
+          onLockSession={handleLockSession}
           onChangePassword={() => setShowChangePasswordModal(true)}
           onOpenAuditLogs={() => setShowAuditLogs(true)}
           onOpenUserManager={() => setShowUserManager(true)}
@@ -304,6 +385,15 @@ export function App() {
         >
           {renderContent()}
         </AppLayout>
+      )}
+
+      {/* Màn hình tự động khóa phiên sau 15 phút không thao tác */}
+      {currentUser && isSessionLocked && (
+        <LockScreen
+          user={currentUser}
+          onUnlock={handleUnlockSession}
+          onLogout={handleLogout}
+        />
       )}
 
       {/* Modal đổi mật khẩu */}

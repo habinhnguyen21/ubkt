@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { validatePasswordPolicy } from '../utils/passwordCrypto';
 import type { User } from '../types';
 
 interface Props {
@@ -129,7 +130,8 @@ export default function UserManager({ currentUser, onClose }: Props) {
   const handleCreate = async () => {
     if (!formTenDangNhap.trim()) return setError('Tên đăng nhập không được để trống');
     if (!formHoTen.trim()) return setError('Họ tên không được để trống');
-    if (formMatKhau.length < 8) return setError('Mật khẩu phải có ít nhất 8 ký tự');
+    const pwPolicyErr = validatePasswordPolicy(formMatKhau);
+    if (pwPolicyErr) return setError(pwPolicyErr);
     setLoading(true);
     setError('');
     try {
@@ -189,7 +191,8 @@ export default function UserManager({ currentUser, onClose }: Props) {
 
   const handleReset = async () => {
     if (!selectedUser) return;
-    if (formNewPw.length < 8) return setError('Mật khẩu mới phải có ít nhất 8 ký tự');
+    const resetPolicyErr = validatePasswordPolicy(formNewPw);
+    if (resetPolicyErr) return setError(resetPolicyErr);
     if (formNewPw !== formNewPw2) return setError('Xác nhận mật khẩu không khớp');
     setLoading(true);
     setError('');

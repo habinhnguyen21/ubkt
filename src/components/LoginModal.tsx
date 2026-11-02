@@ -341,8 +341,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
               textAlign: 'center',
             }}
           >
-            💡 Quản trị viên hệ thống mặc định: <b>admin</b> | Mật khẩu: <b>Admin@123456</b><br/>
-            (Nếu chưa đăng nhập được với tài khoản mới, hãy đăng nhập bằng <b>admin</b> để kiểm tra hoặc đặt lại mật khẩu)
+            🔒 Nếu chưa có tài khoản hoặc quên mật khẩu, vui lòng liên hệ Quản trị viên hệ thống để được cấp tài khoản hoặc đặt lại mật khẩu.
           </div>
         </form>
       </div>

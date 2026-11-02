@@ -27,12 +27,12 @@ const cleanData = {
     {
       id: "01918a00-0000-7000-8000-000000000000",
       ten_dang_nhap: "admin",
-      mat_khau: "Admin@123456",
+      mat_khau_hash: "$2b$10$oPqHubEEvKVDcP7UmBgqUu9FTfNn3abZbbi.kdAwgDPOqouEgxxve",
       ho_ten: "Quản trị viên Hệ thống",
       vai_tro: "ADMIN",
       chuc_danh: "Chủ nhiệm UBKT",
       trang_thai: 1,
-      must_change_password: false,
+      must_change_password: true,
       created_at: now,
       updated_at: now
     }

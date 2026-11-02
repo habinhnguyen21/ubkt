@@ -1,0 +1,38 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "chuong_trinh",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "don_vi_id", "order": "ASCENDING" },
+        { "fieldPath": "nam", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ho_so_dia_ban_files",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "don_vi_id", "order": "ASCENDING" },
+        { "fieldPath": "ngay_tao", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pdf_files",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "don_vi_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "don_thu",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "don_vi_id", "order": "ASCENDING" },
+        { "fieldPath": "ngay_tiep_nhan", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
+

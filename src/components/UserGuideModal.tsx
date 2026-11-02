@@ -49,10 +49,10 @@ export const UserGuideModal: React.FC<UserGuideModalProps> = ({ onClose }) => {
             </div>
             <ul className="list-disc list-inside space-y-1.5 text-xs text-slate-600 pl-1 leading-relaxed">
               <li>
-                <strong>Tài khoản mặc định:</strong> Tên đăng nhập <code className="bg-slate-200 px-1.5 py-0.5 rounded font-mono text-red-700">admin</code>, mật khẩu khởi tạo <code className="bg-slate-200 px-1.5 py-0.5 rounded font-mono text-red-700">Admin@123456</code>.
+                <strong>Cấp phát tài khoản:</strong> Mỗi cán bộ sử dụng tài khoản và mật khẩu riêng được cấp phát. Vui lòng <strong>liên hệ Quản trị viên hệ thống</strong> để được cấp tài khoản hoặc đặt lại mật khẩu khi cần thiết.
               </li>
               <li>
-                <strong>Bắt buộc đổi mật khẩu:</strong> Để bảo đảm an toàn dữ liệu ngành Đảng, ngay lần đăng nhập đầu tiên hệ thống sẽ yêu cầu đổi sang mật khẩu mới (tối thiểu 6 ký tự).
+                <strong>Bắt buộc đổi mật khẩu &amp; Chính sách mật khẩu:</strong> Để bảo đảm an toàn dữ liệu ngành Đảng, ngay lần đăng nhập đầu tiên hệ thống sẽ yêu cầu đổi sang mật khẩu mới (tối thiểu 8 ký tự, bao gồm chữ hoa, chữ thường và chữ số).
               </li>
               <li>
                 Sau khi đổi thành công, bạn có thể chủ động đổi lại mật khẩu bất kỳ lúc nào bằng cách bấm biểu tượng chìa khóa trên thanh công cụ góc trên bên phải.

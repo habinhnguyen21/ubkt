@@ -1,0 +1,333 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // 1. CÁC HÀM KIỂM TRA XÁC THỰC & PHÂN QUYỀN CỐT LÕI
+    // =========================================================================
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    function userDocPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function phanCongDocPath(uid) {
+      return /databases/$(database)/documents/phan_cong_dia_ban/$(uid);
+    }
+
+    function hasActiveUserDoc() {
+      return isSignedIn()
+        && exists(userDocPath(request.auth.uid))
+        && get(userDocPath(request.auth.uid)).data.trang_thai == 1;
+    }
+
+    function getUserRole() {
+      return get(userDocPath(request.auth.uid)).data.vai_tro;
+    }
+
+    function isAdmin() {
+      return hasActiveUserDoc() && getUserRole() == 'ADMIN';
+    }
+
+    function isBienTap() {
+      return hasActiveUserDoc() && getUserRole() == 'BIEN_TAP';
+    }
+
+    // Kiểm tra đơn vị donViId có nằm trong danh sách phân công của BIEN_TAP hiện tại hay không
+    function isAssignedToUnit(donViId) {
+      return isBienTap()
+        && donViId is string
+        && donViId.size() > 0
+        && exists(phanCongDocPath(request.auth.uid))
+        && (donViId in get(phanCongDocPath(request.auth.uid)).data.don_vi_ids);
+    }
+
+    // Trích xuất mã đơn vị từ một bản ghi nghiệp vụ (hỗ trợ don_vi_id, doi_tuong_don_vi_id, chi_dang_bo_id)
+    function extractRecordUnitId(data) {
+      return ('don_vi_id' in data && data.don_vi_id is string && data.don_vi_id.size() > 0)
+        ? data.don_vi_id
+        : (('doi_tuong_don_vi_id' in data && data.doi_tuong_don_vi_id is string && data.doi_tuong_don_vi_id.size() > 0)
+          ? data.doi_tuong_don_vi_id
+          : (('chi_dang_bo_id' in data && data.chi_dang_bo_id is string && data.chi_dang_bo_id.size() > 0)
+            ? data.chi_dang_bo_id
+            : ''));
+    }
+
+    // Kiểm tra mảng danh_sach_don_vi_ids (trong bao_cao_thang) có thuộc đơn vị được phân công
+    function isReportAssignedToBienTap(data) {
+      return isAssignedToUnit(extractRecordUnitId(data))
+        || (
+          isBienTap()
+          && ('danh_sach_don_vi_ids' in data)
+          && data.danh_sach_don_vi_ids is list
+          && data.danh_sach_don_vi_ids.size() > 0
+          && exists(phanCongDocPath(request.auth.uid))
+          && data.danh_sach_don_vi_ids.hasAll([])
+          && (data.danh_sach_don_vi_ids[0] in get(phanCongDocPath(request.auth.uid)).data.don_vi_ids)
+        );
+    }
+
+    // =========================================================================
+    // 2. HÀM VALIDATE KIỂU DỮ LIỆU & TRƯỜNG BẮT BUỘC
+    // =========================================================================
+
+    function hasNoPasswordFields(data) {
+      return !('mat_khau' in data)
+        && !('mat_khau_hash' in data)
+        && !('password' in data)
+        && !('passwordHash' in data);
+    }
+
+    function isValidUserPayload(userId, data) {
+      return hasNoPasswordFields(data)
+        && data.id is string
+        && data.id == userId
+        && data.ten_dang_nhap is string
+        && data.ten_dang_nhap.size() >= 2
+        && data.ten_dang_nhap.size() <= 100
+        && data.ho_ten is string
+        && data.ho_ten.size() >= 1
+        && data.ho_ten.size() <= 150
+        && data.vai_tro in ['ADMIN', 'BIEN_TAP', 'XEM']
+        && data.trang_thai in [0, 1];
+    }
+
+    function isValidDonViPayload(donViId, data) {
+      return data.id is string
+        && data.id == donViId
+        && data.ten is string
+        && data.ten.size() >= 1
+        && data.ten.size() <= 300
+        && data.loai is string
+        && data.loai.size() >= 1;
+    }
+
+    function isValidPhanCongPayload(data) {
+      return data.user_id is string
+        && data.user_id.size() >= 1
+        && data.don_vi_ids is list
+        && data.don_vi_ids.size() <= 500;
+    }
+
+    function isValidChuongTrinhPayload(docId, data) {
+      return data.id is string
+        && data.id == docId
+        && data.chu_the is string
+        && data.chu_the.size() >= 1
+        && data.noi_dung is string
+        && data.noi_dung.size() >= 1
+        && data.nam is int
+        && data.nam >= 2000
+        && data.nam <= 2100
+        && data.trang_thai in ['CHUA_THUC_HIEN', 'DANG_THUC_HIEN', 'DA_HOAN_THANH', 'QUA_HAN'];
+    }
+
+    function isValidHoSoDiaBanRecordPayload(docId, data) {
+      return data.id is string
+        && data.id == docId
+        && data.ten_dia_ban is string
+        && data.ten_dia_ban.size() >= 1;
+    }
+
+    function isValidHoSoDiaBanFilePayload(docId, data) {
+      return data.id is string
+        && data.id == docId
+        && data.don_vi_id is string
+        && data.don_vi_id.size() >= 1
+        && data.ten_file is string
+        && data.ten_file.size() >= 1;
+    }
+
+    function isValidBaoCaoThangPayload(docId, data) {
+      return data.id is string
+        && data.id == docId
+        && data.tieu_de is string
+        && data.tieu_de.size() >= 1
+        && data.thang is int
+        && data.thang >= 1
+        && data.thang <= 12
+        && data.nam is int
+        && data.nam >= 2000
+        && data.nam <= 2100;
+    }
+
+    function isValidPdfFilePayload(docId, data) {
+      return data.id is string
+        && data.id == docId
+        && data.ten_file is string
+        && data.ten_file.size() >= 1;
+    }
+
+    function isValidDonThuPayload(docId, data) {
+      return data.id is string
+        && data.id == docId
+        && data.ma_don is string
+        && data.ma_don.size() >= 1
+        && data.loai_don is string
+        && data.trang_thai is string;
+    }
+
+    // =========================================================================
+    // 3. QUY TẮC CHO TỪNG COLLECTION
+    // =========================================================================
+
+    // 3.1. Collection: users
+    // - Mỗi người đọc được hồ sơ của chính mình; ADMIN đọc được tất cả.
+    // - Chỉ ADMIN được tạo/sửa/xóa; tuyệt đối KHÔNG cho phép lưu trường mật khẩu.
+    // - Cho phép người dùng tự cập nhật cờ must_change_password = false của chính mình
+    //   sau khi đổi mật khẩu trên Firebase Auth (không được đổi vai_tro, trang_thai, id).
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+      allow create: if isAdmin() && isValidUserPayload(userId, request.resource.data);
+
+      allow update: if (
+          isAdmin() && isValidUserPayload(userId, request.resource.data)
+        ) || (
+          hasActiveUserDoc()
+          && request.auth.uid == userId
+          && isValidUserPayload(userId, request.resource.data)
+          && request.resource.data.vai_tro == resource.data.vai_tro
+          && request.resource.data.trang_thai == resource.data.trang_thai
+          && request.resource.data.ten_dang_nhap == resource.data.ten_dang_nhap
+          && request.resource.data.must_change_password == false
+        );
+
+      allow delete: if isAdmin() && request.auth.uid != userId;
+    }
+
+    // 3.2. Các Collection chỉ ADMIN được phép ghi (don_vi, phan_cong_dia_ban, system_config, tombstones)
+    match /don_vi/{donViId} {
+      allow read: if hasActiveUserDoc();
+      allow create, update: if isAdmin() && isValidDonViPayload(donViId, request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /phan_cong_dia_ban/{docId} {
+      allow read: if hasActiveUserDoc();
+      allow create, update: if isAdmin() && isValidPhanCongPayload(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /system_config/{configId} {
+      allow read: if hasActiveUserDoc();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /tombstones/{tombId} {
+      allow read: if hasActiveUserDoc();
+      allow create, update: if isAdmin()
+        && request.resource.data.id == tombId
+        && request.resource.data.collection is string
+        && request.resource.data.deleted_at is string;
+      allow delete: if isAdmin();
+    }
+
+    // 3.3. Các Collection nghiệp vụ: ADMIN ghi tất cả; BIEN_TAP chỉ ghi đơn vị được phân công;
+    // Không cho phép BIEN_TAP xóa hàng loạt các bản ghi gốc.
+    match /chuong_trinh/{docId} {
+      allow read: if hasActiveUserDoc();
+      allow create: if isValidChuongTrinhPayload(docId, request.resource.data)
+        && (isAdmin() || isAssignedToUnit(extractRecordUnitId(request.resource.data)));
+      allow update: if isValidChuongTrinhPayload(docId, request.resource.data)
+        && (
+          isAdmin()
+          || (
+            isAssignedToUnit(extractRecordUnitId(resource.data))
+            && isAssignedToUnit(extractRecordUnitId(request.resource.data))
+          )
+        );
+      allow delete: if isAdmin();
+    }
+
+    match /ho_so_dia_ban_records/{docId} {
+      allow read: if hasActiveUserDoc();
+      allow create, update: if isValidHoSoDiaBanRecordPayload(docId, request.resource.data)
+        && (
+          isAdmin()
+          || isAssignedToUnit(docId)
+          || isAssignedToUnit(extractRecordUnitId(request.resource.data))
+        );
+      allow delete: if isAdmin();
+    }
+
+    match /ho_so_dia_ban_files/{docId} {
+      allow read: if hasActiveUserDoc();
+      allow create: if isValidHoSoDiaBanFilePayload(docId, request.resource.data)
+        && (isAdmin() || isAssignedToUnit(request.resource.data.don_vi_id));
+      allow update: if isValidHoSoDiaBanFilePayload(docId, request.resource.data)
+        && (
+          isAdmin()
+          || (
+            isAssignedToUnit(resource.data.don_vi_id)
+            && isAssignedToUnit(request.resource.data.don_vi_id)
+          )
+        );
+      allow delete: if isAdmin() || isAssignedToUnit(resource.data.don_vi_id);
+    }
+
+    match /bao_cao_thang/{docId} {
+      allow read: if hasActiveUserDoc();
+      allow create: if isValidBaoCaoThangPayload(docId, request.resource.data)
+        && (isAdmin() || isReportAssignedToBienTap(request.resource.data));
+      allow update: if isValidBaoCaoThangPayload(docId, request.resource.data)
+        && (
+          isAdmin()
+          || (
+            isReportAssignedToBienTap(resource.data)
+            && isReportAssignedToBienTap(request.resource.data)
+          )
+        );
+      allow delete: if isAdmin() || isReportAssignedToBienTap(resource.data);
+    }
+
+    match /pdf_files/{docId} {
+      allow read: if hasActiveUserDoc();
+      allow create: if isValidPdfFilePayload(docId, request.resource.data)
+        && (isAdmin() || isAssignedToUnit(extractRecordUnitId(request.resource.data)));
+      allow update: if isValidPdfFilePayload(docId, request.resource.data)
+        && (
+          isAdmin()
+          || (
+            isAssignedToUnit(extractRecordUnitId(resource.data))
+            && isAssignedToUnit(extractRecordUnitId(request.resource.data))
+          )
+        );
+      allow delete: if isAdmin();
+    }
+
+    match /don_thu/{docId} {
+      allow read: if hasActiveUserDoc();
+      allow create: if isValidDonThuPayload(docId, request.resource.data)
+        && (isAdmin() || isAssignedToUnit(extractRecordUnitId(request.resource.data)));
+      allow update: if isValidDonThuPayload(docId, request.resource.data)
+        && (
+          isAdmin()
+          || (
+            isAssignedToUnit(extractRecordUnitId(resource.data))
+            && isAssignedToUnit(extractRecordUnitId(request.resource.data))
+          )
+        );
+      allow delete: if isAdmin();
+    }
+
+    // 3.4. Nhật ký hệ thống (audit_logs): Chỉ cho phép thêm mới khi đã đăng nhập, không ai được sửa/xóa
+    match /audit_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if hasActiveUserDoc()
+        && request.resource.data.id == logId
+        && request.resource.data.hanh_dong is string;
+      allow update, delete: if false;
+    }
+
+    // 3.5. Mặc định từ chối tất cả các đường dẫn khác
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+

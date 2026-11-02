@@ -29,6 +29,7 @@ Thumbs.db
 *.njsproj
 *.sw?
 
-# Scratch & Backups
+# Scratch & Backups & Sensitive Server Data
 scratch/
-server/data/backup_*.json
+server/data/*.json
+!server/data/database.sample.json

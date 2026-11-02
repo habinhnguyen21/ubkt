@@ -4,11 +4,13 @@ import {
   getDocs,
   setDoc,
   deleteDoc,
+  deleteField,
   getDoc,
   writeBatch,
 } from 'firebase/firestore';
-import { db as firestoreDb } from './firebase';
+import { db as firestoreDb, auth } from './firebase';
 import { isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
+import { sanitizeUserForCloud } from '../utils/passwordCrypto';
 import type {
   DonVi,
   ChuongTrinhKtGs,
@@ -62,10 +64,28 @@ export const cloudSyncService = {
       const docRef = doc(firestoreDb, collectionName, String(id));
       // Loại bỏ undefined để Firestore không báo lỗi
       const cleanData = JSON.parse(JSON.stringify(data));
+      if (collectionName === 'users') {
+        delete cleanData.mat_khau;
+        delete cleanData.mat_khau_hash;
+        delete cleanData.password;
+        delete cleanData.passwordHash;
+        cleanData.mat_khau = deleteField();
+        cleanData.mat_khau_hash = deleteField();
+      }
       await setDoc(docRef, cleanData, { merge: true });
-      // Xoá tombstone nếu bản ghi được tạo lại
-      const tombRef = doc(firestoreDb, 'tombstones', String(id));
-      deleteDoc(tombRef).catch(() => {});
+      // Xoá tombstone nếu bản ghi được tạo lại (chỉ ADMIN có quyền ghi/xóa tombstones)
+      const isAdmin = (() => {
+        try {
+          const raw = localStorage.getItem('ubkt_current_user');
+          return raw ? JSON.parse(raw)?.vai_tro === 'ADMIN' : false;
+        } catch {
+          return false;
+        }
+      })();
+      if (isAdmin) {
+        const tombRef = doc(firestoreDb, 'tombstones', String(id));
+        deleteDoc(tombRef).catch(() => {});
+      }
     } catch (err) {
       console.warn(`[CloudSync] Lỗi lưu ${collectionName}/${id}:`, err);
     }
@@ -75,13 +95,23 @@ export const cloudSyncService = {
   async deleteItemFromCloud(collectionName: string, id: string): Promise<void> {
     try {
       if (!id) return;
-      // Ghi tombstone vào Firestore trước để các máy khác biết và không bao giờ đẩy lại
-      const tombRef = doc(firestoreDb, 'tombstones', String(id));
-      await setDoc(tombRef, {
-        id: String(id),
-        collection: collectionName,
-        deleted_at: new Date().toISOString(),
-      }, { merge: true }).catch(() => {});
+      const isAdmin = (() => {
+        try {
+          const raw = localStorage.getItem('ubkt_current_user');
+          return raw ? JSON.parse(raw)?.vai_tro === 'ADMIN' : false;
+        } catch {
+          return false;
+        }
+      })();
+      if (isAdmin) {
+        // Ghi tombstone vào Firestore trước để các máy khác biết và không bao giờ đẩy lại
+        const tombRef = doc(firestoreDb, 'tombstones', String(id));
+        await setDoc(tombRef, {
+          id: String(id),
+          collection: collectionName,
+          deleted_at: new Date().toISOString(),
+        }, { merge: true }).catch(() => {});
+      }
 
       const docRef = doc(firestoreDb, collectionName, String(id));
       await deleteDoc(docRef);
@@ -151,6 +181,14 @@ export const cloudSyncService = {
             if (id) {
               const ref = doc(firestoreDb, collName, String(id));
               const clean = JSON.parse(JSON.stringify(item));
+              if (collName === 'users') {
+                delete clean.mat_khau;
+                delete clean.mat_khau_hash;
+                delete clean.password;
+                delete clean.passwordHash;
+                clean.mat_khau = deleteField();
+                clean.mat_khau_hash = deleteField();
+              }
               batch.set(ref, clean, { merge: true });
             }
           });
@@ -158,8 +196,19 @@ export const cloudSyncService = {
         }
       };
 
-      onProgress?.(`Đang đẩy ${donViList.length} cơ cấu tổ chức lên Cloud...`);
-      await saveArrayToCollection('don_vi', donViList, (d) => d.id);
+      const isAdminUser = (() => {
+        try {
+          const raw = localStorage.getItem('ubkt_current_user');
+          return raw ? JSON.parse(raw)?.vai_tro === 'ADMIN' : false;
+        } catch {
+          return false;
+        }
+      })();
+
+      if (isAdminUser) {
+        onProgress?.(`Đang đẩy ${donViList.length} cơ cấu tổ chức lên Cloud...`);
+        await saveArrayToCollection('don_vi', donViList, (d) => d.id);
+      }
 
       onProgress?.(`Đang đẩy ${chuongTrinhList.length} chương trình KT-GS lên Cloud...`);
       await saveArrayToCollection('chuong_trinh', chuongTrinhList, (c) => c.id);
@@ -179,49 +228,44 @@ export const cloudSyncService = {
       onProgress?.(`Đang đẩy ${donThuList.length} đơn thư lên Cloud...`);
       await saveArrayToCollection('don_thu', donThuList, (d) => d.id);
 
-      onProgress?.(`Đang đẩy ${users.length} tài khoản người dùng lên Cloud...`);
-      await saveArrayToCollection('users', users, (u) => u.id);
+      if (isAdminUser) {
+        onProgress?.(`Đang đẩy ${users.length} tài khoản người dùng lên Cloud...`);
+        await saveArrayToCollection('users', users, (u) => u.id);
+      }
 
       if (auditLogs.length > 0) {
         await saveArrayToCollection('audit_logs', auditLogs, (l) => l.id || `log-${Date.now()}`);
       }
-
-      const isAdminUser = (() => {
-        try {
-          const raw = localStorage.getItem('ubkt_current_user');
-          return raw ? JSON.parse(raw)?.vai_tro === 'ADMIN' : false;
-        } catch {
-          return false;
-        }
-      })();
 
       if (isAdminUser && phanCongList.length > 0) {
         onProgress?.('Đang lưu thông tin phân công cán bộ...');
         await saveArrayToCollection('phan_cong_dia_ban', phanCongList, (p) => p.user_id || p.id || 'pc');
       }
 
-      // Lưu cấu hình hệ thống
-      if (gdriveConfig) {
+      // Lưu cấu hình hệ thống (chỉ ADMIN có quyền ghi system_config)
+      if (isAdminUser && gdriveConfig) {
         onProgress?.('Đang lưu cấu hình Google Drive...');
         await setDoc(doc(firestoreDb, 'system_config', 'google_drive'), JSON.parse(JSON.stringify(gdriveConfig)), { merge: true });
       }
 
       // Lưu nhật ký đồng bộ
       const syncTime = new Date().toLocaleString('vi-VN');
-      await setDoc(doc(firestoreDb, 'system_config', 'sync_meta'), {
-        last_synced_at: syncTime,
-        timestamp: new Date().toISOString(),
-        counts: {
-          donVi: donViList.length,
-          chuongTrinh: chuongTrinhList.length,
-          hoSoDiaBan: diaBanRecords.length,
-          hoSoFiles: diaBanFiles.length,
-          baoCaoThang: baoCaoList.length,
-          pdfFiles: pdfFiles.length,
-          donThu: donThuList.length,
-          users: users.length,
-        },
-      }, { merge: true });
+      if (isAdminUser) {
+        await setDoc(doc(firestoreDb, 'system_config', 'sync_meta'), {
+          last_synced_at: syncTime,
+          timestamp: new Date().toISOString(),
+          counts: {
+            donVi: donViList.length,
+            chuongTrinh: chuongTrinhList.length,
+            hoSoDiaBan: diaBanRecords.length,
+            hoSoFiles: diaBanFiles.length,
+            baoCaoThang: baoCaoList.length,
+            pdfFiles: pdfFiles.length,
+            donThu: donThuList.length,
+            users: users.length,
+          },
+        }, { merge: true });
+      }
 
       this.setLastSyncedAt(syncTime);
 
@@ -251,7 +295,23 @@ export const cloudSyncService = {
   // ── KÉO TOÀN BỘ DỮ LIỆU TỪ CLOUD VỀ MÁY NÀY ──────────────────────────────
   async pullAllFromCloud(onProgress?: (msg: string) => void): Promise<{ success: boolean; error?: string; counts: any }> {
     try {
+      if (!auth.currentUser) {
+        return {
+          success: false,
+          error: 'Vui lòng đăng nhập trước khi đồng bộ dữ liệu với Cloud.',
+          counts: { donVi: 0, chuongTrinh: 0, hoSoDiaBan: 0, hoSoFiles: 0, baoCaoThang: 0, pdfFiles: 0, donThu: 0, users: 0 },
+        };
+      }
       onProgress?.('Đang kết nối Firestore Cloud...');
+
+      const isAdminPull = (() => {
+        try {
+          const raw = localStorage.getItem('ubkt_current_user');
+          return raw ? JSON.parse(raw)?.vai_tro === 'ADMIN' : false;
+        } catch {
+          return false;
+        }
+      })();
 
       const [
         donViSnap,
@@ -261,7 +321,7 @@ export const cloudSyncService = {
         bcSnap,
         pdfSnap,
         donThuSnap,
-        usersSnap,
+        usersDocs,
         phanCongSnap,
         gdriveDoc,
       ] = await Promise.all([
@@ -272,7 +332,9 @@ export const cloudSyncService = {
         getDocs(collection(firestoreDb, 'bao_cao_thang')),
         getDocs(collection(firestoreDb, 'pdf_files')),
         getDocs(collection(firestoreDb, 'don_thu')),
-        getDocs(collection(firestoreDb, 'users')),
+        isAdminPull
+          ? getDocs(collection(firestoreDb, 'users')).then((s) => s.docs)
+          : getDoc(doc(firestoreDb, 'users', auth.currentUser.uid)).then((d) => (d.exists() ? [d] : [])),
         getDocs(collection(firestoreDb, 'phan_cong_dia_ban')),
         getDoc(doc(firestoreDb, 'system_config', 'google_drive')),
       ]);
@@ -298,32 +360,9 @@ export const cloudSyncService = {
       if (!donThuSnap.empty) {
         currentMockDb.donThuList = donThuSnap.docs.map((d) => d.data() as DonThu);
       }
-      if (!usersSnap.empty) {
-        const cloudUsers = usersSnap.docs.map((d) => d.data() as User & { mat_khau?: string });
-        const localUsers = ((currentMockDb.users || []) as (User & { mat_khau?: string })[]);
-
-        const mergedMap = new Map<string, User & { mat_khau?: string }>();
-        // 1. Nạp cloud users
-        cloudUsers.forEach((cu) => {
-          const key = cu.id || cu.ten_dang_nhap?.toLowerCase();
-          if (key) mergedMap.set(key, cu);
-        });
-
-        // 2. Bảo lưu local users và giữ lại mat_khau nếu cloud bị thiếu
-        localUsers.forEach((lu) => {
-          const key = lu.id || lu.ten_dang_nhap?.toLowerCase();
-          const target = key ? mergedMap.get(key) : undefined;
-          if (target) {
-            if (!target.mat_khau && lu.mat_khau) {
-              target.mat_khau = lu.mat_khau;
-            }
-          } else if (key) {
-            mergedMap.set(key, lu);
-            this.saveItemToCloud('users', lu.id, lu).catch(() => {});
-          }
-        });
-
-        currentMockDb.users = Array.from(mergedMap.values());
+      if (usersDocs.length > 0) {
+        const cloudUsers = usersDocs.map((d) => sanitizeUserForCloud(d.data() as User));
+        currentMockDb.users = cloudUsers;
       }
       localStorage.setItem('ubkt_mock_db', JSON.stringify(currentMockDb));
 
@@ -389,7 +428,7 @@ export const cloudSyncService = {
           baoCaoThang: bcSnap.size,
           pdfFiles: pdfSnap.size,
           donThu: donThuSnap.size,
-          users: usersSnap.size,
+          users: usersDocs.length,
         },
       };
     } catch (err: any) {
@@ -519,6 +558,9 @@ export const cloudSyncService = {
     if (this._isSyncing) {
       return { success: true, action: 'merged', counts: {} };
     }
+    if (!auth.currentUser) {
+      return { success: false, error: 'Chưa đăng nhập Firebase Auth', action: 'merged', counts: {} };
+    }
     if (silent && typeof document !== 'undefined' && document.hidden) {
       return { success: true, action: 'merged', counts: {} };
     }
@@ -531,6 +573,15 @@ export const cloudSyncService = {
     try {
       onProgress?.('Đang kết nối Firestore Cloud...');
 
+      const isAdminSync = (() => {
+        try {
+          const raw = localStorage.getItem('ubkt_current_user');
+          return raw ? JSON.parse(raw)?.vai_tro === 'ADMIN' : false;
+        } catch {
+          return false;
+        }
+      })();
+
       const [
         donViSnap,
         ctSnap,
@@ -539,7 +590,7 @@ export const cloudSyncService = {
         bcSnap,
         pdfSnap,
         donThuSnap,
-        usersSnap,
+        usersDocs,
         phanCongSnap,
         gdriveDoc,
         tombstonesSnap,
@@ -551,7 +602,9 @@ export const cloudSyncService = {
         getDocs(collection(firestoreDb, 'bao_cao_thang')),
         getDocs(collection(firestoreDb, 'pdf_files')),
         getDocs(collection(firestoreDb, 'don_thu')),
-        getDocs(collection(firestoreDb, 'users')),
+        isAdminSync
+          ? getDocs(collection(firestoreDb, 'users')).then((s) => s.docs)
+          : getDoc(doc(firestoreDb, 'users', auth.currentUser.uid)).then((d) => (d.exists() ? [d] : [])),
         getDocs(collection(firestoreDb, 'phan_cong_dia_ban')),
         getDoc(doc(firestoreDb, 'system_config', 'google_drive')),
         getDocs(collection(firestoreDb, 'tombstones')),
@@ -893,34 +946,38 @@ export const cloudSyncService = {
       });
       currentMockDb.donThuList = Array.from(donThuMap.values());
 
-      // H. TÀI KHOẢN (users)
-      const cloudUsers = usersSnap.docs.map((d) => d.data() as User & { mat_khau?: string });
-      const localUsers: (User & { mat_khau?: string })[] = (currentMockDb.users || []).filter((u: User) => !cloudTombstones.has(u.id));
-      const userMap = new Map<string, User & { mat_khau?: string }>();
-      localUsers.forEach((u) => {
+      // H. TÀI KHOẢN (users) — Không lưu mật khẩu trong Firestore; chỉ ADMIN quản lý danh sách users
+      const cloudUsers = usersDocs.map((d) => sanitizeUserForCloud(d.data() as User));
+      const localUsers: User[] = (currentMockDb.users || []).filter(
+        (u: User) => !cloudTombstones.has(u.id)
+      );
+      const userMap = new Map<string, User>();
+
+      for (const u of localUsers) {
         const k = u.id || u.ten_dang_nhap?.toLowerCase();
-        if (k && !cloudTombstones.has(u.id)) userMap.set(k, u);
-      });
-      cloudUsers.forEach((cu) => {
+        if (!k || cloudTombstones.has(u.id)) continue;
+        userMap.set(k, sanitizeUserForCloud(u) as User);
+      }
+
+      for (const cu of cloudUsers) {
         const k = cu.id || cu.ten_dang_nhap?.toLowerCase();
-        if (!k || cloudTombstones.has(cu.id)) return;
-        const lu = userMap.get(k);
-        if (!lu) {
-          userMap.set(k, cu);
-        } else {
-          if (!cu.mat_khau && lu.mat_khau) {
-            cu.mat_khau = lu.mat_khau;
+        if (!k || cloudTombstones.has(cu.id)) continue;
+        userMap.set(k, sanitizeUserForCloud(cu) as User);
+      }
+
+      if (isAdminSync) {
+        const cloudUserKeys = new Set(cloudUsers.map((u) => u.id || u.ten_dang_nhap?.toLowerCase()));
+        for (const lu of userMap.values()) {
+          const k = lu.id || lu.ten_dang_nhap?.toLowerCase();
+          if (k && !cloudUserKeys.has(k) && !cloudTombstones.has(lu.id)) {
+            itemsToPushToCloud.push({
+              collection: 'users',
+              id: lu.id,
+              data: sanitizeUserForCloud(lu),
+            });
           }
-          userMap.set(k, cu);
         }
-      });
-      const cloudUserKeys = new Set(cloudUsers.map((u) => u.id || u.ten_dang_nhap?.toLowerCase()));
-      localUsers.forEach((lu) => {
-        const k = lu.id || lu.ten_dang_nhap?.toLowerCase();
-        if (k && !cloudUserKeys.has(k) && !cloudTombstones.has(lu.id)) {
-          itemsToPushToCloud.push({ collection: 'users', id: lu.id, data: lu });
-        }
-      });
+      }
       currentMockDb.users = Array.from(userMap.values());
 
       // I. PHÂN CÔNG ĐỊA BÀN (phan_cong_dia_ban)
@@ -987,10 +1044,42 @@ export const cloudSyncService = {
         localStorage.setItem('ubkt_mock_db', JSON.stringify(currentMockDb));
       }
 
-      // Đẩy các mục mới ở máy này lên Cloud
-      if (itemsToPushToCloud.length > 0) {
-        onProgress?.(`Đang đồng bộ ${itemsToPushToCloud.length} mục mới lên Cloud...`);
-        for (const item of itemsToPushToCloud) {
+      // Đẩy các mục mới ở máy này lên Cloud (lọc theo quyền hạn của vai trò hiện tại để không vi phạm Firestore Rules)
+      const filteredItemsToPush = itemsToPushToCloud.filter((item) => {
+        if (isAdminSync) return true;
+        const userRole = (() => {
+          try {
+            const raw = localStorage.getItem('ubkt_current_user');
+            return raw ? JSON.parse(raw)?.vai_tro : null;
+          } catch {
+            return null;
+          }
+        })();
+        if (userRole !== 'BIEN_TAP') return false;
+        const adminOnlyColls = new Set(['don_vi', 'users', 'phan_cong_dia_ban', 'system_config', 'tombstones']);
+        if (adminOnlyColls.has(item.collection)) return false;
+
+        // Với BIEN_TAP: chỉ đẩy các bản ghi thuộc đơn vị được phân công
+        const myUid = auth.currentUser?.uid;
+        const myAssign = mergedPhanCong.find((p) => (p.user_id || p.id) === myUid);
+        const myUnitIds = new Set<string>(myAssign?.don_vi_ids || []);
+        if (myUnitIds.size === 0) return false;
+
+        if (item.collection === 'ho_so_dia_ban_records') {
+          return myUnitIds.has(item.id) || (item.data?.don_vi_id && myUnitIds.has(item.data.don_vi_id));
+        }
+        if (item.collection === 'bao_cao_thang') {
+          const unitId = item.data?.don_vi_id || item.data?.danh_sach_don_vi_ids?.[0];
+          return Boolean(unitId && myUnitIds.has(unitId));
+        }
+        const recordUnitId =
+          item.data?.don_vi_id || item.data?.doi_tuong_don_vi_id || item.data?.chi_dang_bo_id;
+        return Boolean(recordUnitId && myUnitIds.has(recordUnitId));
+      });
+
+      if (filteredItemsToPush.length > 0) {
+        onProgress?.(`Đang đồng bộ ${filteredItemsToPush.length} mục mới lên Cloud...`);
+        for (const item of filteredItemsToPush) {
           await this.saveItemToCloud(item.collection, item.id, item.data);
         }
       }

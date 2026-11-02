@@ -1,19 +1,174 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Tự động đọc file .env ở thư mục gốc nếu có
+const ENV_FILE = path.resolve(__dirname, '../.env');
+if (fs.existsSync(ENV_FILE)) {
+  try {
+    const envLines = fs.readFileSync(ENV_FILE, 'utf-8').split(/\r?\n/);
+    for (const line of envLines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx > 0) {
+        const key = trimmed.slice(0, eqIdx).trim();
+        let val = trimmed.slice(eqIdx + 1).trim();
+        if (
+          (val.startsWith('"') && val.endsWith('"')) ||
+          (val.startsWith("'") && val.endsWith("'"))
+        ) {
+          val = val.slice(1, -1);
+        }
+        if (process.env[key] === undefined) {
+          process.env[key] = val;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Không thể đọc file .env:', err);
+  }
+}
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.trim().length < 16) {
+  console.error(
+    '❌ LỖI CẤU HÌNH BẢO MẬT: Biến môi trường JWT_SECRET là bắt buộc (tối thiểu 16 ký tự). Vui lòng tạo file .env từ .env.example và thiết lập JWT_SECRET trước khi chạy server!'
+  );
+  process.exit(1);
+}
+const JWT_EXPIRES_IN = '8h';
+
+const BCRYPT_COST = 10;
+const INITIAL_SEED_ADMIN_HASH =
+  '$2b$10$oPqHubEEvKVDcP7UmBgqUu9FTfNn3abZbbi.kdAwgDPOqouEgxxve';
+
+async function hashPasswordServer(plain) {
+  return bcrypt.hash(String(plain), BCRYPT_COST);
+}
+
+async function verifyPasswordServer(plain, storedHash) {
+  if (!plain || !storedHash) return false;
+  if (
+    storedHash.startsWith('$2a$') ||
+    storedHash.startsWith('$2b$') ||
+    storedHash.startsWith('$2y$')
+  ) {
+    return bcrypt.compare(String(plain), storedHash);
+  }
+  if (storedHash.startsWith('pbkdf2$')) {
+    const parts = storedHash.split('$');
+    if (parts.length !== 4) return false;
+    const iterations = parseInt(parts[1], 10);
+    const saltHex = parts[2];
+    const expectedHex = parts[3];
+    if (!iterations || !saltHex || !expectedHex) return false;
+    const derived = crypto.pbkdf2Sync(
+      String(plain),
+      Buffer.from(saltHex, 'hex'),
+      iterations,
+      32,
+      'sha256'
+    );
+    const actualBuf = Buffer.from(derived.toString('hex'), 'utf8');
+    const expectedBuf = Buffer.from(expectedHex, 'utf8');
+    if (actualBuf.length !== expectedBuf.length) return false;
+    return crypto.timingSafeEqual(actualBuf, expectedBuf);
+  }
+  return false;
+}
+
+function stripUserSecrets(user) {
+  if (!user) return user;
+  const { mat_khau: _pw, mat_khau_hash: _hash, ...cleanUser } = user;
+  return cleanUser;
+}
+
+function validatePasswordPolicy(password) {
+  const pw = String(password || '');
+  if (pw.length < 8) {
+    return 'Mật khẩu phải có tối thiểu 8 ký tự.';
+  }
+  if (!/[A-Z]/.test(pw)) {
+    return 'Mật khẩu phải chứa ít nhất 1 chữ cái viết hoa (A-Z).';
+  }
+  if (!/[a-z]/.test(pw)) {
+    return 'Mật khẩu phải chứa ít nhất 1 chữ cái viết thường (a-z).';
+  }
+  if (!/[0-9]/.test(pw)) {
+    return 'Mật khẩu phải chứa ít nhất 1 chữ số (0-9).';
+  }
+  return null;
+}
+
+const GENERIC_LOGIN_ERROR_MSG = 'Tên đăng nhập hoặc mật khẩu không chính xác';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'database.json');
+const SAMPLE_DB_FILE = path.join(DATA_DIR, 'database.sample.json');
 
-app.use(cors());
+// Bảo mật HTTP Headers với Helmet
+app.use(helmet());
+
+// Cấu hình CORS chỉ cho phép các origin trong biến môi trường ALLOWED_ORIGINS
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Cho phép request cùng nguồn / server-to-server không có header Origin
+      if (!origin) {
+        return callback(null, true);
+      }
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(
+        new Error(`Origin ${origin} không nằm trong danh sách ALLOWED_ORIGINS được phép truy cập.`)
+      );
+    },
+    credentials: true,
+  })
+);
+
 app.use(express.json({ limit: '50mb' }));
+
+// Chống dò mật khẩu (Brute-force): tối đa 5 lần đăng nhập sai / 15 phút / IP + tên đăng nhập
+const loginRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: false,
+  keyGenerator: (req) => {
+    const bodyPayload = (req.body && (req.body.req || req.body)) || {};
+    const username = String(bodyPayload.ten_dang_nhap || '')
+      .trim()
+      .toLowerCase();
+    const clientIp = req.ip || req.socket?.remoteAddress || 'unknown-ip';
+    return `${clientIp}:${username || 'anonymous'}`;
+  },
+  message: {
+    message:
+      'Tài khoản hoặc địa chỉ IP này đã nhập sai mật khẩu quá 5 lần. Vui lòng thử lại sau 15 phút.',
+  },
+});
 
 // Ensure data folder exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -46,12 +201,12 @@ function getInitialData() {
     {
       id: '01918a00-0000-7000-8000-000000000000',
       ten_dang_nhap: 'admin',
-      mat_khau: 'Admin@123456',
+      mat_khau_hash: INITIAL_SEED_ADMIN_HASH,
       ho_ten: 'Quản trị viên Hệ thống',
       vai_tro: 'ADMIN',
       chuc_danh: 'Chủ nhiệm UBKT',
       trang_thai: 1,
-      must_change_password: false,
+      must_change_password: true,
       created_at: now,
       updated_at: now,
     },
@@ -86,10 +241,15 @@ function getInitialData() {
   };
 }
 
-// Read database
+// Read database (tự động tạo database.json từ database.sample.json nếu chưa có)
 function readDb() {
   try {
     if (!fs.existsSync(DB_FILE)) {
+      if (fs.existsSync(SAMPLE_DB_FILE)) {
+        fs.copyFileSync(SAMPLE_DB_FILE, DB_FILE);
+        const sampleContent = fs.readFileSync(DB_FILE, 'utf-8');
+        return JSON.parse(sampleContent);
+      }
       const initial = getInitialData();
       fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), 'utf-8');
       return initial;
@@ -151,57 +311,244 @@ function buildDonViTree(list, parentId = null, level = 1) {
     });
 }
 
-// ── Auth Endpoints ──────────────────────────────────────────────────────────
-app.post('/api/login', (req, res) => {
-  const { ten_dang_nhap, mat_khau } = req.body.req || req.body;
-  const db = readDb();
-  const normalizedU = (ten_dang_nhap || '').trim().toLowerCase();
-
-  const user = db.users.find((u) => u.ten_dang_nhap.toLowerCase() === normalizedU);
-  if (!user) {
-    return res.status(401).json({ message: 'Tên đăng nhập không tồn tại' });
-  }
-
-  if (user.trang_thai === 0) {
-    return res.status(403).json({ message: 'Tài khoản đang bị tạm khóa. Vui lòng liên hệ Quản trị viên' });
-  }
-
-  const validPasswords = ['Admin@123456', 'admin@123456', 'admin123', 'admin', '123456'];
-  if (
-    user.mat_khau === mat_khau ||
-    (user.mat_khau && user.mat_khau.trim() === (mat_khau || '').trim()) ||
-    validPasswords.includes(mat_khau)
-  ) {
-    const { mat_khau: _pw, ...cleanUser } = user;
-    return res.json({
-      user: cleanUser,
-      token: `online-jwt-${Date.now()}-${user.id}`,
+// ── Middleware xác thực JWT & Phân quyền vai trò (RBAC) ───────────────────────
+function authenticateJwt(req, res, next) {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      success: false,
+      message: 'Yêu cầu đăng nhập: Thiếu mã xác thực phiên làm việc (Bearer Token).',
     });
   }
 
-  return res.status(401).json({ message: 'Mật khẩu không chính xác' });
-});
-
-app.post('/api/change-password', (req, res) => {
-  const { user_id, mat_khau_moi } = req.body.req || req.body;
-  const db = readDb();
-  const user = db.users.find((u) => u.id === user_id);
-  if (!user) {
-    return res.status(404).json({ message: 'Người dùng không tồn tại' });
+  const token = authHeader.slice(7).trim();
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      message: 'Yêu cầu đăng nhập: Token xác thực trống.',
+    });
   }
 
-  user.mat_khau = mat_khau_moi;
-  user.must_change_password = false;
-  user.updated_at = new Date().toISOString();
-  writeDb(db);
-  return res.json({ success: true });
+  let decoded;
+  try {
+    decoded = jwt.verify(token, JWT_SECRET);
+  } catch (err) {
+    const isExpired = err && err.name === 'TokenExpiredError';
+    return res.status(401).json({
+      success: false,
+      message: isExpired
+        ? 'Phiên đăng nhập đã hết hạn (8 giờ). Vui lòng đăng nhập lại.'
+        : 'Mã xác thực phiên làm việc không hợp lệ hoặc đã bị giả mạo.',
+    });
+  }
+
+  const userId = decoded && (decoded.sub || decoded.id);
+  if (!userId) {
+    return res.status(401).json({
+      success: false,
+      message: 'Thông tin định danh trong token không hợp lệ.',
+    });
+  }
+
+  const db = readDb();
+  const user = (db.users || []).find((u) => u.id === userId && u.trang_thai !== 0);
+  if (!user) {
+    return res.status(401).json({
+      success: false,
+      message: 'Tài khoản không tồn tại hoặc đã bị tạm khóa.',
+    });
+  }
+
+  req.authUser = user;
+
+  // Không bao giờ tin user_id, actor_id, actor_name hay vai_tro do client gửi lên
+  if (req.body && typeof req.body === 'object') {
+    req.body.user_id = user.id;
+    req.body.actor_id = user.id;
+    req.body.actor_name = user.ho_ten;
+  }
+
+  next();
+}
+
+function requireRoles(...allowedRoles) {
+  return (req, res, next) => {
+    const user = req.authUser;
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Yêu cầu đăng nhập: Không tìm thấy thông tin phiên làm việc hợp lệ.',
+      });
+    }
+    if (!allowedRoles.includes(user.vai_tro)) {
+      return res.status(403).json({
+        success: false,
+        message: `Từ chối truy cập: Chức năng này yêu cầu quyền ${allowedRoles.join(' hoặc ')}.`,
+      });
+    }
+    next();
+  };
+}
+
+const requireAdmin = requireRoles('ADMIN');
+const requireEditorOrAdmin = requireRoles('ADMIN', 'BIEN_TAP');
+
+// Áp dụng verify JWT cho TẤT CẢ route /api trừ POST /api/login,
+// đồng thời kiểm tra vai trò cho toàn bộ thao tác ghi/xóa/quản trị
+app.use('/api', (req, res, next) => {
+  if (req.path === '/login' && req.method === 'POST') {
+    return next();
+  }
+  return authenticateJwt(req, res, (err) => {
+    if (err) return next(err);
+
+    // Các route chỉ dành riêng cho ADMIN
+    const isAdminOnlyRoute =
+      req.path.startsWith('/phan-cong-dia-ban') ||
+      req.path === '/reset-data' ||
+      (req.path.startsWith('/users') && req.method !== 'GET');
+
+    if (isAdminOnlyRoute) {
+      return requireAdmin(req, res, next);
+    }
+
+    // Đổi mật khẩu của chính mình: cho phép mọi tài khoản đã xác thực JWT
+    if (req.path === '/change-password' && req.method === 'POST') {
+      return next();
+    }
+
+    // Tất cả các route ghi / cập nhật / xóa dữ liệu khác yêu cầu ADMIN hoặc BIEN_TAP
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+      return requireEditorOrAdmin(req, res, next);
+    }
+
+    return next();
+  });
+});
+
+// ── Auth Endpoints ──────────────────────────────────────────────────────────
+app.post('/api/login', loginRateLimiter, async (req, res) => {
+  try {
+    const { ten_dang_nhap, mat_khau } = req.body.req || req.body || {};
+    const db = readDb();
+    const normalizedU = (ten_dang_nhap || '').trim().toLowerCase();
+
+    const user = (db.users || []).find((u) => u.ten_dang_nhap.toLowerCase() === normalizedU);
+    if (!user || !mat_khau) {
+      return res.status(401).json({ message: GENERIC_LOGIN_ERROR_MSG });
+    }
+
+    if (user.trang_thai === 0) {
+      return res.status(403).json({ message: 'Tài khoản đang bị tạm khóa. Vui lòng liên hệ Quản trị viên' });
+    }
+
+    let isValid = false;
+    let needsMigrationSave = false;
+
+    if (user.mat_khau_hash) {
+      isValid = await verifyPasswordServer(mat_khau, user.mat_khau_hash);
+      if (isValid && 'mat_khau' in user) {
+        delete user.mat_khau;
+        needsMigrationSave = true;
+      }
+    }
+
+    // Migration: nếu tài khoản cũ vẫn lưu mat_khau dạng plaintext hoặc hash cũ trong trường mat_khau
+    if (!isValid && user.mat_khau) {
+      const legacyVal = String(user.mat_khau);
+      if (
+        legacyVal.startsWith('$2a$') ||
+        legacyVal.startsWith('$2b$') ||
+        legacyVal.startsWith('$2y$') ||
+        legacyVal.startsWith('pbkdf2$')
+      ) {
+        isValid = await verifyPasswordServer(mat_khau, legacyVal);
+      } else if (legacyVal === mat_khau) {
+        isValid = true;
+      }
+
+      if (isValid) {
+        user.mat_khau_hash = await hashPasswordServer(mat_khau);
+        delete user.mat_khau;
+        user.updated_at = new Date().toISOString();
+        needsMigrationSave = true;
+      }
+    }
+
+    if (!isValid) {
+      return res.status(401).json({ message: GENERIC_LOGIN_ERROR_MSG });
+    }
+
+    if (needsMigrationSave) {
+      writeDb(db);
+    }
+
+    const signedToken = jwt.sign(
+      {
+        sub: user.id,
+        ten_dang_nhap: user.ten_dang_nhap,
+        vai_tro: user.vai_tro,
+      },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
+    return res.json({
+      user: stripUserSecrets(user),
+      token: signedToken,
+    });
+  } catch (err) {
+    console.error('Login error:', err);
+    return res.status(500).json({ message: 'Lỗi xử lý đăng nhập' });
+  }
+});
+
+app.post('/api/change-password', async (req, res) => {
+  try {
+    const { mat_khau_cu, mat_khau_moi } = req.body.req || req.body || {};
+    const db = readDb();
+    // Chỉ cho phép đổi mật khẩu của chính người dùng đã xác thực trong JWT
+    const authUserId = req.authUser.id;
+    const user = (db.users || []).find((u) => u.id === authUserId);
+    if (!user) {
+      return res.status(404).json({ message: 'Người dùng không tồn tại' });
+    }
+
+    const policyError = validatePasswordPolicy(mat_khau_moi);
+    if (policyError) {
+      return res.status(400).json({ message: policyError });
+    }
+
+    // Kiểm tra mật khẩu hiện tại
+    if (user.mat_khau_hash || user.mat_khau) {
+      let oldMatches = false;
+      if (mat_khau_cu && user.mat_khau_hash) {
+        oldMatches = await verifyPasswordServer(mat_khau_cu, user.mat_khau_hash);
+      }
+      if (!oldMatches && mat_khau_cu && user.mat_khau) {
+        oldMatches =
+          (await verifyPasswordServer(mat_khau_cu, String(user.mat_khau))) ||
+          user.mat_khau === mat_khau_cu;
+      }
+      if (!oldMatches) {
+        return res.status(400).json({ message: 'Mật khẩu hiện tại không chính xác' });
+      }
+    }
+
+    user.mat_khau_hash = await hashPasswordServer(mat_khau_moi);
+    delete user.mat_khau;
+    user.must_change_password = false;
+    user.updated_at = new Date().toISOString();
+    writeDb(db);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Change password error:', err);
+    return res.status(500).json({ message: 'Lỗi khi đổi mật khẩu' });
+  }
 });
 
 app.get('/api/current-user/:id', (req, res) => {
-  const db = readDb();
-  const user = db.users.find((u) => u.id === req.params.id) || db.users[0];
-  const { mat_khau: _pw, ...cleanUser } = user;
-  return res.json(cleanUser);
+  return res.json(stripUserSecrets(req.authUser));
 });
 
 // ── Don Vi (Cơ cấu tổ chức) ─────────────────────────────────────────────────
@@ -1174,52 +1521,8 @@ app.put('/api/dia-ban/:id', (req, res) => {
   res.json(db.diaBanRecords.find((r) => r.id === id));
 });
 
-// ── Helper xác thực người dùng và phân quyền RBAC ─────────────────────────────
-function getAuthUser(req, db) {
-  const authHeader = req.headers.authorization || '';
-  let tokenUserId = null;
-  if (authHeader.startsWith('Bearer ')) {
-    const token = authHeader.slice(7).trim();
-    // format: online-jwt-${timestamp}-${userId}
-    const parts = token.split('-');
-    if (parts.length >= 4 && parts[0] === 'online' && parts[1] === 'jwt') {
-      tokenUserId = parts.slice(3).join('-');
-    }
-  }
-
-  const userId =
-    tokenUserId ||
-    req.headers['x-user-id'] ||
-    req.query?.user_id ||
-    req.body?.user_id;
-
-  if (!userId) return null;
-
-  return (db.users || []).find((u) => u.id === userId && u.trang_thai !== 0) || null;
-}
-
-// Middleware kiểm tra quyền Quản trị viên (ADMIN) cho phân hệ Phân công quản lý
-function requireAdminForPhanCong(req, res, next) {
-  const db = readDb();
-  const user = getAuthUser(req, db);
-
-  if (!user) {
-    return res.status(401).json({
-      success: false,
-      message: 'Yêu cầu đăng nhập: Không tìm thấy thông tin phiên làm việc hợp lệ.',
-    });
-  }
-
-  if (user.vai_tro !== 'ADMIN') {
-    return res.status(403).json({
-      success: false,
-      message: 'Từ chối truy cập: Tài khoản Biên tập viên không có quyền xem hoặc chỉnh sửa dữ liệu phân công quản lý.',
-    });
-  }
-
-  req.authUser = user;
-  next();
-}
+// ── Phân công địa bàn (Đã được bảo vệ bởi authenticateJwt + requireAdmin) ──
+const requireAdminForPhanCong = requireAdmin;
 
 app.get('/api/phan-cong-dia-ban', requireAdminForPhanCong, (req, res) => {
   const db = readDb();
@@ -1625,46 +1928,61 @@ app.delete('/api/pdfs/:id', (req, res) => {
 // ── Quản lý người dùng (Users) ──────────────────────────────────────────────
 app.get('/api/users', (req, res) => {
   const db = readDb();
-  const list = db.users.map(({ mat_khau: _pw, ...u }) => u);
+  const list = (db.users || []).map((u) => stripUserSecrets(u));
   res.json(list);
 });
 
-app.post('/api/users', (req, res) => {
-  const { req: input, actor_name } = req.body;
-  const db = readDb();
+app.post('/api/users', async (req, res) => {
+  try {
+    const { req: input, actor_name } = req.body;
+    const db = readDb();
 
-  if (db.users.some((u) => u.ten_dang_nhap.toLowerCase() === input.ten_dang_nhap.trim().toLowerCase())) {
-    return res.status(400).json({ message: 'Tên đăng nhập đã tồn tại trong hệ thống' });
+    if (!input?.ten_dang_nhap || !input?.mat_khau) {
+      return res.status(400).json({ message: 'Tên đăng nhập và mật khẩu khởi tạo là bắt buộc' });
+    }
+
+    const createPwError = validatePasswordPolicy(input.mat_khau);
+    if (createPwError) {
+      return res.status(400).json({ message: createPwError });
+    }
+
+    if (db.users.some((u) => u.ten_dang_nhap.toLowerCase() === input.ten_dang_nhap.trim().toLowerCase())) {
+      return res.status(400).json({ message: 'Tên đăng nhập đã tồn tại trong hệ thống' });
+    }
+
+    const mat_khau_hash = await hashPasswordServer(input.mat_khau);
+
+    const newUser = {
+      id: `user-${Date.now()}`,
+      ten_dang_nhap: input.ten_dang_nhap.trim(),
+      mat_khau_hash,
+      ho_ten: input.ho_ten.trim(),
+      vai_tro: input.vai_tro,
+      chuc_danh: input.chuc_danh || 'Chuyên viên UBKT',
+      trang_thai: 1,
+      must_change_password: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    db.users.push(newUser);
+    db.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      ten_nguoi_dung: actor_name || 'Quản trị viên',
+      hanh_dong: `Tạo tài khoản cán bộ: ${newUser.ho_ten} (${newUser.ten_dang_nhap})`,
+      bang_anh_huong: 'users',
+      ban_ghi_id: newUser.id,
+      du_lieu_cu: null,
+      du_lieu_moi: JSON.stringify({ ten: newUser.ten_dang_nhap, vai_tro: newUser.vai_tro }),
+      thoi_gian: new Date().toISOString(),
+    });
+
+    writeDb(db);
+    res.json(stripUserSecrets(newUser));
+  } catch (err) {
+    console.error('Create user error:', err);
+    res.status(500).json({ message: 'Lỗi khi tạo tài khoản' });
   }
-
-  const newUser = {
-    id: `user-${Date.now()}`,
-    ten_dang_nhap: input.ten_dang_nhap.trim(),
-    mat_khau: input.mat_khau || 'Admin@123456',
-    ho_ten: input.ho_ten.trim(),
-    vai_tro: input.vai_tro,
-    chuc_danh: input.chuc_danh || 'Chuyên viên UBKT',
-    trang_thai: 1,
-    must_change_password: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-
-  db.users.push(newUser);
-  db.auditLogs.unshift({
-    id: `log-${Date.now()}`,
-    ten_nguoi_dung: actor_name || 'Quản trị viên',
-    hanh_dong: `Tạo tài khoản cán bộ: ${newUser.ho_ten} (${newUser.ten_dang_nhap})`,
-    bang_anh_huong: 'users',
-    ban_ghi_id: newUser.id,
-    du_lieu_cu: null,
-    du_lieu_moi: JSON.stringify({ ten: newUser.ten_dang_nhap, vai_tro: newUser.vai_tro }),
-    thoi_gian: new Date().toISOString(),
-  });
-
-  writeDb(db);
-  const { mat_khau: _pw, ...clean } = newUser;
-  res.json(clean);
 });
 
 app.put('/api/users/:id', (req, res) => {
@@ -1688,7 +2006,7 @@ app.put('/api/users/:id', (req, res) => {
     bang_anh_huong: 'users',
     ban_ghi_id: user.id,
     du_lieu_cu: null,
-    du_lieu_moi: JSON.stringify(user),
+    du_lieu_moi: JSON.stringify(stripUserSecrets(user)),
     thoi_gian: new Date().toISOString(),
   });
 
@@ -1696,31 +2014,45 @@ app.put('/api/users/:id', (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/api/users/reset-password', (req, res) => {
-  const { req: input, actor_name } = req.body;
-  const db = readDb();
-  const user = db.users.find((u) => u.id === input.user_id);
-  if (!user) {
-    return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+app.post('/api/users/reset-password', async (req, res) => {
+  try {
+    const { req: input, actor_name } = req.body;
+    const db = readDb();
+    const user = db.users.find((u) => u.id === input?.user_id);
+    if (!user) {
+      return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+    }
+    if (!input?.mat_khau_moi) {
+      return res.status(400).json({ message: 'Vui lòng cung cấp mật khẩu mới' });
+    }
+
+    const resetPwError = validatePasswordPolicy(input.mat_khau_moi);
+    if (resetPwError) {
+      return res.status(400).json({ message: resetPwError });
+    }
+
+    user.mat_khau_hash = await hashPasswordServer(input.mat_khau_moi);
+    delete user.mat_khau;
+    user.must_change_password = true;
+    user.updated_at = new Date().toISOString();
+
+    db.auditLogs.unshift({
+      id: `log-${Date.now()}`,
+      ten_nguoi_dung: actor_name || 'Quản trị viên',
+      hanh_dong: `Cấp lại mật khẩu cho cán bộ: ${user.ho_ten}`,
+      bang_anh_huong: 'users',
+      ban_ghi_id: user.id,
+      du_lieu_cu: null,
+      du_lieu_moi: null,
+      thoi_gian: new Date().toISOString(),
+    });
+
+    writeDb(db);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Reset password error:', err);
+    res.status(500).json({ message: 'Lỗi khi đặt lại mật khẩu' });
   }
-
-  user.mat_khau = input.mat_khau_moi || 'Admin@123456';
-  user.must_change_password = true;
-  user.updated_at = new Date().toISOString();
-
-  db.auditLogs.unshift({
-    id: `log-${Date.now()}`,
-    ten_nguoi_dung: actor_name || 'Quản trị viên',
-    hanh_dong: `Cấp lại mật khẩu cho cán bộ: ${user.ho_ten}`,
-    bang_anh_huong: 'users',
-    ban_ghi_id: user.id,
-    du_lieu_cu: null,
-    du_lieu_moi: null,
-    thoi_gian: new Date().toISOString(),
-  });
-
-  writeDb(db);
-  res.json({ success: true });
 });
 
 app.delete('/api/users/:id', (req, res) => {

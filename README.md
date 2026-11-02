@@ -1,55 +1,96 @@
-# PHẦN MỀM QUẢN LÝ CHƯƠNG TRÌNH KIỂM TRA, GIÁM SÁT CỦA ĐẢNG (FULL ONLINE)
+# PHẦN MỀM QUẢN LÝ CHƯƠNG TRÌNH KIỂM TRA, GIÁM SÁT CỦA ĐẢNG
 
-Hệ thống được chuyển đổi thành **Ứng dụng Web Trực tuyến 100% (Full Online Web Application)**, hỗ trợ nhiều cán bộ và chi bộ trực thuộc cùng truy cập làm việc đồng thời qua mạng nội bộ (LAN) hoặc Internet.
+Hệ thống Quản lý Chương trình Kiểm tra, Giám sát của Đảng vận hành trực tuyến trên nền tảng **GitHub Pages + Firebase Authentication + Cloud Firestore**, hỗ trợ phân quyền chặt chẽ ở tầng cơ sở dữ liệu (`firestore.rules`) theo đúng phạm vi địa bàn được phân công.
 
 ---
 
-## 🚀 HƯỚNG DẪN KHỞI CHẠY HỆ THỐNG
+## 1. CÀI ĐẶT & KHỞI CHẠY
 
-### 1. Chạy toàn bộ hệ thống (Server + Web Client)
+### Yêu cầu môi trường
+- **Node.js**: phiên bản 20.x trở lên
+- **Firebase CLI** (để triển khai Security Rules & chạy Emulator kiểm thử):
+  ```bash
+  npm install -g firebase-tools
+  ```
+
+### Cài đặt thư viện
 ```bash
-npm run dev:all
+npm install
 ```
-Lệnh trên sẽ khởi chạy đồng thời:
-- **Backend Web Server**: `http://localhost:5000` (API REST + Cơ sở dữ liệu tập trung)
-- **Frontend Web App**: `http://localhost:5173` (Giao diện người dùng)
 
-### 2. Khởi chạy riêng từng thành phần
-- **Khởi chạy Backend Server:**
-  ```bash
-  npm run server
-  ```
-- **Khởi chạy Frontend Dev:**
-  ```bash
-  npm run dev
-  ```
-- **Đóng gói bản build Production:**
-  ```bash
-  npm run build
-  ```
+### Khởi chạy môi trường phát triển (Frontend)
+```bash
+npm run dev
+```
+
+### Đóng gói bản build Production & Triển khai GitHub Pages
+```bash
+npm run build
+npm run deploy
+```
 
 ---
 
-## 👥 THÔNG TIN TÀI KHOẢN HỆ THỐNG
+## 2. CẤU HÌNH BIẾN MÔI TRƯỜNG (`.env`)
 
-| Tên đăng nhập | Mật khẩu mặc định | Họ và tên | Vai trò | Chức danh |
-|:---|:---|:---|:---|:---|
-| `admin` | `Admin@123456` | Quản trị viên Hệ thống | `ADMIN` | Chủ nhiệm UBKT |
-| `nguyenvanan` | `Admin@123456` | Đ/c Nguyễn Văn An | `BIEN_TAP` | Uỷ viên UBKT |
-| `tranthibinh` | `Admin@123456` | Đ/c Trần Thị Bình | `BIEN_TAP` | Phó Chủ nhiệm UBKT |
-| `levancuong` | `Admin@123456` | Đ/c Lê Văn Cường | `BIEN_TAP` | Chuyên viên UBKT |
+Sao chép file `.env.example` thành `.env` ở thư mục gốc của dự án:
+
+```bash
+cp .env.example .env
+```
+
+Các biến môi trường trong `.env`:
+- `VITE_FIREBASE_API_KEY`: API Key của ứng dụng Web trên Firebase Console.
+- `VITE_FIREBASE_AUTH_DOMAIN`: Tên miền xác thực Firebase (`<project-id>.firebaseapp.com`).
+- `VITE_FIREBASE_PROJECT_ID`: Mã dự án Firebase (`ubkt-bf611`).
+- `VITE_FIREBASE_STORAGE_BUCKET`: Bucket lưu trữ Firebase.
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`: Messaging Sender ID.
+- `VITE_FIREBASE_APP_ID`: App ID của ứng dụng Web.
+- `JWT_SECRET`, `ALLOWED_ORIGINS`, `PORT`: Dùng khi chạy kèm máy chủ Express nội bộ tùy chọn (`npm run server`).
+
+*(Lưu ý: File `.env` đã được loại trừ trong `.gitignore`, tuyệt đối không commit `.env` lên Git).*
 
 ---
 
-## 🌐 KIẾN TRÚC MÁY CHỦ & DỮ LIỆU TẬP TRUNG (FULL ONLINE)
+## 3. CƠ CHẾ XÁC THỰC & PHÂN QUYỀN (FIREBASE AUTH + FIRESTORE RULES)
 
-1. **Backend Web Server (`server/server.js`)**:
-   - Chạy trên Node.js + Express (cổng 5000).
-   - Hỗ trợ đầy đủ REST API: Xác thực, Đổi mật khẩu, Cơ cấu tổ chức Đơn vị, Chương trình KT-GS toàn khóa & hàng năm, Quyết định thay đổi bổ sung, Kho PDF, Quản lý tài khoản cán bộ, Nhật ký kiểm toán.
-   - Cơ sở dữ liệu tập trung lưu trữ tại `server/data/database.json`. Khi triển khai lên máy chủ thật (VPS/Server cơ quan), mọi máy tính trong mạng truy cập theo địa chỉ IP/Domain của máy chủ để dùng chung một CSDL duy nhất.
+1. **Firebase Authentication (Email/Password)**:
+   - Mỗi tên đăng nhập `<tendangnhap>` được ánh xạ tự động sang địa chỉ `<tendangnhap>@ubkt.local`.
+   - Không lưu bất kỳ trường mật khẩu (`mat_khau`, `mat_khau_hash`) nào trong Firestore collection `users`.
+   - Để được cấp tài khoản mới hoặc đặt lại mật khẩu, vui lòng **liên hệ Quản trị viên hệ thống**.
 
-2. **Frontend Web App (`src/`)**:
-   - Xây dựng bằng React 19 + TypeScript + Vite + Tailwind CSS.
-   - Đã gỡ bỏ hoàn toàn mã nguồn Desktop (`src-tauri`) và thư viện `@tauri-apps/api`.
-   - Kết nối trực tuyến với máy chủ qua REST API (có cơ chế dự phòng an toàn).
-   - Giao diện cập nhật toàn diện trạng thái máy chủ Online, đèn báo thời gian thực, phục vụ truy cập đa nền tảng trình duyệt.
+2. **Lưu trữ vai trò & Phân quyền tại `firestore.rules`**:
+   - Vai trò (`ADMIN`, `BIEN_TAP`, `XEM`) được lưu trong `users/{uid}` và kiểm tra trực tiếp bằng hàm `get()` trong `firestore.rules` (hoàn toàn miễn phí trên gói Firebase Spark, không cần Cloud Functions trả phí).
+   - **Nguyên tắc Mặc định từ chối (Default Deny)**:
+     - Mọi thao tác đọc/ghi đều yêu cầu đăng nhập Firebase Auth hợp lệ và tài khoản đang hoạt động (`trang_thai == 1`).
+     - `users`: Chỉ `ADMIN` được tạo, sửa, xóa; mỗi người dùng chỉ đọc được hồ sơ `users/{uid}` của chính mình; chặn tuyệt đối mọi bản ghi có chứa trường mật khẩu.
+     - `don_vi`, `phan_cong_dia_ban`, `system_config`, `tombstones`: Chỉ `ADMIN` được phép ghi.
+     - `chuong_trinh`, `ho_so_dia_ban_records`, `ho_so_dia_ban_files`, `bao_cao_thang`, `pdf_files`, `don_thu`: `ADMIN` được ghi tất cả; `BIEN_TAP` chỉ được tạo/cập nhật các bản ghi thuộc đơn vị mà mình được phân công trong `phan_cong_dia_ban/{uid}`.
+
+---
+
+## 4. TRIỂN KHAI FIRESTORE SECURITY RULES & KIỂM THỬ
+
+### Bước 1: Bật Email/Password trong Firebase Console
+1. Mở [Firebase Console](https://console.firebase.google.com/) $\rightarrow$ chọn dự án.
+2. Vào **Authentication** $\rightarrow$ **Sign-in method** $\rightarrow$ bật **Email/Password** $\rightarrow$ bấm **Save**.
+
+### Bước 2: Chuyển đổi người dùng hiện có sang Firebase Auth (chạy 1 lần trước khi khóa Rules)
+Nếu hệ thống đã có dữ liệu người dùng cũ trên Firestore, người dùng sẽ được tự động chuyển đổi khi đăng nhập hoặc Quản trị viên có thể chạy script di trú hàng loạt:
+```bash
+MIGRATE_INIT_PASSWORD="<MatKhauKhoiTaoManh>" npm run migrate:auth
+```
+
+### Bước 3: Triển khai `firestore.rules` và `firestore.indexes.json` lên Firebase
+Đăng nhập Firebase CLI và triển khai:
+```bash
+firebase login
+firebase use ubkt-bf611
+firebase deploy --only firestore:rules,firestore:indexes
+```
+
+### Bước 4: Chạy kiểm thử tự động Security Rules với Firebase Emulator
+Dự án tích hợp bộ kiểm thử `@firebase/rules-unit-testing` tại `tests/firestore.rules.test.mjs`:
+```bash
+npm run test:rules
+```

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../services/api';
+import { validatePasswordPolicy } from '../utils/passwordCrypto';
 import type { User } from '../types';
 import { KeyRound, ShieldCheck, AlertCircle, X } from 'lucide-react';
 
@@ -27,8 +28,9 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     e.preventDefault();
     setError(null);
 
-    if (newPassword.length < 6) {
-      setError('Mật khẩu mới phải có ít nhất 6 ký tự.');
+    const policyError = validatePasswordPolicy(newPassword);
+    if (policyError) {
+      setError(policyError);
       return;
     }
 
@@ -121,7 +123,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               required
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="Nhập mật khẩu mới (tối thiểu 6 ký tự)"
+              placeholder="Tối thiểu 8 ký tự, có chữ hoa, chữ thường, số"
               className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 text-sm"
             />
           </div>

@@ -4,12 +4,14 @@ import {
   getDocs,
   setDoc,
   deleteDoc,
+  deleteField,
   onSnapshot,
   writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
-import { db as firestoreDb } from './firebase';
+import { db as firestoreDb, auth } from './firebase';
 import { isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
+import { sanitizeUserForCloud } from '../utils/passwordCrypto';
 import type {
   DonVi,
   ChuongTrinhKtGs,
@@ -60,6 +62,20 @@ const memoryCache: DataCache = {
 
 let activeUnsubscribes: Unsubscribe[] = [];
 let isListening = false;
+
+function getCurrentUserRole(): string | null {
+  try {
+    const raw = localStorage.getItem('ubkt_current_user');
+    if (!raw) return null;
+    return JSON.parse(raw)?.vai_tro || null;
+  } catch {
+    return null;
+  }
+}
+
+function isCurrentUserAdmin(): boolean {
+  return getCurrentUserRole() === 'ADMIN';
+}
 
 // Tải nhanh từ localStorage khi vừa khởi động để UI hiển thị tức thì (Cache-First)
 function loadInitialFromLocalStorage() {
@@ -163,9 +179,12 @@ export const centralDataService = {
   // ── 1. KẾT NỐI REAL-TIME FIRESTORE (onSnapshot cho tất cả bảng) ──────────────
   initRealtimeSync(): () => void {
     if (isListening) return () => {};
+    if (!auth.currentUser) {
+      return () => {};
+    }
     isListening = true;
 
-    console.log('[CentralData] Khởi động Realtime Firestore Listeners cho tất cả bảng...');
+    console.log('[CentralData] Khởi động Realtime Firestore Listeners cho người dùng đã xác thực...');
 
     // Lắng nghe Tombstones (bản ghi đã xoá trên toàn hệ thống)
     const unsubTombstones = onSnapshot(
@@ -340,26 +359,58 @@ export const centralDataService = {
     );
     activeUnsubscribes.push(unsubDonThu);
 
-    // Lắng nghe Users
-    const unsubUsers = onSnapshot(
-      collection(firestoreDb, 'users'),
-      (snap) => {
-        const items: User[] = [];
-        snap.docs.forEach((d) => {
-          if (!memoryCache.tombstones.has(d.id)) {
-            items.push({ ...(d.data() as User), id: d.id });
+    // Lắng nghe Users (ADMIN đọc tất cả; người dùng khác chỉ đọc hồ sơ của chính mình; không có trường mật khẩu)
+    if (isCurrentUserAdmin()) {
+      const unsubUsers = onSnapshot(
+        collection(firestoreDb, 'users'),
+        (snap) => {
+          const items: User[] = [];
+          snap.docs.forEach((d) => {
+            if (!memoryCache.tombstones.has(d.id)) {
+              const rawData = d.data() as Record<string, any>;
+              if ('mat_khau' in rawData || 'mat_khau_hash' in rawData) {
+                setDoc(
+                  d.ref,
+                  { mat_khau: deleteField(), mat_khau_hash: deleteField() },
+                  { merge: true }
+                ).catch(() => {});
+              }
+              const cleanUser = sanitizeUserForCloud(rawData) as User;
+              items.push({ ...cleanUser, id: d.id });
+            }
+          });
+          if (isSameData(memoryCache.users, items)) return;
+          memoryCache.users = items;
+          persistCacheToLocalStorage();
+          const activeSnap = captureActiveInput();
+          window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
+          restoreActiveInput(activeSnap);
+        },
+        (err) => console.warn('[Realtime] Lỗi lắng nghe users:', err)
+      );
+      activeUnsubscribes.push(unsubUsers);
+    } else if (auth.currentUser?.uid) {
+      const currentUid = auth.currentUser.uid;
+      const unsubSelfUser = onSnapshot(
+        doc(firestoreDb, 'users', currentUid),
+        (docSnap) => {
+          if (!docSnap.exists()) return;
+          const cleanUser = sanitizeUserForCloud(docSnap.data() as Record<string, any>) as User;
+          const selfItem = { ...cleanUser, id: docSnap.id };
+          const idx = memoryCache.users.findIndex((u) => u.id === selfItem.id);
+          if (idx !== -1) {
+            if (isSameData(memoryCache.users[idx], selfItem)) return;
+            memoryCache.users[idx] = selfItem;
+          } else {
+            memoryCache.users.push(selfItem);
           }
-        });
-        if (isSameData(memoryCache.users, items)) return;
-        memoryCache.users = items;
-        persistCacheToLocalStorage();
-        const activeSnap = captureActiveInput();
-        window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
-        restoreActiveInput(activeSnap);
-      },
-      (err) => console.warn('[Realtime] Lỗi lắng nghe users:', err)
-    );
-    activeUnsubscribes.push(unsubUsers);
+          persistCacheToLocalStorage();
+          window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
+        },
+        (err) => console.warn('[Realtime] Lỗi lắng nghe hồ sơ cá nhân:', err)
+      );
+      activeUnsubscribes.push(unsubSelfUser);
+    }
 
     // Lắng nghe Phân công địa bàn
     const unsubPhanCong = onSnapshot(
@@ -415,13 +466,30 @@ export const centralDataService = {
       if (cleanPayload[k] === undefined) delete cleanPayload[k];
     });
 
-    // 1. Ghi thẳng lên Firestore Cloud và chờ xác nhận
-    await setDoc(doc(firestoreDb, collectionName, id), cleanPayload, { merge: true });
+    // Không bao giờ đẩy bất kỳ trường mật khẩu nào lên Firestore collection users
+    const firestorePayload = { ...cleanPayload };
+    if (collectionName === 'users') {
+      delete cleanPayload.mat_khau;
+      delete cleanPayload.mat_khau_hash;
+      delete cleanPayload.password;
+      delete cleanPayload.passwordHash;
+      delete firestorePayload.mat_khau;
+      delete firestorePayload.mat_khau_hash;
+      delete firestorePayload.password;
+      delete firestorePayload.passwordHash;
+      firestorePayload.mat_khau = deleteField();
+      firestorePayload.mat_khau_hash = deleteField();
+    }
 
-    // 2. Nếu ID này từng nằm trong tombstones, xóa khỏi tombstones
+    // 1. Ghi thẳng lên Firestore Cloud và chờ xác nhận
+    await setDoc(doc(firestoreDb, collectionName, id), firestorePayload, { merge: true });
+
+    // 2. Nếu ID này từng nằm trong tombstones, xóa khỏi tombstones (chỉ ADMIN mới có quyền ghi/xóa tombstones)
     if (memoryCache.tombstones.has(id)) {
       memoryCache.tombstones.delete(id);
-      deleteDoc(doc(firestoreDb, 'tombstones', id)).catch(() => {});
+      if (isCurrentUserAdmin()) {
+        deleteDoc(doc(firestoreDb, 'tombstones', id)).catch(() => {});
+      }
     }
 
     // 3. Cập nhật cache cục bộ tức thì
@@ -443,23 +511,28 @@ export const centralDataService = {
       deleted_by: actor_name || 'Người dùng hệ thống',
     };
 
-    // 1. Đánh dấu tombstone trên Firestore Cloud để tất cả các máy khác biết và không bao giờ đẩy lại
-    await setDoc(doc(firestoreDb, 'tombstones', id), tombstoneDoc);
+    // 1. Đánh dấu tombstone trên Firestore Cloud (chỉ ADMIN được quyền ghi tombstones theo Rules)
+    if (isCurrentUserAdmin()) {
+      await setDoc(doc(firestoreDb, 'tombstones', id), tombstoneDoc).catch(() => {});
+    }
 
     // 2. Xóa tài liệu khỏi Firestore
-    await deleteDoc(doc(firestoreDb, collectionName, id)).catch(() => {});
+    await deleteDoc(doc(firestoreDb, collectionName, id));
 
     // 3. Cập nhật bộ nhớ cục bộ
     memoryCache.tombstones.add(id);
     this._removeMemoryCacheItem(collectionName, id);
     persistCacheToLocalStorage();
 
-    console.log(`[CentralData] Đã xóa an toàn và tạo tombstone cho ${collectionName}/${id}`);
+    console.log(`[CentralData] Đã xóa an toàn ${collectionName}/${id}`);
   },
 
-  // ── 4. XOÁ HÀNG LOẠT (BATCH DELETE) ─────────────────────────────────────────
+  // ── 4. XOÁ HÀNG LOẠT (CHỈ ADMIN ĐƯỢC PHÉP, CHẶN XÓA HÀNG LOẠT TRÁI PHÉP) ────
   async batchDelete(collectionName: string, ids: string[], actor_name?: string): Promise<void> {
     if (!ids || ids.length === 0) return;
+    if (!isCurrentUserAdmin()) {
+      throw new Error('Từ chối truy cập: Hệ thống không cho phép xóa dữ liệu hàng loạt.');
+    }
     const now = new Date().toISOString();
     const batch = writeBatch(firestoreDb);
 
@@ -581,6 +654,7 @@ export const centralDataService = {
 
   // ── 5. ĐỒNG BỘ HỢP NHẤT KHỞI TẠO NẾU CLOUD RỖNG ────────────────────────────
   async ensureProductionSeed(): Promise<void> {
+    if (!auth.currentUser || !isCurrentUserAdmin()) return;
     try {
       const donViSnap = await getDocs(collection(firestoreDb, 'don_vi'));
       if (donViSnap.empty) {
