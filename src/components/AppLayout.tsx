@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { AppInfo, User } from '../types';
 import logoUbkt from '../assets/logo-ubkt.jpg';
 import { cloudSyncService } from '../services/cloudSyncService';
+import { NotificationBell } from './NotificationBell';
 
 type TabKey = 'tong_quan' | 'don_vi' | 'phan_cong' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
 
@@ -318,11 +319,12 @@ export function AppLayout({
             <span>{isSyncing ? 'Đang đồng bộ...' : 'Đồng bộ ngay'}</span>
           </button>
 
-          {/* Notification bell */}
-          <button style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative', padding: 6, fontSize: 18, color: '#718096' }}>
-            🔔
-            <span style={{ position: 'absolute', top: 2, right: 2, width: 8, height: 8, background: '#e53e3e', borderRadius: '50%', border: '1.5px solid #fff' }} />
-          </button>
+          {/* Chuông nhắc việc: chương trình KT-GS và đơn thư quá hạn / sắp đến hạn */}
+          <NotificationBell
+            key={currentUser.id}
+            currentUser={currentUser}
+            onNavigate={(tab) => onTabChange(tab)}
+          />
 
           {/* User menu */}
           <div style={{ position: 'relative' }}>

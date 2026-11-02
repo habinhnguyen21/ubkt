@@ -31,6 +31,7 @@ Thumbs.db
 
 # Scratch & Backups & Sensitive Server Data
 scratch/
+nhac-viec/
 server/data/*.json
 !server/data/database.sample.json
 backup_firestore*.json

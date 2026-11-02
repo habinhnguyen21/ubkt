@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { reconcileById, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
+import { consumePendingOpen, clearPendingOpen, OPEN_REQUEST_EVENT } from '../utils/openRequest';
+import type { OpenRequest } from '../utils/openRequest';
 import type {
   DonThu,
   LoaiDonThu,
@@ -210,6 +212,37 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
       window.removeEventListener('ubkt_don_thu_updated', handleSync);
     };
   }, []);
+
+  // Mở đúng đơn thư khi người dùng bấm vào chuông nhắc việc
+  const [pendingOpenId, setPendingOpenId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const first = consumePendingOpen('DON_THU');
+    if (first) setPendingOpenId(first.id);
+    const onOpenRequest = (e: Event) => {
+      const req = (e as CustomEvent<OpenRequest>).detail;
+      if (!req || req.type !== 'DON_THU') return;
+      clearPendingOpen('DON_THU');
+      setPendingOpenId(req.id);
+    };
+    window.addEventListener(OPEN_REQUEST_EVENT, onOpenRequest);
+    return () => window.removeEventListener(OPEN_REQUEST_EVENT, onOpenRequest);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingOpenId) return;
+    const found = dataList.find((d) => d.id === pendingOpenId);
+    if (found) {
+      setViewingItem(found);
+      setPendingOpenId(null);
+    } else if (hasInitialLoadedRef.current) {
+      // Đã tải xong dữ liệu mà không thấy đơn thư (đã bị xóa): bỏ yêu cầu để không treo
+      setPendingOpenId(null);
+    }
+    // Quá 8 giây vẫn không tìm thấy thì bỏ yêu cầu, tránh tự mở bất ngờ khi dữ liệu về muộn
+    const timer = setTimeout(() => setPendingOpenId(null), 8000);
+    return () => clearTimeout(timer);
+  }, [pendingOpenId, dataList]);
 
   // Tính toán thời hạn và cảnh báo quá hạn cho từng đơn
   const getDeadlineInfo = (item: DonThu) => {

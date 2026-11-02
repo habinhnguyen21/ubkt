@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { reconcileById, isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
+import { consumePendingOpen, clearPendingOpen, OPEN_REQUEST_EVENT } from '../utils/openRequest';
+import type { OpenRequest } from '../utils/openRequest';
 import type {
   ChuongTrinhKtGs,
   CreateChuongTrinhInput,
@@ -1538,6 +1540,50 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     setHnFormError(null);
     setIsHnModalOpen(true);
   };
+
+  // Mở đúng chương trình khi người dùng bấm vào chuông nhắc việc (từ tab khác hoặc ngay trên màn hình này)
+  const [pendingOpenId, setPendingOpenId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const first = consumePendingOpen('CHUONG_TRINH');
+    if (first) setPendingOpenId(first.id);
+    const onOpenRequest = (e: Event) => {
+      const req = (e as CustomEvent<OpenRequest>).detail;
+      if (!req || req.type !== 'CHUONG_TRINH') return;
+      clearPendingOpen('CHUONG_TRINH');
+      setPendingOpenId(req.id);
+    };
+    window.addEventListener(OPEN_REQUEST_EVENT, onOpenRequest);
+    return () => window.removeEventListener(OPEN_REQUEST_EVENT, onOpenRequest);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingOpenId) return;
+    const found = list.find((p) => p.id === pendingOpenId);
+    if (found) {
+      const loai = found.loai_chuong_trinh || 'HANG_NAM';
+      handleSubTabChange(loai);
+      if (loai === 'HANG_NAM') {
+        // Chương trình có thể thuộc năm khác năm đang lọc: chuyển bộ lọc năm cho khớp
+        if (found.nam) setFilterNam(String(found.nam));
+        handleOpenEditHn(found);
+      } else {
+        setSelectedProgram(found);
+        setNhiemKyModalTab('DETAIL');
+        setIsNhiemKyEditorOpen(true);
+      }
+      setPendingOpenId(null);
+      return;
+    }
+    if (hasInitialLoadedRef.current) {
+      // Dữ liệu đã tải mà không thấy chương trình (đã bị xóa): bỏ yêu cầu để không treo
+      setPendingOpenId(null);
+      return;
+    }
+    // Quá 8 giây vẫn chưa có dữ liệu thì bỏ yêu cầu, tránh tự mở bất ngờ khi dữ liệu về muộn
+    const timer = setTimeout(() => setPendingOpenId(null), 8000);
+    return () => clearTimeout(timer);
+  }, [pendingOpenId, list]);
 
   const handleHnFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
