@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { api } from './services/api';
 import type { AppInfo, User } from './types';
 import { AppLayout } from './components/AppLayout';
@@ -21,6 +21,8 @@ import { centralDataService } from './services/centralDataService';
 import { auth } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { isSameData } from './utils/syncUtils';
+
+const ThongKeManager = lazy(() => import('./components/ThongKeManager'));
 
 type TabKey = 'tong_quan' | 'don_vi' | 'phan_cong' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
 
@@ -336,7 +338,18 @@ export function App() {
       case 'kho_pdf':
         return <KhoPdfManager user={currentUser} onDataChanged={fetchAppInfo} />;
       case 'thong_ke':
-        return <PlaceholderPage icon="📊" title="Thống kê" desc="Thống kê theo năm, tháng, đơn vị và loại hình kiểm tra" />;
+        return (
+          <Suspense
+            fallback={
+              <div className="w-full py-20 flex flex-col items-center justify-center gap-3 text-slate-500 font-sans">
+                <div className="w-9 h-9 border-3 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                <p className="text-xs font-semibold">Đang nạp phân hệ Thống kê...</p>
+              </div>
+            }
+          >
+            <ThongKeManager user={currentUser} />
+          </Suspense>
+        );
       case 'bao_cao':
         return <PlaceholderPage icon="📄" title="Báo cáo" desc="Xuất báo cáo tổng hợp, in ấn và xuất PDF" />;
       default:
