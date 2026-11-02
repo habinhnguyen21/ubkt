@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { IS_CLOUD_FUNCTIONS_ENABLED, usernameToAuthEmail } from '../services/firebase';
 import { validatePasswordPolicy } from '../utils/passwordCrypto';
 import type { User } from '../types';
 
@@ -480,35 +481,135 @@ export default function UserManager({ currentUser, onClose }: Props) {
 
       {/* ── MODAL: Đặt lại mật khẩu ──────────────────────────────────────── */}
       {modalMode === 'reset_password' && selectedUser && (
-        <ModalBox title={`Đặt lại MK: ${selectedUser.ho_ten}`} onClose={closeModal} onConfirm={handleReset} confirmLabel="Đặt lại mật khẩu" loading={loading} error={error} confirmColor="#f59e0b">
-          <div style={styles.warningBox}>
-            ⚠ Mật khẩu cũ sẽ bị vô hiệu hóa ngay lập tức. Người dùng sẽ phải dùng mật khẩu mới để đăng nhập và được yêu cầu đổi mật khẩu lần đầu.
-          </div>
-          <FormField label="Mật khẩu mới *">
-            <div style={{ position: 'relative' }}>
-              <input
-                id="input-reset-pw1"
-                style={styles.input}
-                type={showPw ? 'text' : 'password'}
-                value={formNewPw}
-                onChange={(e) => setFormNewPw(e.target.value)}
-                placeholder="Ít nhất 8 ký tự"
-                autoFocus
-              />
-              <button style={styles.eyeBtn} onClick={() => setShowPw(!showPw)}>{showPw ? '🙈' : '👁️'}</button>
+        IS_CLOUD_FUNCTIONS_ENABLED ? (
+          <ModalBox
+            title={`Đặt lại MK: ${selectedUser.ho_ten}`}
+            onClose={closeModal}
+            onConfirm={handleReset}
+            confirmLabel="Đặt lại mật khẩu"
+            loading={loading}
+            error={error}
+            confirmColor="#f59e0b"
+          >
+            <div style={styles.warningBox}>
+              ⚠ Mật khẩu cũ sẽ bị vô hiệu hóa ngay lập tức thông qua Cloud Function <code>adminResetPassword</code>. Người dùng sẽ phải dùng mật khẩu mới để đăng nhập và được yêu cầu đổi mật khẩu lần đầu.
             </div>
-          </FormField>
-          <FormField label="Xác nhận mật khẩu mới *">
-            <input
-              id="input-reset-pw2"
-              style={{ ...styles.input, borderColor: formNewPw2 && formNewPw !== formNewPw2 ? '#ef4444' : undefined }}
-              type="password"
-              value={formNewPw2}
-              onChange={(e) => setFormNewPw2(e.target.value)}
-              placeholder="Nhập lại mật khẩu mới"
-            />
-          </FormField>
-        </ModalBox>
+            <FormField label="Mật khẩu mới *">
+              <div style={{ position: 'relative' }}>
+                <input
+                  id="input-reset-pw1"
+                  style={styles.input}
+                  type={showPw ? 'text' : 'password'}
+                  value={formNewPw}
+                  onChange={(e) => setFormNewPw(e.target.value)}
+                  placeholder="Ít nhất 8 ký tự (hoa, thường, số)"
+                  autoFocus
+                />
+                <button style={styles.eyeBtn} onClick={() => setShowPw(!showPw)}>{showPw ? '🙈' : '👁️'}</button>
+              </div>
+            </FormField>
+            <FormField label="Xác nhận mật khẩu mới *">
+              <input
+                id="input-reset-pw2"
+                style={{ ...styles.input, borderColor: formNewPw2 && formNewPw !== formNewPw2 ? '#ef4444' : undefined }}
+                type="password"
+                value={formNewPw2}
+                onChange={(e) => setFormNewPw2(e.target.value)}
+                placeholder="Nhập lại mật khẩu mới"
+              />
+            </FormField>
+          </ModalBox>
+        ) : (
+          <ModalBox
+            title={`Hướng dẫn đổi mật khẩu: ${selectedUser.ho_ten}`}
+            onClose={closeModal}
+            onConfirm={() => {
+              window.open(
+                'https://console.firebase.google.com/project/ubkt-bf611/authentication/users',
+                '_blank',
+                'noopener,noreferrer'
+              );
+            }}
+            confirmLabel="Mở Firebase Console ↗"
+            loading={false}
+            error={error}
+            confirmColor="#f59e0b"
+          >
+            <div style={styles.warningBox}>
+              ℹ️ Dự án hiện đang sử dụng gói <strong>Firebase Spark (Miễn phí)</strong> nên không dùng Cloud Functions để đổi mật khẩu của người dùng khác trực tiếp từ trình duyệt. Để tránh hiểu nhầm, ô nhập mật khẩu mới đã được ẩn.
+            </div>
+
+            <div
+              style={{
+                background: 'rgba(15, 23, 42, 0.75)',
+                border: '1px solid rgba(148, 163, 184, 0.25)',
+                borderRadius: 10,
+                padding: '14px 16px',
+                marginTop: 12,
+                color: '#e2e8f0',
+                fontSize: 13,
+                lineHeight: 1.65,
+              }}
+            >
+              <div style={{ marginBottom: 10 }}>
+                <span style={{ color: '#94a3b8' }}>Email định danh trên Firebase Auth:</span>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    background: 'rgba(30, 41, 59, 0.9)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: 6,
+                    padding: '6px 10px',
+                    marginTop: 4,
+                    fontFamily: 'monospace',
+                    color: '#38bdf8',
+                    fontWeight: 600,
+                  }}
+                >
+                  <span>{usernameToAuthEmail(selectedUser.ten_dang_nhap)}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(usernameToAuthEmail(selectedUser.ten_dang_nhap));
+                      showSuccess('Đã sao chép Email đăng nhập vào bộ nhớ tạm!');
+                    }}
+                    style={{
+                      background: 'rgba(56, 189, 248, 0.15)',
+                      border: '1px solid rgba(56, 189, 248, 0.35)',
+                      color: '#38bdf8',
+                      borderRadius: 5,
+                      padding: '2px 8px',
+                      fontSize: 11,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📋 Sao chép
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ fontWeight: 700, color: '#fbbf24', marginBottom: 6 }}>
+                Các bước đổi mật khẩu trong Firebase Console:
+              </div>
+              <ol style={{ margin: 0, paddingLeft: 18, color: '#cbd5e1' }}>
+                <li>
+                  Bấm nút <strong>"Mở Firebase Console ↗"</strong> bên dưới để tới mục{' '}
+                  <code>Authentication &rarr; Users</code>.
+                </li>
+                <li>
+                  Tìm dòng tài khoản <code>{usernameToAuthEmail(selectedUser.ten_dang_nhap)}</code>.
+                </li>
+                <li>
+                  Nếu là tài khoản đuôi <code>@ubkt.local</code>: bấm biểu tượng <code>⋮</code> ở cuối dòng &rarr; chọn <strong>Delete account</strong> (chỉ xóa mật khẩu cũ trên Auth), sau đó bấm nút <strong>Add user</strong> và nhập lại đúng Email{' '}
+                  <code>{usernameToAuthEmail(selectedUser.ten_dang_nhap)}</code> kèm mật khẩu mới (hệ thống sẽ tự động gắn lại hồ sơ khi cán bộ đăng nhập).
+                </li>
+              </ol>
+            </div>
+          </ModalBox>
+        )
       )}
 
       {/* ── MODAL: Xóa ───────────────────────────────────────────────────── */}

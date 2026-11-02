@@ -29,9 +29,12 @@ import { centralDataService } from './centralDataService';
 import {
   auth,
   db as firestoreDb,
+  functions,
+  IS_CLOUD_FUNCTIONS_ENABLED,
   getSecondaryAuth,
   usernameToAuthEmail,
 } from './firebase';
+import { httpsCallable } from 'firebase/functions';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -39,7 +42,6 @@ import {
   updatePassword,
   EmailAuthProvider,
   reauthenticateWithCredential,
-  sendPasswordResetEmail,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import {
@@ -945,7 +947,31 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       const exists = db.users.some((u) => u.ten_dang_nhap.toLowerCase() === normalizedU);
       if (exists) throw new Error('Tên đăng nhập đã tồn tại');
 
-      // Tạo tài khoản trên Firebase Authentication qua Secondary App để không làm văng phiên ADMIN hiện tại
+      // Nếu dự án đã triển khai Cloud Functions (gói Blaze), gọi onCall adminCreateUser
+      if (IS_CLOUD_FUNCTIONS_ENABLED) {
+        try {
+          const createFn = httpsCallable<
+            typeof req,
+            { success: boolean; user: User }
+          >(functions, 'adminCreateUser');
+          const res = await createFn({
+            ...req,
+            ten_dang_nhap: normalizedU,
+          });
+          const createdUser = stripSecretsFromUser(res.data.user);
+          db.users.push(createdUser);
+          saveMockDb(db);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('ubkt_users_updated', { detail: createdUser }));
+          }
+          return createdUser as T;
+        } catch (fnErr: any) {
+          throw new Error(fnErr?.message || 'Lỗi khi gọi Cloud Function adminCreateUser.');
+        }
+      }
+
+      // Trên gói Spark (miễn phí): Tạo tài khoản trực tiếp trên Firebase Authentication
+      // qua Secondary App để không làm đăng xuất phiên ADMIN hiện tại.
       const secondaryAuth = getSecondaryAuth();
       const authEmail = usernameToAuthEmail(normalizedU);
       let newUid = '';
@@ -993,18 +1019,41 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         | (User & { mat_khau?: string; mat_khau_hash?: string })
         | undefined;
       if (!user) throw new Error('Người dùng không tồn tại');
+
+      if (!IS_CLOUD_FUNCTIONS_ENABLED) {
+        throw new Error(
+          'Dự án đang dùng gói Firebase Spark (miễn phí) nên chưa triển khai Cloud Functions (adminResetPassword). Vui lòng thực hiện đổi/đặt lại mật khẩu trực tiếp trong Firebase Console -> Authentication -> Users.'
+        );
+      }
+
+      // Gọi Cloud Function onCall 'adminResetPassword' qua httpsCallable
+      try {
+        const resetPasswordFn = httpsCallable<
+          { uid: string; password: string },
+          { success: boolean; uid: string; must_change_password: boolean; updated_at: string }
+        >(functions, 'adminResetPassword');
+
+        const result = await resetPasswordFn({
+          uid: req.user_id,
+          password: req.mat_khau_moi,
+        });
+
+        if (!result.data?.success) {
+          throw new Error('Cloud Function adminResetPassword không trả về trạng thái thành công.');
+        }
+      } catch (fnErr: any) {
+        const detail = fnErr?.message || String(fnErr);
+        throw new Error(
+          `Không thể đặt lại mật khẩu trên Firebase Authentication (adminResetPassword): ${detail}`
+        );
+      }
+
+      // Chỉ cập nhật trạng thái local sau khi Cloud Function đã đổi mật khẩu thành công trên Firebase Auth
       user.must_change_password = true;
       delete user.mat_khau;
       delete user.mat_khau_hash;
       user.updated_at = new Date().toISOString();
       saveMockDb(db);
-      await centralDataService.saveDoc('users', user.id, sanitizeUserForCloud(user));
-
-      // Nếu tên đăng nhập là email thực hoặc hỗ trợ gửi email đặt lại mật khẩu từ Firebase Auth
-      const targetEmail = usernameToAuthEmail(user.ten_dang_nhap);
-      if (!targetEmail.endsWith('@ubkt.local')) {
-        await sendPasswordResetEmail(auth, targetEmail).catch(() => {});
-      }
 
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('ubkt_users_updated'));

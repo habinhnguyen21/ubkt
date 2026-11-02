@@ -3,6 +3,7 @@ import { getAnalytics, isSupported as isAnalyticsSupported, type Analytics } fro
 import { getFirestore } from 'firebase/firestore';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
+import { getFunctions, type Functions } from 'firebase/functions';
 
 const env = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {};
 
@@ -39,6 +40,13 @@ export const app: FirebaseApp = !getApps().length ? initializeApp(firebaseConfig
 export const auth: Auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+export const functions: Functions = getFunctions(app, 'asia-southeast1');
+
+/**
+ * Cờ cấu hình cho biết dự án đã nâng cấp lên gói Blaze và triển khai Cloud Functions hay chưa.
+ * Mặc định false vì dự án hiện đang chạy trên gói Spark (miễn phí).
+ */
+export const IS_CLOUD_FUNCTIONS_ENABLED = env.VITE_USE_CLOUD_FUNCTIONS === 'true';
 
 /**
  * Khởi tạo Secondary Firebase Auth instance dành riêng cho ADMIN khi tạo tài khoản mới
