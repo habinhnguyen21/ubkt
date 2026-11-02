@@ -3,6 +3,8 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -30,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint project
+        run: npm run lint
+
       - name: Build project
         run: npm run build
 
@@ -39,6 +44,7 @@ jobs:
           path: ./dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
