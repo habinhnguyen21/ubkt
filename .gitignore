@@ -33,3 +33,4 @@ Thumbs.db
 scratch/
 server/data/*.json
 !server/data/database.sample.json
+backup_firestore*.json

@@ -15,6 +15,7 @@ import UserManager from './components/UserManager';
 import { HoSoDiaBanManager } from './components/HoSoDiaBanManager';
 import { DonThuManager } from './components/DonThuManager';
 import { CloudSyncModal } from './components/CloudSyncModal';
+import { VersionConflictModal } from './components/VersionConflictModal';
 import { cloudSyncService } from './services/cloudSyncService';
 import { centralDataService } from './services/centralDataService';
 import { auth } from './services/firebase';
@@ -279,6 +280,8 @@ export function App() {
   };
 
   const handleLogout = () => {
+    centralDataService.stopRealtimeSync();
+    cloudSyncService.stopAutoSync();
     api.logout().catch(() => {});
     setCurrentUser(null);
     setIsSessionLocked(false);
@@ -293,8 +296,8 @@ export function App() {
   const handleManualSync = async () => {
     setIsSyncing(true);
     try {
+      await cloudSyncService.performTwoWaySync(false);
       await fetchAppInfo();
-      await new Promise((r) => setTimeout(r, 600));
     } finally {
       setIsSyncing(false);
     }
@@ -438,6 +441,9 @@ export function App() {
         onClose={() => setShowCloudSyncModal(false)}
         onSynced={fetchAppInfo}
       />
+
+      {/* Modal xử lý xung đột phiên bản khi ghi (Optimistic Concurrency Control) */}
+      <VersionConflictModal />
     </>
   );
 }

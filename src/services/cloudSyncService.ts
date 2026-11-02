@@ -40,8 +40,98 @@ export interface CloudSyncStatus {
 }
 
 const STORAGE_LAST_SYNCED = 'ubkt_cloud_last_synced_at';
+const STORAGE_DIRTY_QUEUE = 'ubkt_dirty_sync_queue';
+const TAB_HIDDEN_FULL_SYNC_THRESHOLD_MS = 10 * 60 * 1000; // 10 phút
+
+export interface DirtySyncEntry {
+  collection: string;
+  id: string;
+  data?: any;
+  action: 'upsert' | 'delete';
+  updatedAt: number;
+}
 
 export const cloudSyncService = {
+  _dirtyMap: new Map<string, DirtySyncEntry>(),
+  _dirtyLoaded: false,
+  _hiddenAtTimestamp: null as number | null,
+
+  _loadDirtyQueue() {
+    if (this._dirtyLoaded) return;
+    this._dirtyLoaded = true;
+    try {
+      const raw = localStorage.getItem(STORAGE_DIRTY_QUEUE);
+      if (raw) {
+        const entries: DirtySyncEntry[] = JSON.parse(raw);
+        if (Array.isArray(entries)) {
+          entries.forEach((e) => {
+            if (e && e.collection && e.id) {
+              this._dirtyMap.set(`${e.collection}:${e.id}`, e);
+            }
+          });
+        }
+      }
+    } catch {}
+  },
+
+  _persistDirtyQueue() {
+    try {
+      const arr = Array.from(this._dirtyMap.values());
+      if (arr.length === 0) {
+        localStorage.removeItem(STORAGE_DIRTY_QUEUE);
+      } else {
+        localStorage.setItem(STORAGE_DIRTY_QUEUE, JSON.stringify(arr));
+      }
+    } catch {}
+  },
+
+  markDirty(collectionName: string, id: string, data?: any, action: 'upsert' | 'delete' = 'upsert') {
+    if (!collectionName || !id) return;
+    this._loadDirtyQueue();
+    this._dirtyMap.set(`${collectionName}:${id}`, {
+      collection: collectionName,
+      id: String(id),
+      data,
+      action,
+      updatedAt: Date.now(),
+    });
+    this._persistDirtyQueue();
+  },
+
+  clearDirty(collectionName: string, id: string) {
+    if (!collectionName || !id) return;
+    this._loadDirtyQueue();
+    if (this._dirtyMap.delete(`${collectionName}:${id}`)) {
+      this._persistDirtyQueue();
+    }
+  },
+
+  isDirty(): boolean {
+    this._loadDirtyQueue();
+    return this._dirtyMap.size > 0;
+  },
+
+  // Chỉ đẩy các bản ghi có thay đổi local (dirty flag) lên Cloud, KHÔNG đọc lại toàn bộ 11 collection
+  async flushDirtyChanges(): Promise<{ pushed: number }> {
+    this._loadDirtyQueue();
+    if (this._dirtyMap.size === 0) return { pushed: 0 };
+    if (!auth.currentUser) return { pushed: 0 };
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return { pushed: 0 };
+    if (this._isSyncing) return { pushed: 0 };
+
+    const entries = Array.from(this._dirtyMap.values());
+    let pushed = 0;
+    for (const entry of entries) {
+      if (entry.action === 'delete') {
+        await this.deleteItemFromCloud(entry.collection, entry.id);
+      } else {
+        await this.saveItemToCloud(entry.collection, entry.id, entry.data);
+      }
+      pushed++;
+    }
+    return { pushed };
+  },
+
   // Lấy thời điểm đồng bộ gần nhất
   getLastSyncedAt(): string | null {
     try {
@@ -61,6 +151,10 @@ export const cloudSyncService = {
   async saveItemToCloud(collectionName: string, id: string, data: any): Promise<void> {
     try {
       if (!id) return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        this.markDirty(collectionName, String(id), data, 'upsert');
+        return;
+      }
       const docRef = doc(firestoreDb, collectionName, String(id));
       // Loại bỏ undefined để Firestore không báo lỗi
       const cleanData = JSON.parse(JSON.stringify(data));
@@ -73,6 +167,7 @@ export const cloudSyncService = {
         cleanData.mat_khau_hash = deleteField();
       }
       await setDoc(docRef, cleanData, { merge: true });
+      this.clearDirty(collectionName, String(id));
       // Xoá tombstone nếu bản ghi được tạo lại (chỉ ADMIN có quyền ghi/xóa tombstones)
       const isAdmin = (() => {
         try {
@@ -87,7 +182,8 @@ export const cloudSyncService = {
         deleteDoc(tombRef).catch(() => {});
       }
     } catch (err) {
-      console.warn(`[CloudSync] Lỗi lưu ${collectionName}/${id}:`, err);
+      this.markDirty(collectionName, String(id), data, 'upsert');
+      console.warn(`[CloudSync] Lỗi lưu ${collectionName}/${id} (đã đánh dấu dirty để đẩy lại sau):`, err);
     }
   },
 
@@ -95,6 +191,10 @@ export const cloudSyncService = {
   async deleteItemFromCloud(collectionName: string, id: string): Promise<void> {
     try {
       if (!id) return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        this.markDirty(collectionName, String(id), undefined, 'delete');
+        return;
+      }
       const isAdmin = (() => {
         try {
           const raw = localStorage.getItem('ubkt_current_user');
@@ -115,8 +215,10 @@ export const cloudSyncService = {
 
       const docRef = doc(firestoreDb, collectionName, String(id));
       await deleteDoc(docRef);
+      this.clearDirty(collectionName, String(id));
     } catch (err) {
-      console.warn(`[CloudSync] Lỗi xóa ${collectionName}/${id}:`, err);
+      this.markDirty(collectionName, String(id), undefined, 'delete');
+      console.warn(`[CloudSync] Lỗi xóa ${collectionName}/${id} (đã đánh dấu dirty để xóa lại sau):`, err);
     }
   },
 
@@ -341,11 +443,47 @@ export const cloudSyncService = {
 
       onProgress?.('Đang nạp dữ liệu từ Cloud vào bộ nhớ máy...');
 
-      // 1. Cập nhật ubkt_mock_db
+      // 1. Cập nhật ubkt_mock_db (so sánh dữ liệu cũ để chỉ bắn sự kiện khi thật sự đổi)
       let currentMockDb: any = {};
       try {
         const raw = localStorage.getItem('ubkt_mock_db');
         if (raw) currentMockDb = JSON.parse(raw);
+      } catch {}
+
+      const prevDonVi: DonVi[] = currentMockDb.donViList || [];
+      const prevCt: ChuongTrinhKtGs[] = currentMockDb.chuongTrinhList || [];
+      const prevPdf: PdfKhoItem[] = currentMockDb.pdfFiles || [];
+      const prevDonThu: DonThu[] = currentMockDb.donThuList || [];
+      const prevUsers: User[] = currentMockDb.users || [];
+
+      let prevDiaBan: any[] = [];
+      try {
+        const raw = localStorage.getItem('ubkt_ho_so_dia_ban_records');
+        if (raw) prevDiaBan = JSON.parse(raw);
+      } catch {}
+
+      let prevFiles: any[] = [];
+      try {
+        const raw = localStorage.getItem('ubkt_ho_so_dia_ban_files');
+        if (raw) prevFiles = JSON.parse(raw);
+      } catch {}
+
+      let prevBc: any[] = [];
+      try {
+        const raw = localStorage.getItem('ubkt_bao_cao_thang');
+        if (raw) prevBc = JSON.parse(raw);
+      } catch {}
+
+      let prevPhanCong: any[] = [];
+      try {
+        const raw = localStorage.getItem('ubkt_phan_cong_dia_ban');
+        if (raw) prevPhanCong = JSON.parse(raw);
+      } catch {}
+
+      let prevGdrive: any = null;
+      try {
+        const raw = localStorage.getItem('ubkt_google_drive_config');
+        if (raw) prevGdrive = JSON.parse(raw);
       } catch {}
 
       if (!donViSnap.empty) {
@@ -364,9 +502,19 @@ export const cloudSyncService = {
         const cloudUsers = usersDocs.map((d) => sanitizeUserForCloud(d.data() as User));
         currentMockDb.users = cloudUsers;
       }
-      localStorage.setItem('ubkt_mock_db', JSON.stringify(currentMockDb));
+
+      const donViChanged = !isSameData(prevDonVi, currentMockDb.donViList || []);
+      const ctChanged = !isSameData(prevCt, currentMockDb.chuongTrinhList || []);
+      const pdfChanged = !isSameData(prevPdf, currentMockDb.pdfFiles || []);
+      const donThuChanged = !isSameData(prevDonThu, currentMockDb.donThuList || []);
+      const usersChanged = !isSameData(prevUsers, currentMockDb.users || []);
+
+      if (donViChanged || ctChanged || pdfChanged || donThuChanged || usersChanged) {
+        localStorage.setItem('ubkt_mock_db', JSON.stringify(currentMockDb));
+      }
 
       // 2. Cập nhật ubkt_ho_so_dia_ban_records
+      let diaBanChanged = false;
       if (!diaBanSnap.empty) {
         let deletedDiaBanIds = new Set<string>();
         try {
@@ -376,31 +524,50 @@ export const cloudSyncService = {
         const records = diaBanSnap.docs
           .map((d) => d.data())
           .filter((r) => !deletedDiaBanIds.has(r.id));
-        localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(records));
+        diaBanChanged = !isSameData(prevDiaBan, records);
+        if (diaBanChanged) {
+          localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(records));
+        }
       }
 
       // 3. Cập nhật ubkt_ho_so_dia_ban_files
+      let filesChanged = false;
       if (!filesSnap.empty) {
         const files = filesSnap.docs.map((d) => d.data() as HoSoDiaBanFile);
-        localStorage.setItem('ubkt_ho_so_dia_ban_files', JSON.stringify(files));
+        filesChanged = !isSameData(prevFiles, files);
+        if (filesChanged) {
+          localStorage.setItem('ubkt_ho_so_dia_ban_files', JSON.stringify(files));
+        }
       }
 
       // 4. Cập nhật ubkt_bao_cao_thang
+      let bcChanged = false;
       if (!bcSnap.empty) {
         const reports = bcSnap.docs.map((d) => d.data() as BaoCaoThangItem);
-        localStorage.setItem('ubkt_bao_cao_thang', JSON.stringify(reports));
+        bcChanged = !isSameData(prevBc, reports);
+        if (bcChanged) {
+          localStorage.setItem('ubkt_bao_cao_thang', JSON.stringify(reports));
+        }
       }
 
       // 5. Cập nhật ubkt_phan_cong_dia_ban
+      let phanCongChanged = false;
       if (!phanCongSnap.empty) {
         const phanCongs = phanCongSnap.docs.map((d) => d.data());
-        localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(phanCongs));
+        phanCongChanged = !isSameData(prevPhanCong, phanCongs);
+        if (phanCongChanged) {
+          localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(phanCongs));
+        }
       }
 
       // 6. Cập nhật cấu hình Google Drive
+      let gdriveChanged = false;
       if (gdriveDoc.exists()) {
         const gcfg = gdriveDoc.data();
-        localStorage.setItem('ubkt_google_drive_config', JSON.stringify(gcfg));
+        gdriveChanged = !isSameData(prevGdrive, gcfg);
+        if (gdriveChanged) {
+          localStorage.setItem('ubkt_google_drive_config', JSON.stringify(gcfg));
+        }
       }
 
       const syncTime = new Date().toLocaleString('vi-VN');
@@ -409,14 +576,42 @@ export const cloudSyncService = {
       // Đánh dấu đã sẵn sàng
       localStorage.setItem('ubkt_prod_clean_done', 'true');
 
-      // 7. Phát toàn bộ sự kiện đồng bộ để các màn hình cập nhật ngay lập tức
-      window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
-      window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
-      window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
-      window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
-      window.dispatchEvent(new CustomEvent('ubkt_assignments_updated'));
-      window.dispatchEvent(new CustomEvent('ubkt_gdrive_config_updated'));
-      window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
+      const anyDataChanged =
+        donViChanged ||
+        ctChanged ||
+        diaBanChanged ||
+        filesChanged ||
+        bcChanged ||
+        pdfChanged ||
+        donThuChanged ||
+        usersChanged ||
+        phanCongChanged ||
+        gdriveChanged;
+
+      // 7. Chỉ phát các sự kiện tương ứng khi dữ liệu thực sự thay đổi
+      const activeSnap = captureActiveInput();
+      if (anyDataChanged) {
+        window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
+      }
+      if (ctChanged) {
+        window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
+      }
+      if (diaBanChanged || filesChanged || bcChanged || donViChanged) {
+        window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+      }
+      if (pdfChanged || filesChanged || bcChanged) {
+        window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+      }
+      if (phanCongChanged) {
+        window.dispatchEvent(new CustomEvent('ubkt_assignments_updated'));
+      }
+      if (gdriveChanged) {
+        window.dispatchEvent(new CustomEvent('ubkt_gdrive_config_updated'));
+      }
+      if (usersChanged) {
+        window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
+      }
+      restoreActiveInput(activeSnap);
 
       return {
         success: true,
@@ -443,6 +638,7 @@ export const cloudSyncService = {
 
   _autoSyncTimer: null as any,
   _visibilityHandler: null as (() => void) | null,
+  _onlineHandler: null as (() => void) | null,
   _isSyncing: false,
 
   // Trạng thái bật/tắt tự động đồng bộ ẩn
@@ -499,26 +695,26 @@ export const cloudSyncService = {
 
     const intervalSec = this.getAutoSyncInterval();
     this._autoSyncTimer = setInterval(async () => {
-      // Bỏ qua nếu tab đang ẩn, mất kết nối mạng hoặc đang bận đồng bộ
+      // Bỏ qua nếu tab đang ẩn, mất kết nối mạng, đang bận hoặc KHÔNG có thay đổi local (dirty flag = false)
       if (typeof document !== 'undefined' && document.hidden) return;
       if (typeof navigator !== 'undefined' && !navigator.onLine) return;
       if (this._isSyncing) return;
+      if (!this.isDirty()) return;
 
       try {
-        await this.performTwoWaySync(true);
+        await this.flushDirtyChanges();
       } catch {
-        // Chạy ngầm bỏ qua lỗi tạm thời, giữ nguyên dữ liệu cũ
+        // Giữ nguyên dữ liệu trong hàng đợi dirty để thử lại lần sau
       }
     }, intervalSec * 1000);
   },
 
-  // Bắt đầu chu trình tự động đồng bộ ẩn định kỳ (mặc định 30s) + lắng nghe visibilitychange
+  // Bắt đầu quản lý đồng bộ nền (KHÔNG polling getDocs 11 collection mỗi 30s; dữ liệu về qua onSnapshot)
   startAutoSync() {
     this.stopAutoSync();
     if (!this.isAutoSyncEnabled()) return;
 
-    const intervalSec = this.getAutoSyncInterval();
-    console.log(`[CloudSync] Đã kích hoạt tự động đồng bộ 2 chiều ẩn định kỳ mỗi ${intervalSec} giây.`);
+    console.log('[CloudSync] Đã kích hoạt chế độ Realtime (onSnapshot) + chỉ đẩy khi có dirty flag hoặc quay lại tab sau > 10 phút.');
 
     this._startSyncTimer();
 
@@ -526,25 +722,47 @@ export const cloudSyncService = {
       this._visibilityHandler = () => {
         if (!this.isAutoSyncEnabled()) return;
         if (document.hidden || document.visibilityState === 'hidden') {
-          // Tạm dừng đồng bộ khi tab bị ẩn
+          this._hiddenAtTimestamp = Date.now();
           this._clearSyncTimer();
         } else if (document.visibilityState === 'visible') {
-          // Đồng bộ lại ngay khi người dùng quay lại tab và khởi động lại bộ đếm
+          const hiddenDuration = this._hiddenAtTimestamp ? Date.now() - this._hiddenAtTimestamp : 0;
+          this._hiddenAtTimestamp = null;
+
           if (typeof navigator === 'undefined' || navigator.onLine) {
-            this.performTwoWaySync(true).catch(() => {});
+            if (hiddenDuration >= TAB_HIDDEN_FULL_SYNC_THRESHOLD_MS) {
+              // Chỉ đồng bộ đầy đủ 2 chiều khi tab quay lại sau hơn 10 phút ẩn
+              this.performTwoWaySync(true).catch(() => {});
+            } else if (this.isDirty()) {
+              // Nếu dưới 10 phút và có thay đổi local chưa đẩy thì chỉ đẩy thay đổi đó
+              this.flushDirtyChanges().catch(() => {});
+            }
           }
           this._startSyncTimer();
         }
       };
       document.addEventListener('visibilitychange', this._visibilityHandler);
     }
+
+    if (typeof window !== 'undefined') {
+      this._onlineHandler = () => {
+        if (this.isDirty()) {
+          this.flushDirtyChanges().catch(() => {});
+        }
+      };
+      window.addEventListener('online', this._onlineHandler);
+    }
   },
 
   stopAutoSync() {
     this._clearSyncTimer();
+    this._hiddenAtTimestamp = null;
     if (this._visibilityHandler && typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this._visibilityHandler);
       this._visibilityHandler = null;
+    }
+    if (this._onlineHandler && typeof window !== 'undefined') {
+      window.removeEventListener('online', this._onlineHandler);
+      this._onlineHandler = null;
     }
   },
 
@@ -1100,27 +1318,27 @@ export const cloudSyncService = {
         phanCongChanged ||
         gdriveChanged;
 
-      // Bảo vệ ô input đang nhập và chỉ phát sự kiện khi thực sự có dữ liệu thay đổi (hoặc đồng bộ thủ công)
+      // Bảo vệ ô input đang nhập và chỉ phát sự kiện khi thực sự có dữ liệu thay đổi
       const activeInputSnapshot = captureActiveInput();
-      if (anyDataChanged || !silent) {
+      if (anyDataChanged) {
         window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
       }
-      if (ctChanged || !silent) {
+      if (ctChanged) {
         window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
       }
-      if (diaBanChanged || filesChanged || bcChanged || donViChanged || !silent) {
+      if (diaBanChanged || filesChanged || bcChanged || donViChanged) {
         window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
       }
-      if (pdfChanged || filesChanged || bcChanged || !silent) {
+      if (pdfChanged || filesChanged || bcChanged) {
         window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
       }
-      if (phanCongChanged || !silent) {
+      if (phanCongChanged) {
         window.dispatchEvent(new CustomEvent('ubkt_assignments_updated'));
       }
-      if (gdriveChanged || !silent) {
+      if (gdriveChanged) {
         window.dispatchEvent(new CustomEvent('ubkt_gdrive_config_updated'));
       }
-      if (usersChanged || !silent) {
+      if (usersChanged) {
         window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
       }
       restoreActiveInput(activeInputSnapshot);
@@ -1202,6 +1420,188 @@ export const cloudSyncService = {
       return {
         isOnline: false,
         counts: { donVi: 0, chuongTrinh: 0, hoSoDiaBan: 0, hoSoFiles: 0, baoCaoThang: 0, pdfFiles: 0 },
+      };
+    }
+  },
+
+  // ── SAO LƯU & KHÔI PHỤC DỮ LIỆU TOÀN HỆ THỐNG (JSON) ─────────────────────
+  stripSensitiveBackupFields(input: any): any {
+    const SENSITIVE_KEYS = new Set([
+      'mat_khau',
+      'mat_khau_hash',
+      'password',
+      'passwordHash',
+      'password_hash',
+      'token',
+      'accessToken',
+      'access_token',
+      'refreshToken',
+      'refresh_token',
+      'apiKey',
+      'api_key',
+      'secret',
+      'clientSecret',
+      'client_secret',
+      'privateKey',
+      'private_key',
+    ]);
+    if (Array.isArray(input)) {
+      return input.map((item) => this.stripSensitiveBackupFields(item));
+    }
+    if (input && typeof input === 'object') {
+      const cleaned: Record<string, any> = {};
+      for (const [k, v] of Object.entries(input)) {
+        if (SENSITIVE_KEYS.has(k)) continue;
+        cleaned[k] = this.stripSensitiveBackupFields(v);
+      }
+      return cleaned;
+    }
+    return input;
+  },
+
+  exportFullBackupJson(): { filename: string; jsonString: string; counts: Record<string, number> } {
+    let mockDb: any = {};
+    try {
+      const raw = localStorage.getItem('ubkt_mock_db');
+      if (raw) mockDb = JSON.parse(raw);
+    } catch {}
+
+    let diaBanRecords: any[] = [];
+    try {
+      const raw = localStorage.getItem('ubkt_ho_so_dia_ban_records');
+      if (raw) diaBanRecords = JSON.parse(raw);
+    } catch {}
+
+    let diaBanFiles: any[] = [];
+    try {
+      const raw = localStorage.getItem('ubkt_ho_so_dia_ban_files');
+      if (raw) diaBanFiles = JSON.parse(raw);
+    } catch {}
+
+    let baoCaoThang: any[] = [];
+    try {
+      const raw = localStorage.getItem('ubkt_bao_cao_thang');
+      if (raw) baoCaoThang = JSON.parse(raw);
+    } catch {}
+
+    let phanCongDiaBan: any[] = [];
+    try {
+      const raw = localStorage.getItem('ubkt_phan_cong_dia_ban');
+      if (raw) phanCongDiaBan = JSON.parse(raw);
+    } catch {}
+
+    const rawCollections = {
+      don_vi: Array.isArray(mockDb.donViList) ? mockDb.donViList : [],
+      chuong_trinh: Array.isArray(mockDb.chuongTrinhList) ? mockDb.chuongTrinhList : [],
+      ho_so_dia_ban_records: Array.isArray(diaBanRecords) ? diaBanRecords : [],
+      ho_so_dia_ban_files: Array.isArray(diaBanFiles) ? diaBanFiles : [],
+      bao_cao_thang: Array.isArray(baoCaoThang) ? baoCaoThang : [],
+      pdf_files: Array.isArray(mockDb.pdfFiles) ? mockDb.pdfFiles : [],
+      don_thu: Array.isArray(mockDb.donThuList) ? mockDb.donThuList : [],
+      users: Array.isArray(mockDb.users) ? mockDb.users : [],
+      phan_cong_dia_ban: Array.isArray(phanCongDiaBan) ? phanCongDiaBan : [],
+    };
+
+    const sanitizedCollections = this.stripSensitiveBackupFields(rawCollections);
+    const counts: Record<string, number> = {
+      don_vi: sanitizedCollections.don_vi.length,
+      chuong_trinh: sanitizedCollections.chuong_trinh.length,
+      ho_so_dia_ban_records: sanitizedCollections.ho_so_dia_ban_records.length,
+      ho_so_dia_ban_files: sanitizedCollections.ho_so_dia_ban_files.length,
+      bao_cao_thang: sanitizedCollections.bao_cao_thang.length,
+      pdf_files: sanitizedCollections.pdf_files.length,
+      don_thu: sanitizedCollections.don_thu.length,
+      users: sanitizedCollections.users.length,
+      phan_cong_dia_ban: sanitizedCollections.phan_cong_dia_ban.length,
+    };
+
+    const backupPayload = {
+      format: 'UBKT_FULL_BACKUP_V1',
+      exportedAt: new Date().toISOString(),
+      counts,
+      collections: sanitizedCollections,
+    };
+
+    const dateTag = new Date().toISOString().slice(0, 10);
+    return {
+      filename: `ubkt_backup_${dateTag}.json`,
+      jsonString: JSON.stringify(backupPayload, null, 2),
+      counts,
+    };
+  },
+
+  async restoreFromBackupJson(
+    parsedData: any,
+    onProgress?: (msg: string) => void
+  ): Promise<{ success: boolean; counts: Record<string, number>; error?: string }> {
+    try {
+      const cols = parsedData?.collections || parsedData;
+      if (!cols || typeof cols !== 'object') {
+        throw new Error('File sao lưu không đúng định dạng JSON hợp lệ (thiếu đối tượng collections).');
+      }
+
+      const sanitized = this.stripSensitiveBackupFields(cols);
+      const donViList = Array.isArray(sanitized.don_vi) ? sanitized.don_vi : [];
+      const chuongTrinhList = Array.isArray(sanitized.chuong_trinh) ? sanitized.chuong_trinh : [];
+      const diaBanRecords = Array.isArray(sanitized.ho_so_dia_ban_records) ? sanitized.ho_so_dia_ban_records : [];
+      const diaBanFiles = Array.isArray(sanitized.ho_so_dia_ban_files) ? sanitized.ho_so_dia_ban_files : [];
+      const baoCaoThang = Array.isArray(sanitized.bao_cao_thang) ? sanitized.bao_cao_thang : [];
+      const pdfFiles = Array.isArray(sanitized.pdf_files) ? sanitized.pdf_files : [];
+      const donThuList = Array.isArray(sanitized.don_thu) ? sanitized.don_thu : [];
+      const users = Array.isArray(sanitized.users) ? sanitized.users : [];
+      const phanCongDiaBan = Array.isArray(sanitized.phan_cong_dia_ban) ? sanitized.phan_cong_dia_ban : [];
+
+      onProgress?.('Đang khôi phục dữ liệu vào bộ nhớ cục bộ...');
+
+      let currentMockDb: any = {};
+      try {
+        const raw = localStorage.getItem('ubkt_mock_db');
+        if (raw) currentMockDb = JSON.parse(raw);
+      } catch {}
+
+      currentMockDb.donViList = donViList;
+      currentMockDb.chuongTrinhList = chuongTrinhList;
+      currentMockDb.pdfFiles = pdfFiles;
+      currentMockDb.donThuList = donThuList;
+      if (users.length > 0) {
+        currentMockDb.users = users;
+      }
+
+      localStorage.setItem('ubkt_mock_db', JSON.stringify(currentMockDb));
+      localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(diaBanRecords));
+      localStorage.setItem('ubkt_ho_so_dia_ban_files', JSON.stringify(diaBanFiles));
+      localStorage.setItem('ubkt_bao_cao_thang', JSON.stringify(baoCaoThang));
+      localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(phanCongDiaBan));
+
+      onProgress?.('Đang đồng bộ dữ liệu khôi phục lên Firestore Cloud...');
+      await this.pushAllToCloud(onProgress);
+
+      window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
+      window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_assignments_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
+
+      return {
+        success: true,
+        counts: {
+          don_vi: donViList.length,
+          chuong_trinh: chuongTrinhList.length,
+          ho_so_dia_ban_records: diaBanRecords.length,
+          ho_so_dia_ban_files: diaBanFiles.length,
+          bao_cao_thang: baoCaoThang.length,
+          pdf_files: pdfFiles.length,
+          don_thu: donThuList.length,
+          users: users.length,
+          phan_cong_dia_ban: phanCongDiaBan.length,
+        },
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        counts: {},
+        error: err?.message || String(err),
       };
     }
   },

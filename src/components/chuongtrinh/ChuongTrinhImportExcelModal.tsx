@@ -73,6 +73,44 @@ export const ChuongTrinhImportExcelModal: React.FC<ChuongTrinhImportExcelModalPr
 
   if (!isOpen) return null;
 
+  const activeUnits = (donViList || []).filter((d) => d && !d.deleted_at);
+
+  const attachAutoMatchedDonVi = (parsedRows: ImportRowData[]): ImportRowData[] => {
+    return parsedRows.map((r) => {
+      const payload = { ...r.rawPayload };
+      if (!payload.don_vi_id && activeUnits.length > 0) {
+        const matched =
+          findBestMatchingDonVi(payload.chu_the, activeUnits) ||
+          findBestMatchingDonVi(payload.co_quan_ban_hanh || r.co_quan_ban_hanh, activeUnits) ||
+          findBestMatchingDonVi(payload.doi_tuong || r.doi_tuong, activeUnits);
+        if (matched) {
+          payload.don_vi_id = matched.id;
+          payload.chu_the_don_vi_id = payload.chu_the_don_vi_id || matched.id;
+          payload.ten_don_vi = payload.ten_don_vi || matched.ten;
+        }
+      }
+      return { ...r, rawPayload: payload };
+    });
+  };
+
+  const handleSelectRowDonVi = (rowNumber: number, selectedUnitId: string) => {
+    const unit = activeUnits.find((d) => d.id === selectedUnitId) || null;
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.rowNumber !== rowNumber) return r;
+        return {
+          ...r,
+          rawPayload: {
+            ...r.rawPayload,
+            don_vi_id: unit ? unit.id : null,
+            chu_the_don_vi_id: unit ? unit.id : null,
+            ten_don_vi: unit ? unit.ten : null,
+          },
+        };
+      })
+    );
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (!selected) return;
@@ -84,7 +122,8 @@ export const ChuongTrinhImportExcelModal: React.FC<ChuongTrinhImportExcelModalPr
 
     try {
       const result = await parseAndValidateChuongTrinhFile(selected, existingList, donViList);
-      setRows(result.rows);
+      const enriched = attachAutoMatchedDonVi(result.rows);
+      setRows(enriched);
       setValidCount(result.validRows.length);
       setInvalidCount(result.invalidRows.length);
       setDuplicateCount(result.duplicateCount);
@@ -118,7 +157,8 @@ export const ChuongTrinhImportExcelModal: React.FC<ChuongTrinhImportExcelModalPr
 
       try {
         const result = await parseAndValidateChuongTrinhFile(droppedFile, existingList, donViList);
-        setRows(result.rows);
+        const enriched = attachAutoMatchedDonVi(result.rows);
+        setRows(enriched);
         setValidCount(result.validRows.length);
         setInvalidCount(result.invalidRows.length);
         setDuplicateCount(result.duplicateCount);
@@ -469,6 +509,15 @@ export const ChuongTrinhImportExcelModal: React.FC<ChuongTrinhImportExcelModalPr
           {/* Bảng xem trước dữ liệu (Preview) */}
           {rows.length > 0 && (
             <div className="space-y-3">
+              {rows.some((r) => r.isValid && !r.rawPayload?.don_vi_id) && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs flex items-center space-x-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
+                  <span>
+                    Có <strong>{rows.filter((r) => r.isValid && !r.rawPayload?.don_vi_id).length}</strong> dòng chưa tự động khớp được đơn vị theo tên Cơ quan/Chủ thể (<strong>Chưa gắn đơn vị</strong>). Bạn có thể chọn đơn vị trực tiếp ở cột <strong>Đơn vị gắn</strong> bên dưới trước khi lưu.
+                  </span>
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center space-x-2 text-xs">
                   <span className="font-bold text-slate-700">Xem trước dữ liệu ({rows.length} dòng):</span>
@@ -531,6 +580,7 @@ export const ChuongTrinhImportExcelModal: React.FC<ChuongTrinhImportExcelModalPr
                       <th className="py-2.5 px-3 w-14 text-center">Năm</th>
                       <th className="py-2.5 px-3 w-20">Số VB</th>
                       <th className="py-2.5 px-3 w-28">Cơ quan</th>
+                      <th className="py-2.5 px-3 w-44">Đơn vị gắn</th>
                       <th className="py-2.5 px-3 w-20 text-center">Loại</th>
                       <th className="py-2.5 px-3 w-32">Lĩnh vực</th>
                       <th className="py-2.5 px-3 w-28">Đối tượng</th>
@@ -577,6 +627,30 @@ export const ChuongTrinhImportExcelModal: React.FC<ChuongTrinhImportExcelModalPr
                           </td>
                           <td className="py-2 px-3 truncate max-w-[130px]" title={r.co_quan_ban_hanh}>
                             {r.co_quan_ban_hanh}
+                          </td>
+                          <td className="py-2 px-3 min-w-[170px]">
+                            {!r.rawPayload?.don_vi_id && (
+                              <div className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-100/80 px-1.5 py-0.5 rounded mb-1">
+                                <AlertTriangle className="w-3 h-3 shrink-0" />
+                                <span>Chưa gắn đơn vị</span>
+                              </div>
+                            )}
+                            <select
+                              value={r.rawPayload?.don_vi_id || ''}
+                              onChange={(e) => handleSelectRowDonVi(r.rowNumber, e.target.value)}
+                              className={`w-full text-[11px] rounded border px-1.5 py-1 focus:outline-none focus:ring-1 ${
+                                r.rawPayload?.don_vi_id
+                                  ? 'border-emerald-300 bg-emerald-50/40 text-emerald-900 font-semibold'
+                                  : 'border-amber-300 bg-white text-slate-700'
+                              }`}
+                            >
+                              <option value="">-- Chọn đơn vị --</option>
+                              {activeUnits.map((u) => (
+                                <option key={u.id} value={u.id}>
+                                  {u.ten}
+                                </option>
+                              ))}
+                            </select>
                           </td>
                           <td className="py-2 px-3 text-center">
                             <span

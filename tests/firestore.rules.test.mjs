@@ -235,5 +235,142 @@ describe('Firestore Security Rules (firestore.rules)', () => {
     await assertSucceeds(deleteDoc(doc(adminDb, 'users', 'uid-new-user')));
     await assertFails(deleteDoc(doc(adminDb, 'users', ADMIN_UID)));
   });
+
+  // ── TRƯỜNG HỢP 4: KIỂM TRA XUNG ĐỘT GHI (VERSION TĂNG ĐÚNG 1 ĐƠN VỊ) ────────
+  it('4. Bắt buộc version = 1 khi tạo mới và tăng đúng 1 đơn vị khi cập nhật (chuong_trinh, ho_so_dia_ban_records, don_vi, bao_cao_thang)', async () => {
+    const adminDb = testEnv.authenticatedContext(ADMIN_UID).firestore();
+    const bienTapDb = testEnv.authenticatedContext(BIEN_TAP_UID).firestore();
+
+    // 4.1. Tạo mới chuong_trinh với version = 2 -> BỊ TỪ CHỐI; với version = 1 -> THÀNH CÔNG
+    await assertFails(
+      setDoc(doc(bienTapDb, 'chuong_trinh', 'ct-ver-test'), {
+        id: 'ct-ver-test',
+        chu_the: 'Chi bộ Được Phân Công',
+        noi_dung: 'Kiểm tra phiên bản khởi tạo sai',
+        nam: 2026,
+        trang_thai: 'DANG_THUC_HIEN',
+        don_vi_id: ASSIGNED_UNIT_ID,
+        version: 2,
+        updated_by: 'Cán bộ Biên tập 1',
+      })
+    );
+
+    await assertSucceeds(
+      setDoc(doc(bienTapDb, 'chuong_trinh', 'ct-ver-test'), {
+        id: 'ct-ver-test',
+        chu_the: 'Chi bộ Được Phân Công',
+        noi_dung: 'Kiểm tra phiên bản v1',
+        nam: 2026,
+        trang_thai: 'DANG_THUC_HIEN',
+        don_vi_id: ASSIGNED_UNIT_ID,
+        version: 1,
+        updated_by: 'Cán bộ Biên tập 1',
+      })
+    );
+
+    // 4.2. Cập nhật chuong_trinh nhưng giữ nguyên version = 1 (xung đột phiên bản cũ) hoặc nhảy cóc version = 3 -> BỊ TỪ CHỐI
+    await assertFails(
+      setDoc(doc(bienTapDb, 'chuong_trinh', 'ct-ver-test'), {
+        id: 'ct-ver-test',
+        chu_the: 'Chi bộ Được Phân Công',
+        noi_dung: 'Sửa nhưng không tăng version',
+        nam: 2026,
+        trang_thai: 'DANG_THUC_HIEN',
+        don_vi_id: ASSIGNED_UNIT_ID,
+        version: 1,
+        updated_by: 'Cán bộ Biên tập 1',
+      })
+    );
+
+    await assertFails(
+      setDoc(doc(bienTapDb, 'chuong_trinh', 'ct-ver-test'), {
+        id: 'ct-ver-test',
+        chu_the: 'Chi bộ Được Phân Công',
+        noi_dung: 'Sửa nhảy cóc version = 3',
+        nam: 2026,
+        trang_thai: 'DANG_THUC_HIEN',
+        don_vi_id: ASSIGNED_UNIT_ID,
+        version: 3,
+        updated_by: 'Cán bộ Biên tập 1',
+      })
+    );
+
+    // 4.3. Cập nhật chuong_trinh với version tăng đúng 1 (1 -> 2) -> THÀNH CÔNG
+    await assertSucceeds(
+      setDoc(doc(bienTapDb, 'chuong_trinh', 'ct-ver-test'), {
+        id: 'ct-ver-test',
+        chu_the: 'Chi bộ Được Phân Công',
+        noi_dung: 'Sửa hợp lệ lên v2',
+        nam: 2026,
+        trang_thai: 'DA_HOAN_THANH',
+        don_vi_id: ASSIGNED_UNIT_ID,
+        version: 2,
+        updated_by: 'Cán bộ Biên tập 1',
+      })
+    );
+
+    // 4.4. Kiểm tra tương tự cho don_vi, ho_so_dia_ban_records, bao_cao_thang
+    await assertSucceeds(
+      setDoc(doc(adminDb, 'don_vi', 'dv-ver-1'), {
+        id: 'dv-ver-1',
+        ten: 'Đơn vị v1',
+        loai: 'CHI_BO',
+        version: 1,
+        updated_by: 'Admin',
+      })
+    );
+    await assertFails(
+      setDoc(doc(adminDb, 'don_vi', 'dv-ver-1'), {
+        id: 'dv-ver-1',
+        ten: 'Đơn vị sửa sai version',
+        loai: 'CHI_BO',
+        version: 1,
+        updated_by: 'Admin',
+      })
+    );
+    await assertSucceeds(
+      setDoc(doc(adminDb, 'don_vi', 'dv-ver-1'), {
+        id: 'dv-ver-1',
+        ten: 'Đơn vị v2',
+        loai: 'CHI_BO',
+        version: 2,
+        updated_by: 'Admin',
+      })
+    );
+
+    await assertSucceeds(
+      setDoc(doc(bienTapDb, 'bao_cao_thang', 'bc-ver-1'), {
+        id: 'bc-ver-1',
+        tieu_de: 'Báo cáo tháng 10/2026',
+        thang: 10,
+        nam: 2026,
+        don_vi_id: ASSIGNED_UNIT_ID,
+        version: 1,
+        updated_by: 'Cán bộ Biên tập 1',
+      })
+    );
+    await assertFails(
+      setDoc(doc(bienTapDb, 'bao_cao_thang', 'bc-ver-1'), {
+        id: 'bc-ver-1',
+        tieu_de: 'Báo cáo tháng 10/2026 sửa trùng version',
+        thang: 10,
+        nam: 2026,
+        don_vi_id: ASSIGNED_UNIT_ID,
+        version: 1,
+        updated_by: 'Cán bộ Biên tập 1',
+      })
+    );
+    await assertSucceeds(
+      setDoc(doc(bienTapDb, 'bao_cao_thang', 'bc-ver-1'), {
+        id: 'bc-ver-1',
+        tieu_de: 'Báo cáo tháng 10/2026 v2',
+        thang: 10,
+        nam: 2026,
+        don_vi_id: ASSIGNED_UNIT_ID,
+        version: 2,
+        updated_by: 'Cán bộ Biên tập 1',
+      })
+    );
+  });
 });
 

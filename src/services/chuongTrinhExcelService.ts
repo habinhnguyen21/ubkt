@@ -1,5 +1,8 @@
 import * as XLSX from 'xlsx';
 import type { ChuongTrinhKtGs, CreateChuongTrinhInput, DonVi, LoaiHinhKtGs, TrangThaiKtGs, ChuTheLoai, CapChuThe } from '../types';
+import { normalizeUnitName, findBestMatchingDonVi } from '../utils/donViMatcher';
+
+export { normalizeUnitName, findBestMatchingDonVi };
 
 export const DANH_MUC_LINH_VUC_CHUAN = [
   'Công tác xây dựng Đảng',
@@ -12,134 +15,6 @@ export const DANH_MUC_LINH_VUC_CHUAN = [
   'Dân chủ ở cơ sở',
   'Lĩnh vực khác',
 ];
-
-/**
- * Chuẩn hóa tên đơn vị / cơ quan để so khớp chính xác:
- * - Chuyển chữ thường, bỏ dấu tiếng Việt (NFD + bỏ dấu kết hợp, đ -> d) để "Ủy" và "Uỷ" khớp nhau
- * - Thay "tổ dân phố" bằng "tdp"
- * - Gộp khoảng trắng
- * - Bỏ các tiền tố "chi bộ", "đảng bộ", "chi ủy", "ban", "uỷ ban kiểm tra"... khi cần
- */
-export function normalizeUnitName(s?: string | null, stripPrefix = true): string {
-  if (!s) return '';
-  let norm = String(s)
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/[-–—,._/():;"'`]/g, ' ')
-    .replace(/\bto\s+dan\s+pho\b/g, 'tdp')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (stripPrefix && norm) {
-    const prefixRegex =
-      /^(?:uy ban kiem tra dang uy|uy ban kiem tra|ubkt dang uy|ubkt|ban thuong vu dang uy|ban thuong vu|btv dang uy|btv|ban chap hanh dang bo|ban chap hanh|bch dang bo|bch|dang bo co so|dang bo bo phan|dang bo|dang uy|chi bo co so|chi bo|chi uy|ban)\s+/i;
-    let prev = '';
-    while (norm && norm !== prev) {
-      prev = norm;
-      const stripped = norm.replace(prefixRegex, '').trim();
-      if (stripped) {
-        norm = stripped;
-      } else {
-        break;
-      }
-    }
-  }
-
-  return norm;
-}
-
-/**
- * Tìm đơn vị khớp tốt nhất trong danh mục DonVi (bỏ qua đơn vị đã xóa deleted_at):
- * 1. Ưu tiên khớp chính xác sau chuẩn hóa (cả tên đầy đủ và tên đã bỏ tiền tố).
- * 2. Chỉ khi không có khớp chính xác mới dùng so khớp "chứa" (includes),
- *    nhưng BẮT BUỘC độ dài chuỗi ngắn hơn >= 70% chuỗi dài hơn,
- *    và KHÔNG dùng khi tên đơn vị chuẩn hóa ngắn hơn 4 ký tự (tránh "Chi bộ 1" khớp nhầm).
- * 3. Nếu nhiều đơn vị cùng khớp thì chọn đơn vị có độ tương đồng cao nhất.
- */
-export function findBestMatchingDonVi(
-  rawName?: string | null,
-  donViList?: DonVi[] | null
-): DonVi | null {
-  if (!rawName || !Array.isArray(donViList) || donViList.length === 0) return null;
-
-  const fullQuery = normalizeUnitName(rawName, false);
-  const strippedQuery = normalizeUnitName(rawName, true);
-  if (!fullQuery || fullQuery === 'toan dang bo' || strippedQuery === 'toan dang bo') {
-    return null;
-  }
-
-  const activeUnits = donViList.filter((d) => d && !d.deleted_at);
-  if (activeUnits.length === 0) return null;
-
-  let bestExactUnit: DonVi | null = null;
-  let bestExactScore = 0;
-
-  for (const unit of activeUnits) {
-    const unitFull = normalizeUnitName(unit.ten, false);
-    const unitStripped = normalizeUnitName(unit.ten, true);
-    const unitMa = unit.ma ? normalizeUnitName(unit.ma, false) : '';
-
-    if (!unitFull) continue;
-
-    if (unitFull === fullQuery || (unitMa && unitMa === fullQuery)) {
-      const score = 1.01;
-      if (score > bestExactScore) {
-        bestExactScore = score;
-        bestExactUnit = unit;
-      }
-      continue;
-    }
-
-    if (strippedQuery && unitStripped && unitStripped === strippedQuery) {
-      const score = 1.0;
-      if (score > bestExactScore) {
-        bestExactScore = score;
-        bestExactUnit = unit;
-      }
-    }
-  }
-
-  if (bestExactUnit) {
-    return bestExactUnit;
-  }
-
-  // Bước 2: So khớp "chứa" (includes) chặt chẽ với ngưỡng >= 70% và độ dài tên đơn vị chuẩn hóa >= 4 ký tự
-  let bestContainsUnit: DonVi | null = null;
-  let bestContainsRatio = 0;
-
-  for (const unit of activeUnits) {
-    const unitStripped = normalizeUnitName(unit.ten, true);
-    const unitFull = normalizeUnitName(unit.ten, false);
-
-    // Không dùng so khớp chứa khi tên đơn vị chuẩn hóa ngắn hơn 4 ký tự (VD: "Chi bộ 1" -> "1")
-    if (unitStripped.length < 4 || strippedQuery.length < 4) {
-      continue;
-    }
-
-    const candidates: Array<[string, string]> = [
-      [strippedQuery, unitStripped],
-      [fullQuery, unitFull],
-    ];
-
-    for (const [a, b] of candidates) {
-      if (a.length < 4 || b.length < 4) continue;
-      const shorter = a.length <= b.length ? a : b;
-      const longer = a.length <= b.length ? b : a;
-
-      if (longer.includes(shorter)) {
-        const ratio = shorter.length / longer.length;
-        if (ratio >= 0.7 && ratio > bestContainsRatio) {
-          bestContainsRatio = ratio;
-          bestContainsUnit = unit;
-        }
-      }
-    }
-  }
-
-  return bestContainsUnit;
-}
 
 /**
  * Chuẩn hóa linh hoạt lĩnh vực kiểm tra, giám sát từ mọi biến thể (dấu phẩy, gạch ngang, en-dash, từ khóa...)

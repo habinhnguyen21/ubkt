@@ -7,6 +7,7 @@ import {
   deleteField,
   onSnapshot,
   writeBatch,
+  runTransaction,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db as firestoreDb, auth } from './firebase';
@@ -27,6 +28,76 @@ export interface Tombstone {
   collection: string;
   deleted_at: string;
   deleted_by?: string;
+}
+
+export const VERSIONED_COLLECTIONS = new Set([
+  'chuong_trinh',
+  'ho_so_dia_ban_records',
+  'don_vi',
+  'bao_cao_thang',
+]);
+
+export interface VersionConflictPayload {
+  collectionName: string;
+  id: string;
+  localData: any;
+  cloudData: any;
+  localVersion: number;
+  cloudVersion: number;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export class VersionConflictError extends Error {
+  conflict: VersionConflictPayload;
+  constructor(conflict: VersionConflictPayload) {
+    const timeFormatted = conflict.updatedAt
+      ? (() => {
+          try {
+            const d = new Date(conflict.updatedAt);
+            return isNaN(d.getTime()) ? conflict.updatedAt : d.toLocaleString('vi-VN');
+          } catch {
+            return conflict.updatedAt;
+          }
+        })()
+      : 'vừa xong';
+    super(`Bản ghi vừa được ${conflict.updatedBy} sửa lúc ${timeFormatted}.`);
+    this.name = 'VersionConflictError';
+    this.conflict = conflict;
+  }
+}
+
+export interface SaveDocOptions {
+  expectedVersion?: number;
+  forceOverwrite?: boolean;
+  skipConflictDialog?: boolean;
+}
+
+function getCurrentUserName(): string {
+  try {
+    const raw = localStorage.getItem('ubkt_current_user');
+    if (!raw) return 'Cán bộ hệ thống';
+    const u = JSON.parse(raw);
+    return u?.ho_ten || u?.ten_dang_nhap || 'Cán bộ hệ thống';
+  } catch {
+    return 'Cán bộ hệ thống';
+  }
+}
+
+function requestConflictResolution(conflict: VersionConflictPayload): Promise<'reload' | 'overwrite'> {
+  if (typeof window === 'undefined') {
+    return Promise.resolve('reload');
+  }
+  return new Promise((resolve) => {
+    window.dispatchEvent(
+      new CustomEvent('ubkt_version_conflict', {
+        detail: {
+          conflict,
+          resolve,
+        },
+      })
+    );
+  });
 }
 
 // Bộ nhớ đệm thời gian thực trong tiến trình (In-Memory Real-Time Cache)
@@ -60,8 +131,9 @@ const memoryCache: DataCache = {
   isInitialized: false,
 };
 
-let activeUnsubscribes: Unsubscribe[] = [];
+const activeListeners = new Map<string, Unsubscribe>();
 let isListening = false;
+let currentListeningUid: string | null = null;
 
 function getCurrentUserRole(): string | null {
   try {
@@ -176,285 +248,338 @@ export const centralDataService = {
     return memoryCache.isInitialized;
   },
 
+  // ── HỦY ĐĂNG KÝ TẤT CẢ ONSNAPSHOT KHI ĐĂNG XUẤT ──────────────────────────────
+  stopRealtimeSync(): void {
+    if (activeListeners.size > 0) {
+      activeListeners.forEach((unsub) => {
+        try {
+          unsub();
+        } catch {}
+      });
+      activeListeners.clear();
+    }
+    isListening = false;
+    currentListeningUid = null;
+  },
+
   // ── 1. KẾT NỐI REAL-TIME FIRESTORE (onSnapshot cho tất cả bảng) ──────────────
   initRealtimeSync(): () => void {
-    if (isListening) return () => {};
     if (!auth.currentUser) {
+      this.stopRealtimeSync();
       return () => {};
     }
+    if (isListening && currentListeningUid === auth.currentUser.uid && activeListeners.size > 0) {
+      return () => this.stopRealtimeSync();
+    }
+    // Hủy các listener cũ (nếu đổi tài khoản) trước khi gắn mới để đảm bảo mỗi collection chỉ gắn 1 lần
+    this.stopRealtimeSync();
     isListening = true;
+    currentListeningUid = auth.currentUser.uid;
 
-    console.log('[CentralData] Khởi động Realtime Firestore Listeners cho người dùng đã xác thực...');
+    const registerOnce = (key: string, subscribeFn: () => Unsubscribe) => {
+      const existing = activeListeners.get(key);
+      if (existing) {
+        try {
+          existing();
+        } catch {}
+      }
+      activeListeners.set(key, subscribeFn());
+    };
+
+    console.log('[CentralData] Khởi động Realtime Firestore Listeners (1 listener/collection)...');
 
     // Lắng nghe Tombstones (bản ghi đã xoá trên toàn hệ thống)
-    const unsubTombstones = onSnapshot(
-      collection(firestoreDb, 'tombstones'),
-      (snap) => {
-        let changed = false;
-        snap.docs.forEach((d) => {
-          if (!memoryCache.tombstones.has(d.id)) {
-            memoryCache.tombstones.add(d.id);
-            changed = true;
+    registerOnce('tombstones', () =>
+      onSnapshot(
+        collection(firestoreDb, 'tombstones'),
+        (snap) => {
+          if (snap.metadata.hasPendingWrites) return;
+          let changed = false;
+          snap.docs.forEach((d) => {
+            if (!memoryCache.tombstones.has(d.id)) {
+              memoryCache.tombstones.add(d.id);
+              changed = true;
+            }
+          });
+          if (changed) {
+            persistCacheToLocalStorage();
           }
-        });
-        if (changed) {
-          persistCacheToLocalStorage();
-        }
-      },
-      (err) => console.warn('[Realtime] Lỗi lắng nghe tombstones:', err)
+        },
+        (err) => console.warn('[Realtime] Lỗi lắng nghe tombstones:', err)
+      )
     );
-    activeUnsubscribes.push(unsubTombstones);
 
     // Lắng nghe Đơn vị
-    const unsubDonVi = onSnapshot(
-      collection(firestoreDb, 'don_vi'),
-      (snap) => {
-        const items: DonVi[] = [];
-        snap.docs.forEach((d) => {
-          const data = d.data() as DonVi;
-          if (!data.deleted_at && !memoryCache.tombstones.has(d.id)) {
-            items.push({ ...data, id: d.id });
-          }
-        });
-        // Sắp xếp thứ tự
-        items.sort((a, b) => (a.thu_tu || 0) - (b.thu_tu || 0));
-        if (isSameData(memoryCache.donViList, items)) return;
-        memoryCache.donViList = items;
-        persistCacheToLocalStorage();
-        const activeSnap = captureActiveInput();
-        window.dispatchEvent(new CustomEvent('ubkt_don_vi_updated'));
-        window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
-        restoreActiveInput(activeSnap);
-      },
-      (err) => console.warn('[Realtime] Lỗi lắng nghe don_vi:', err)
+    registerOnce('don_vi', () =>
+      onSnapshot(
+        collection(firestoreDb, 'don_vi'),
+        (snap) => {
+          if (snap.metadata.hasPendingWrites) return;
+          const items: DonVi[] = [];
+          snap.docs.forEach((d) => {
+            const data = d.data() as DonVi;
+            if (!data.deleted_at && !memoryCache.tombstones.has(d.id)) {
+              items.push({ ...data, id: d.id });
+            }
+          });
+          // Sắp xếp thứ tự
+          items.sort((a, b) => (a.thu_tu || 0) - (b.thu_tu || 0));
+          if (isSameData(memoryCache.donViList, items)) return;
+          memoryCache.donViList = items;
+          persistCacheToLocalStorage();
+          const activeSnap = captureActiveInput();
+          window.dispatchEvent(new CustomEvent('ubkt_don_vi_updated'));
+          window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
+          restoreActiveInput(activeSnap);
+        },
+        (err) => console.warn('[Realtime] Lỗi lắng nghe don_vi:', err)
+      )
     );
-    activeUnsubscribes.push(unsubDonVi);
 
     // Lắng nghe Chương trình KT-GS
-    const unsubCt = onSnapshot(
-      collection(firestoreDb, 'chuong_trinh'),
-      (snap) => {
-        const items: ChuongTrinhKtGs[] = [];
-        snap.docs.forEach((d) => {
-          if (!memoryCache.tombstones.has(d.id)) {
-            items.push({ ...(d.data() as ChuongTrinhKtGs), id: d.id });
-          }
-        });
-        if (isSameData(memoryCache.chuongTrinhList, items)) return;
-        memoryCache.chuongTrinhList = items;
-        persistCacheToLocalStorage();
-        const activeSnap = captureActiveInput();
-        window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
-        window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
-        restoreActiveInput(activeSnap);
-      },
-      (err) => console.warn('[Realtime] Lỗi lắng nghe chuong_trinh:', err)
+    registerOnce('chuong_trinh', () =>
+      onSnapshot(
+        collection(firestoreDb, 'chuong_trinh'),
+        (snap) => {
+          if (snap.metadata.hasPendingWrites) return;
+          const items: ChuongTrinhKtGs[] = [];
+          snap.docs.forEach((d) => {
+            if (!memoryCache.tombstones.has(d.id)) {
+              items.push({ ...(d.data() as ChuongTrinhKtGs), id: d.id });
+            }
+          });
+          if (isSameData(memoryCache.chuongTrinhList, items)) return;
+          memoryCache.chuongTrinhList = items;
+          persistCacheToLocalStorage();
+          const activeSnap = captureActiveInput();
+          window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
+          window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
+          restoreActiveInput(activeSnap);
+        },
+        (err) => console.warn('[Realtime] Lỗi lắng nghe chuong_trinh:', err)
+      )
     );
-    activeUnsubscribes.push(unsubCt);
 
     // Lắng nghe Hồ sơ địa bàn
-    const unsubDiaBan = onSnapshot(
-      collection(firestoreDb, 'ho_so_dia_ban_records'),
-      (snap) => {
-        const items: any[] = [];
-        snap.docs.forEach((d) => {
-          if (!memoryCache.tombstones.has(d.id)) {
-            items.push({ ...d.data(), id: d.id });
-          }
-        });
-        if (isSameData(memoryCache.hoSoDiaBanRecords, items)) return;
-        memoryCache.hoSoDiaBanRecords = items;
-        persistCacheToLocalStorage();
-        const activeSnap = captureActiveInput();
-        window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
-        restoreActiveInput(activeSnap);
-      },
-      (err) => console.warn('[Realtime] Lỗi lắng nghe ho_so_dia_ban_records:', err)
+    registerOnce('ho_so_dia_ban_records', () =>
+      onSnapshot(
+        collection(firestoreDb, 'ho_so_dia_ban_records'),
+        (snap) => {
+          if (snap.metadata.hasPendingWrites) return;
+          const items: any[] = [];
+          snap.docs.forEach((d) => {
+            if (!memoryCache.tombstones.has(d.id)) {
+              items.push({ ...d.data(), id: d.id });
+            }
+          });
+          if (isSameData(memoryCache.hoSoDiaBanRecords, items)) return;
+          memoryCache.hoSoDiaBanRecords = items;
+          persistCacheToLocalStorage();
+          const activeSnap = captureActiveInput();
+          window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+          restoreActiveInput(activeSnap);
+        },
+        (err) => console.warn('[Realtime] Lỗi lắng nghe ho_so_dia_ban_records:', err)
+      )
     );
-    activeUnsubscribes.push(unsubDiaBan);
 
     // Lắng nghe File hồ sơ địa bàn
-    const unsubFiles = onSnapshot(
-      collection(firestoreDb, 'ho_so_dia_ban_files'),
-      (snap) => {
-        const items: HoSoDiaBanFile[] = [];
-        snap.docs.forEach((d) => {
-          if (!memoryCache.tombstones.has(d.id)) {
-            items.push({ ...(d.data() as HoSoDiaBanFile), id: d.id });
-          }
-        });
-        if (isSameData(memoryCache.hoSoDiaBanFiles, items)) return;
-        memoryCache.hoSoDiaBanFiles = items;
-        persistCacheToLocalStorage();
-        const activeSnap = captureActiveInput();
-        window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
-        window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
-        restoreActiveInput(activeSnap);
-      },
-      (err) => console.warn('[Realtime] Lỗi lắng nghe ho_so_dia_ban_files:', err)
+    registerOnce('ho_so_dia_ban_files', () =>
+      onSnapshot(
+        collection(firestoreDb, 'ho_so_dia_ban_files'),
+        (snap) => {
+          if (snap.metadata.hasPendingWrites) return;
+          const items: HoSoDiaBanFile[] = [];
+          snap.docs.forEach((d) => {
+            if (!memoryCache.tombstones.has(d.id)) {
+              items.push({ ...(d.data() as HoSoDiaBanFile), id: d.id });
+            }
+          });
+          if (isSameData(memoryCache.hoSoDiaBanFiles, items)) return;
+          memoryCache.hoSoDiaBanFiles = items;
+          persistCacheToLocalStorage();
+          const activeSnap = captureActiveInput();
+          window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+          window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+          restoreActiveInput(activeSnap);
+        },
+        (err) => console.warn('[Realtime] Lỗi lắng nghe ho_so_dia_ban_files:', err)
+      )
     );
-    activeUnsubscribes.push(unsubFiles);
 
     // Lắng nghe Báo cáo tháng
-    const unsubBc = onSnapshot(
-      collection(firestoreDb, 'bao_cao_thang'),
-      (snap) => {
-        const items: BaoCaoThangItem[] = [];
-        snap.docs.forEach((d) => {
-          if (!memoryCache.tombstones.has(d.id)) {
-            items.push({ ...(d.data() as BaoCaoThangItem), id: d.id });
-          }
-        });
-        if (isSameData(memoryCache.baoCaoThangList, items)) return;
-        memoryCache.baoCaoThangList = items;
-        persistCacheToLocalStorage();
-        const activeSnap = captureActiveInput();
-        window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
-        window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
-        restoreActiveInput(activeSnap);
-      },
-      (err) => console.warn('[Realtime] Lỗi lắng nghe bao_cao_thang:', err)
+    registerOnce('bao_cao_thang', () =>
+      onSnapshot(
+        collection(firestoreDb, 'bao_cao_thang'),
+        (snap) => {
+          if (snap.metadata.hasPendingWrites) return;
+          const items: BaoCaoThangItem[] = [];
+          snap.docs.forEach((d) => {
+            if (!memoryCache.tombstones.has(d.id)) {
+              items.push({ ...(d.data() as BaoCaoThangItem), id: d.id });
+            }
+          });
+          if (isSameData(memoryCache.baoCaoThangList, items)) return;
+          memoryCache.baoCaoThangList = items;
+          persistCacheToLocalStorage();
+          const activeSnap = captureActiveInput();
+          window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+          window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+          restoreActiveInput(activeSnap);
+        },
+        (err) => console.warn('[Realtime] Lỗi lắng nghe bao_cao_thang:', err)
+      )
     );
-    activeUnsubscribes.push(unsubBc);
 
     // Lắng nghe Kho PDF
-    const unsubPdf = onSnapshot(
-      collection(firestoreDb, 'pdf_files'),
-      (snap) => {
-        const items: PdfKhoItem[] = [];
-        snap.docs.forEach((d) => {
-          if (!memoryCache.tombstones.has(d.id)) {
-            items.push({ ...(d.data() as PdfKhoItem), id: d.id });
-          }
-        });
-        if (isSameData(memoryCache.pdfFiles, items)) return;
-        memoryCache.pdfFiles = items;
-        persistCacheToLocalStorage();
-        const activeSnap = captureActiveInput();
-        window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
-        restoreActiveInput(activeSnap);
-      },
-      (err) => console.warn('[Realtime] Lỗi lắng nghe pdf_files:', err)
+    registerOnce('pdf_files', () =>
+      onSnapshot(
+        collection(firestoreDb, 'pdf_files'),
+        (snap) => {
+          if (snap.metadata.hasPendingWrites) return;
+          const items: PdfKhoItem[] = [];
+          snap.docs.forEach((d) => {
+            if (!memoryCache.tombstones.has(d.id)) {
+              items.push({ ...(d.data() as PdfKhoItem), id: d.id });
+            }
+          });
+          if (isSameData(memoryCache.pdfFiles, items)) return;
+          memoryCache.pdfFiles = items;
+          persistCacheToLocalStorage();
+          const activeSnap = captureActiveInput();
+          window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
+          restoreActiveInput(activeSnap);
+        },
+        (err) => console.warn('[Realtime] Lỗi lắng nghe pdf_files:', err)
+      )
     );
-    activeUnsubscribes.push(unsubPdf);
 
     // Lắng nghe Đơn thư
-    const unsubDonThu = onSnapshot(
-      collection(firestoreDb, 'don_thu'),
-      (snap) => {
-        const items: DonThu[] = [];
-        snap.docs.forEach((d) => {
-          if (!memoryCache.tombstones.has(d.id)) {
-            items.push({ ...(d.data() as DonThu), id: d.id });
-          }
-        });
-        if (isSameData(memoryCache.donThuList, items)) return;
-        memoryCache.donThuList = items;
-        persistCacheToLocalStorage();
-        const activeSnap = captureActiveInput();
-        window.dispatchEvent(new CustomEvent('ubkt_don_thu_updated'));
-        restoreActiveInput(activeSnap);
-      },
-      (err) => console.warn('[Realtime] Lỗi lắng nghe don_thu:', err)
+    registerOnce('don_thu', () =>
+      onSnapshot(
+        collection(firestoreDb, 'don_thu'),
+        (snap) => {
+          if (snap.metadata.hasPendingWrites) return;
+          const items: DonThu[] = [];
+          snap.docs.forEach((d) => {
+            if (!memoryCache.tombstones.has(d.id)) {
+              items.push({ ...(d.data() as DonThu), id: d.id });
+            }
+          });
+          if (isSameData(memoryCache.donThuList, items)) return;
+          memoryCache.donThuList = items;
+          persistCacheToLocalStorage();
+          const activeSnap = captureActiveInput();
+          window.dispatchEvent(new CustomEvent('ubkt_don_thu_updated'));
+          restoreActiveInput(activeSnap);
+        },
+        (err) => console.warn('[Realtime] Lỗi lắng nghe don_thu:', err)
+      )
     );
-    activeUnsubscribes.push(unsubDonThu);
 
     // Lắng nghe Users (ADMIN đọc tất cả; người dùng khác chỉ đọc hồ sơ của chính mình; không có trường mật khẩu)
     if (isCurrentUserAdmin()) {
-      const unsubUsers = onSnapshot(
-        collection(firestoreDb, 'users'),
-        (snap) => {
-          const items: User[] = [];
-          snap.docs.forEach((d) => {
-            if (!memoryCache.tombstones.has(d.id)) {
-              const rawData = d.data() as Record<string, any>;
-              if ('mat_khau' in rawData || 'mat_khau_hash' in rawData) {
-                setDoc(
-                  d.ref,
-                  { mat_khau: deleteField(), mat_khau_hash: deleteField() },
-                  { merge: true }
-                ).catch(() => {});
+      registerOnce('users', () =>
+        onSnapshot(
+          collection(firestoreDb, 'users'),
+          (snap) => {
+            if (snap.metadata.hasPendingWrites) return;
+            const items: User[] = [];
+            snap.docs.forEach((d) => {
+              if (!memoryCache.tombstones.has(d.id)) {
+                const rawData = d.data() as Record<string, any>;
+                if ('mat_khau' in rawData || 'mat_khau_hash' in rawData) {
+                  setDoc(
+                    d.ref,
+                    { mat_khau: deleteField(), mat_khau_hash: deleteField() },
+                    { merge: true }
+                  ).catch(() => {});
+                }
+                const cleanUser = sanitizeUserForCloud(rawData) as User;
+                items.push({ ...cleanUser, id: d.id });
               }
-              const cleanUser = sanitizeUserForCloud(rawData) as User;
-              items.push({ ...cleanUser, id: d.id });
-            }
-          });
-          if (isSameData(memoryCache.users, items)) return;
-          memoryCache.users = items;
-          persistCacheToLocalStorage();
-          const activeSnap = captureActiveInput();
-          window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
-          restoreActiveInput(activeSnap);
-        },
-        (err) => console.warn('[Realtime] Lỗi lắng nghe users:', err)
+            });
+            if (isSameData(memoryCache.users, items)) return;
+            memoryCache.users = items;
+            persistCacheToLocalStorage();
+            const activeSnap = captureActiveInput();
+            window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
+            restoreActiveInput(activeSnap);
+          },
+          (err) => console.warn('[Realtime] Lỗi lắng nghe users:', err)
+        )
       );
-      activeUnsubscribes.push(unsubUsers);
     } else if (auth.currentUser?.uid) {
       const currentUid = auth.currentUser.uid;
-      const unsubSelfUser = onSnapshot(
-        doc(firestoreDb, 'users', currentUid),
-        (docSnap) => {
-          if (!docSnap.exists()) return;
-          const cleanUser = sanitizeUserForCloud(docSnap.data() as Record<string, any>) as User;
-          const selfItem = { ...cleanUser, id: docSnap.id };
-          const idx = memoryCache.users.findIndex((u) => u.id === selfItem.id);
-          if (idx !== -1) {
-            if (isSameData(memoryCache.users[idx], selfItem)) return;
-            memoryCache.users[idx] = selfItem;
-          } else {
-            memoryCache.users.push(selfItem);
-          }
-          persistCacheToLocalStorage();
-          window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
-        },
-        (err) => console.warn('[Realtime] Lỗi lắng nghe hồ sơ cá nhân:', err)
+      registerOnce('users_self', () =>
+        onSnapshot(
+          doc(firestoreDb, 'users', currentUid),
+          (docSnap) => {
+            if (docSnap.metadata.hasPendingWrites) return;
+            if (!docSnap.exists()) return;
+            const cleanUser = sanitizeUserForCloud(docSnap.data() as Record<string, any>) as User;
+            const selfItem = { ...cleanUser, id: docSnap.id };
+            const idx = memoryCache.users.findIndex((u) => u.id === selfItem.id);
+            if (idx !== -1) {
+              if (isSameData(memoryCache.users[idx], selfItem)) return;
+              memoryCache.users[idx] = selfItem;
+            } else {
+              memoryCache.users.push(selfItem);
+            }
+            persistCacheToLocalStorage();
+            window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
+          },
+          (err) => console.warn('[Realtime] Lỗi lắng nghe hồ sơ cá nhân:', err)
+        )
       );
-      activeUnsubscribes.push(unsubSelfUser);
     }
 
     // Lắng nghe Phân công địa bàn
-    const unsubPhanCong = onSnapshot(
-      collection(firestoreDb, 'phan_cong_dia_ban'),
-      (snap) => {
-        const items: any[] = [];
-        snap.docs.forEach((d) => {
-          if (!memoryCache.tombstones.has(d.id)) {
-            items.push({ ...d.data(), id: d.id });
-          }
-        });
-        if (isSameData(memoryCache.phanCongList, items)) return;
-        memoryCache.phanCongList = items;
-        persistCacheToLocalStorage();
-        const activeSnap = captureActiveInput();
-        window.dispatchEvent(new CustomEvent('ubkt_assignments_updated'));
-        restoreActiveInput(activeSnap);
-      },
-      (err) => console.warn('[Realtime] Lỗi lắng nghe phan_cong_dia_ban:', err)
+    registerOnce('phan_cong_dia_ban', () =>
+      onSnapshot(
+        collection(firestoreDb, 'phan_cong_dia_ban'),
+        (snap) => {
+          if (snap.metadata.hasPendingWrites) return;
+          const items: any[] = [];
+          snap.docs.forEach((d) => {
+            if (!memoryCache.tombstones.has(d.id)) {
+              items.push({ ...d.data(), id: d.id });
+            }
+          });
+          if (isSameData(memoryCache.phanCongList, items)) return;
+          memoryCache.phanCongList = items;
+          persistCacheToLocalStorage();
+          const activeSnap = captureActiveInput();
+          window.dispatchEvent(new CustomEvent('ubkt_assignments_updated'));
+          restoreActiveInput(activeSnap);
+        },
+        (err) => console.warn('[Realtime] Lỗi lắng nghe phan_cong_dia_ban:', err)
+      )
     );
-    activeUnsubscribes.push(unsubPhanCong);
 
     memoryCache.isInitialized = true;
 
     return () => {
-      activeUnsubscribes.forEach((unsub) => unsub());
-      activeUnsubscribes = [];
-      isListening = false;
+      this.stopRealtimeSync();
     };
   },
 
-  // ── 2. GHI DỮ LIỆU ĐỒNG BỘ TRỰC TIẾP LÊN FIRESTORE (AWAIT XÁC NHẬN) ──────────
+  // ── 2. GHI DỮ LIỆU ĐỒNG BỘ TRỰC TIẾP LÊN FIRESTORE (DÙNG TRANSACTION KIỂM TRA VERSION) ──
   async saveDoc<T extends { id: string }>(
     collectionName: string,
     id: string,
-    data: T
+    data: T,
+    options?: SaveDocOptions
   ): Promise<T> {
     if (!id) throw new Error('ID bản ghi không hợp lệ');
 
     const now = new Date().toISOString();
+    const actorName = (data as any).updated_by || getCurrentUserName();
     const cleanPayload: any = {
       ...data,
       id,
       updated_at: now,
+      updated_by: actorName,
       is_deleted: false,
     };
     if (!cleanPayload.created_at) {
@@ -467,7 +592,7 @@ export const centralDataService = {
     });
 
     // Không bao giờ đẩy bất kỳ trường mật khẩu nào lên Firestore collection users
-    const firestorePayload = { ...cleanPayload };
+    const firestorePayload: any = { ...cleanPayload };
     if (collectionName === 'users') {
       delete cleanPayload.mat_khau;
       delete cleanPayload.mat_khau_hash;
@@ -481,8 +606,92 @@ export const centralDataService = {
       firestorePayload.mat_khau_hash = deleteField();
     }
 
-    // 1. Ghi thẳng lên Firestore Cloud và chờ xác nhận
-    await setDoc(doc(firestoreDb, collectionName, id), firestorePayload, { merge: true });
+    const docRef = doc(firestoreDb, collectionName, id);
+
+    if (VERSIONED_COLLECTIONS.has(collectionName)) {
+      const expectedVersion =
+        options?.expectedVersion !== undefined
+          ? options.expectedVersion
+          : typeof (data as any).version === 'number'
+          ? (data as any).version
+          : undefined;
+
+      try {
+        await runTransaction(firestoreDb, async (transaction) => {
+          const snap = await transaction.get(docRef);
+          if (snap.exists()) {
+            const cloudData = snap.data();
+            const cloudVersion =
+              typeof cloudData.version === 'number' && Number.isInteger(cloudData.version)
+                ? cloudData.version
+                : 0;
+
+            if (
+              !options?.forceOverwrite &&
+              cloudVersion > 0 &&
+              expectedVersion !== undefined &&
+              expectedVersion !== cloudVersion
+            ) {
+              throw new VersionConflictError({
+                collectionName,
+                id,
+                localData: cleanPayload,
+                cloudData: { ...cloudData, id },
+                localVersion: expectedVersion,
+                cloudVersion,
+                updatedBy:
+                  cloudData.updated_by ||
+                  cloudData.nguoi_cap_nhat_ten ||
+                  cloudData.nguoi_cap_nhat_gan_nhat ||
+                  cloudData.can_bo_ten ||
+                  'Cán bộ khác',
+                updatedAt:
+                  cloudData.updated_at ||
+                  cloudData.thoi_diem_cap_nhat_gan_nhat ||
+                  now,
+              });
+            }
+
+            const nextVersion = cloudVersion > 0 ? cloudVersion + 1 : 1;
+            cleanPayload.version = nextVersion;
+            firestorePayload.version = nextVersion;
+          } else {
+            cleanPayload.version = 1;
+            firestorePayload.version = 1;
+          }
+
+          transaction.set(docRef, firestorePayload, { merge: true });
+        });
+      } catch (err) {
+        if (err instanceof VersionConflictError) {
+          if (options?.skipConflictDialog) {
+            throw err;
+          }
+          const action = await requestConflictResolution(err.conflict);
+          if (action === 'overwrite') {
+            return this.saveDoc(collectionName, id, data, {
+              ...options,
+              forceOverwrite: true,
+            });
+          } else {
+            // Người dùng chọn "Tải lại": cập nhật cache bằng dữ liệu mới trên Cloud và báo làm mới UI
+            this._updateMemoryCacheItem(collectionName, err.conflict.cloudData);
+            persistCacheToLocalStorage();
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
+              window.dispatchEvent(new CustomEvent('ubkt_don_vi_updated'));
+              window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
+              window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
+            }
+            throw new Error(err.message + ' Đã tải lại dữ liệu mới nhất từ Cloud.');
+          }
+        }
+        throw err;
+      }
+    } else {
+      // 1. Ghi thẳng lên Firestore Cloud và chờ xác nhận
+      await setDoc(docRef, firestorePayload, { merge: true });
+    }
 
     // 2. Nếu ID này từng nằm trong tombstones, xóa khỏi tombstones (chỉ ADMIN mới có quyền ghi/xóa tombstones)
     if (memoryCache.tombstones.has(id)) {

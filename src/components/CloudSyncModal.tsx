@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Cloud,
   CloudUpload,
@@ -9,6 +9,9 @@ import {
   X,
   Server,
   Zap,
+  Download,
+  Upload,
+  ShieldAlert,
 } from 'lucide-react';
 import { cloudSyncService } from '../services/cloudSyncService';
 
@@ -19,6 +22,16 @@ interface CloudSyncModalProps {
 }
 
 export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose, onSynced }) => {
+  const isAdmin = (() => {
+    try {
+      const raw = localStorage.getItem('ubkt_current_user');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return parsed?.vai_tro === 'ADMIN';
+      }
+    } catch {}
+    return false;
+  })();
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
   const [lastSynced, setLastSynced] = useState<string | null>(null);
@@ -34,6 +47,13 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
   const [statusAlert, setStatusAlert] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(() => cloudSyncService.isAutoSyncEnabled());
   const [autoSyncInterval, setAutoSyncInterval] = useState<number>(() => cloudSyncService.getAutoSyncInterval());
+
+  // State cho Sao lưu & Khôi phục 2 bước (dành cho ADMIN)
+  const restoreFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [pendingRestoreData, setPendingRestoreData] = useState<any | null>(null);
+  const [pendingRestoreFilename, setPendingRestoreFilename] = useState<string>('');
+  const [restoreStep, setRestoreStep] = useState<0 | 1 | 2>(0);
+  const [restoreConfirmText, setRestoreConfirmText] = useState<string>('');
 
   const calculateLocalCounts = () => {
     let mockDb: any = {};
@@ -175,6 +195,105 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
       }
     } catch (e: any) {
       setStatusAlert({ type: 'error', message: e.message || String(e) });
+    } finally {
+      setIsProcessing(false);
+      setProgressMsg('');
+    }
+  };
+
+  // Xử lý Xuất toàn bộ dữ liệu (JSON) cho ADMIN (loại bỏ mọi trường nhạy cảm)
+  const handleExportFullBackup = () => {
+    if (!isAdmin) return;
+    try {
+      const { filename, jsonString, counts } = cloudSyncService.exportFullBackupJson();
+      const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setStatusAlert({
+        type: 'success',
+        message: `Đã xuất file sao lưu "${filename}" thành công (${counts.don_vi} đơn vị, ${counts.chuong_trinh} chương trình, ${counts.ho_so_dia_ban_records} hồ sơ địa bàn). Mọi trường mật khẩu/token nhạy cảm đã được loại bỏ.`,
+      });
+    } catch (e: any) {
+      setStatusAlert({
+        type: 'error',
+        message: `Lỗi khi xuất file sao lưu: ${e?.message || String(e)}`,
+      });
+    }
+  };
+
+  // Bước 1: Chọn file JSON để kiểm tra trước khi khôi phục
+  const handleSelectRestoreFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setStatusAlert(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || '{}'));
+        const cols = parsed?.collections || parsed;
+        if (!cols || typeof cols !== 'object') {
+          throw new Error('File không chứa cấu trúc collections hợp lệ.');
+        }
+        setPendingRestoreData(parsed);
+        setPendingRestoreFilename(file.name);
+        setRestoreStep(1);
+        setRestoreConfirmText('');
+      } catch (err: any) {
+        setStatusAlert({
+          type: 'error',
+          message: `File sao lưu không hợp lệ: ${err?.message || String(err)}`,
+        });
+      }
+    };
+    reader.readAsText(file, 'utf-8');
+    e.target.value = '';
+  };
+
+  // Bước 2: Xác nhận lần 2 và thực thi khôi phục
+  const handleExecuteRestore = async () => {
+    if (!isAdmin || !pendingRestoreData || restoreStep !== 2) return;
+    if (restoreConfirmText.trim().toUpperCase() !== 'KHOI PHUC') {
+      setStatusAlert({
+        type: 'error',
+        message: 'Vui lòng nhập đúng chữ "KHOI PHUC" để xác nhận bước 2.',
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+    setStatusAlert(null);
+    try {
+      const res = await cloudSyncService.restoreFromBackupJson(pendingRestoreData, (msg) =>
+        setProgressMsg(msg)
+      );
+      if (res.success) {
+        setStatusAlert({
+          type: 'success',
+          message: `Đã khôi phục thành công từ file "${pendingRestoreFilename}" (${res.counts.don_vi || 0} đơn vị, ${res.counts.chuong_trinh || 0} chương trình, ${res.counts.ho_so_dia_ban_records || 0} hồ sơ địa bàn)!`,
+        });
+        setPendingRestoreData(null);
+        setPendingRestoreFilename('');
+        setRestoreStep(0);
+        setRestoreConfirmText('');
+        await loadCloudInfo();
+        onSynced?.();
+      } else {
+        setStatusAlert({
+          type: 'error',
+          message: `Khôi phục thất bại: ${res.error || 'Lỗi không xác định'}`,
+        });
+      }
+    } catch (err: any) {
+      setStatusAlert({
+        type: 'error',
+        message: `Khôi phục thất bại: ${err?.message || String(err)}`,
+      });
     } finally {
       setIsProcessing(false);
       setProgressMsg('');
@@ -408,6 +527,124 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
             <span>Đồng bộ 2 chiều</span>
           </button>
         </div>
+
+        {/* Khối Sao lưu & Khôi phục toàn bộ dữ liệu (JSON) - Chỉ dành cho ADMIN */}
+        {isAdmin && (
+          <div className="pt-3 border-t border-slate-200 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Sao lưu & Khôi phục dữ liệu (ADMIN)
+              </span>
+              <span className="text-[10px] font-semibold text-slate-500">
+                Đã tự động loại bỏ mật khẩu/token
+              </span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                onClick={handleExportFullBackup}
+                disabled={isProcessing}
+                className="flex-1 inline-flex items-center justify-center space-x-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" />
+                <span>Xuất toàn bộ dữ liệu (JSON)</span>
+              </button>
+
+              <input
+                ref={restoreFileInputRef}
+                type="file"
+                accept=".json,application/json"
+                onChange={handleSelectRestoreFile}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => restoreFileInputRef.current?.click()}
+                disabled={isProcessing}
+                className="flex-1 inline-flex items-center justify-center space-x-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Khôi phục từ file</span>
+              </button>
+            </div>
+
+            {/* Xác nhận 2 bước khi Khôi phục từ file */}
+            {pendingRestoreData && restoreStep > 0 && (
+              <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl space-y-2 text-xs text-amber-950">
+                <div className="flex items-start space-x-2">
+                  <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <div className="font-bold">
+                      Xác nhận khôi phục ({restoreStep}/2): {pendingRestoreFilename}
+                    </div>
+                    <p className="text-[11px] text-amber-800 mt-0.5">
+                      Dữ liệu trong file: {(pendingRestoreData.collections?.don_vi || pendingRestoreData.don_vi || []).length} đơn vị,{' '}
+                      {(pendingRestoreData.collections?.chuong_trinh || pendingRestoreData.chuong_trinh || []).length} chương trình,{' '}
+                      {(pendingRestoreData.collections?.ho_so_dia_ban_records || pendingRestoreData.ho_so_dia_ban_records || []).length} hồ sơ địa bàn.
+                    </p>
+                  </div>
+                </div>
+
+                {restoreStep === 1 ? (
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPendingRestoreData(null);
+                        setRestoreStep(0);
+                      }}
+                      className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-700 font-semibold cursor-pointer"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRestoreStep(2)}
+                      className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer"
+                    >
+                      Bước 1/2: Tiếp tục xác nhận
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 pt-1">
+                    <label className="block text-[11px] font-semibold text-rose-800">
+                      Bước 2/2: Nhập chữ <code className="font-mono font-bold bg-white px-1 py-0.5 rounded border border-rose-300">KHOI PHUC</code> để xác nhận ghi đè dữ liệu:
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={restoreConfirmText}
+                        onChange={(e) => setRestoreConfirmText(e.target.value)}
+                        placeholder="Nhập KHOI PHUC"
+                        className="flex-1 px-2.5 py-1.5 rounded-lg border border-rose-300 bg-white text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingRestoreData(null);
+                          setRestoreStep(0);
+                          setRestoreConfirmText('');
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 font-semibold cursor-pointer"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleExecuteRestore}
+                        disabled={isProcessing || restoreConfirmText.trim().toUpperCase() !== 'KHOI PHUC'}
+                        className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                      >
+                        Xác nhận Khôi phục
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

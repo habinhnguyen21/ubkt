@@ -499,6 +499,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   const [formTermEndYear, setFormTermEndYear] = useState<number>(2030);
   const [formSoVanBan, setFormSoVanBan] = useState<string>('01-CTr/ĐU');
   const [formCoQuanBanHanh, setFormCoQuanBanHanh] = useState<string>('Ban Chấp hành Đảng bộ');
+  const [formDonViId, setFormDonViId] = useState<string | null>(null);
   const [formChuTheApDung, setFormChuTheApDung] = useState<string>('Toàn Đảng bộ');
   const [formNoiDung, setFormNoiDung] = useState<string>(
     'Kiểm tra, giám sát theo Quyết định/Kế hoạch số ...: Kiểm tra việc lãnh đạo, chỉ đạo và tổ chức thực hiện nhiệm vụ chính trị, công tác xây dựng Đảng, giữ gìn đoàn kết nội bộ.'
@@ -1456,13 +1457,14 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
   // Handlers cho Phần Hàng năm (Phần F)
   const handleOpenAddHn = () => {
-    const defaultUnit = allDonVi.find((d) => d.loai === 'BTV' || d.loai === 'UBKT') || allDonVi[0];
+    const defaultChuThe = 'Ban Chấp hành Đảng bộ phường';
+    const matchedUnit = findBestMatchingDonVi(defaultChuThe, activeDonViList);
     setEditingHnItem(null);
     setHnNam(filterNam !== 'ALL' ? Number(filterNam) : new Date().getFullYear());
     setHnLoaiHinh('KIEM_TRA');
     setHnLinhVuc(DANH_MUC_LINH_VUC[0]);
-    setHnChuThe(defaultUnit ? defaultUnit.ten : 'Ban Chấp hành Đảng bộ phường');
-    setHnDonViId(defaultUnit ? defaultUnit.id : null);
+    setHnChuThe(defaultChuThe);
+    setHnDonViId(matchedUnit ? matchedUnit.id : null);
     setHnDoiTuong('');
     setHnNoiDung('');
     setHnNoiDungVanBan('');
@@ -1482,12 +1484,15 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   };
 
   const handleOpenEditHn = (item: ChuongTrinhKtGs) => {
+    const matched = item.don_vi_id
+      ? activeDonViList.find((d) => d.id === item.don_vi_id) || null
+      : findBestMatchingDonVi(item.chu_the || item.co_quan_ban_hanh || '', activeDonViList);
     setEditingHnItem(item);
     setHnNam(item.nam || new Date().getFullYear());
     setHnLoaiHinh(item.loai_hinh || 'KIEM_TRA');
     setHnLinhVuc(item.linh_vuc || DANH_MUC_LINH_VUC[0]);
     setHnChuThe(item.chu_the);
-    setHnDonViId(item.don_vi_id || null);
+    setHnDonViId(matched ? matched.id : item.don_vi_id || null);
     setHnDoiTuong(item.doi_tuong || '');
     setHnNoiDung(item.noi_dung || '');
     setHnNoiDungVanBan(item.noi_dung_van_ban || '');
@@ -1507,12 +1512,15 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   };
 
   const handleDuplicateHn = (item: ChuongTrinhKtGs) => {
+    const matched = item.don_vi_id
+      ? activeDonViList.find((d) => d.id === item.don_vi_id) || null
+      : findBestMatchingDonVi(item.chu_the || item.co_quan_ban_hanh || '', activeDonViList);
     setEditingHnItem(null); // Tạo mới dựa trên bản mẫu
     setHnNam(item.nam || new Date().getFullYear());
     setHnLoaiHinh(item.loai_hinh || 'KIEM_TRA');
     setHnLinhVuc(item.linh_vuc || DANH_MUC_LINH_VUC[0]);
     setHnChuThe(item.chu_the);
-    setHnDonViId(item.don_vi_id || null);
+    setHnDonViId(matched ? matched.id : item.don_vi_id || null);
     setHnDoiTuong(`${item.doi_tuong || ''} (Sao chép)`);
     setHnNoiDung(item.noi_dung || '');
     setHnNoiDungVanBan(item.noi_dung_van_ban || '');
@@ -1617,13 +1625,13 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       const finalPdfUrl = hnRemovePdf ? null : hnPdfFileUrl;
       const finalPdfSize = hnRemovePdf ? null : hnPdfFileSize;
 
-      // Tự động tìm đơn vị khớp theo chu_the (ưu tiên chu_the trước) bằng findBestMatchingDonVi
-      const matchedChuTheDv = findBestMatchingDonVi(hnChuThe, activeDonViList);
-      const matchedDoiTuongDv = findBestMatchingDonVi(hnDoiTuong, activeDonViList);
+      // Tự động tìm đơn vị khớp theo chu_the (ưu tiên đơn vị được chọn trực tiếp hoặc khớp chu_the trước) bằng findBestMatchingDonVi
       const explicitDonVi = hnDonViId
         ? activeDonViList.find((d) => d.id === hnDonViId) || null
         : null;
-      const primaryDonVi = matchedChuTheDv || explicitDonVi || matchedDoiTuongDv;
+      const matchedChuTheDv = findBestMatchingDonVi(hnChuThe, activeDonViList);
+      const matchedDoiTuongDv = findBestMatchingDonVi(hnDoiTuong, activeDonViList);
+      const primaryDonVi = explicitDonVi || matchedChuTheDv || matchedDoiTuongDv;
       const finalDonViId = primaryDonVi ? primaryDonVi.id : null;
 
       let finalDriveUrl = finalPdfUrl;
@@ -1854,7 +1862,9 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         setFormTermStartYear(first.term_start_year || (first.nhiem_ky ? parseInt(first.nhiem_ky.split('-')[0]?.trim() || '2025', 10) : 2025));
         setFormTermEndYear(first.term_end_year || (first.nhiem_ky ? parseInt(first.nhiem_ky.split('-')[1]?.trim() || '2030', 10) : 2030));
         setFormSoVanBan(first.so_van_ban || '');
-        setFormCoQuanBanHanh(first.co_quan_ban_hanh || first.chu_the || 'Ban Chấp hành Đảng bộ');
+        const firstCq = first.co_quan_ban_hanh || first.chu_the || 'Ban Chấp hành Đảng bộ';
+        setFormCoQuanBanHanh(firstCq);
+        setFormDonViId(first.don_vi_id || findBestMatchingDonVi(firstCq, activeDonViList)?.id || null);
         setFormChuTheApDung(first.chu_the_ap_dung || first.ten_chi_dang_bo || 'Toàn Đảng bộ');
         setFormNoiDung(first.noi_dung || '');
         setFormNoiDungVanBan(first.noi_dung_van_ban || '');
@@ -1879,7 +1889,9 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     setFormTermStartYear(item.term_start_year || (item.nhiem_ky ? parseInt(item.nhiem_ky.split('-')[0]?.trim() || '2025', 10) : 2025));
     setFormTermEndYear(item.term_end_year || (item.nhiem_ky ? parseInt(item.nhiem_ky.split('-')[1]?.trim() || '2030', 10) : 2030));
     setFormSoVanBan(item.so_van_ban || '');
-    setFormCoQuanBanHanh(item.co_quan_ban_hanh || item.chu_the || 'Ban Chấp hành Đảng bộ');
+    const cq = item.co_quan_ban_hanh || item.chu_the || 'Ban Chấp hành Đảng bộ';
+    setFormCoQuanBanHanh(cq);
+    setFormDonViId(item.don_vi_id || findBestMatchingDonVi(cq, activeDonViList)?.id || null);
     setFormChuTheApDung(item.chu_the_ap_dung || item.ten_chi_dang_bo || 'Toàn Đảng bộ');
     setFormNoiDung(item.noi_dung || '');
     setFormNoiDungVanBan(item.noi_dung_van_ban || '');
@@ -1903,7 +1915,9 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     setFormTermStartYear(2025);
     setFormTermEndYear(2030);
     setFormSoVanBan('');
-    setFormCoQuanBanHanh('Ban Chấp hành Đảng bộ');
+    const defaultCq = 'Ban Chấp hành Đảng bộ';
+    setFormCoQuanBanHanh(defaultCq);
+    setFormDonViId(findBestMatchingDonVi(defaultCq, activeDonViList)?.id || null);
     setFormChuTheApDung('Toàn Đảng bộ');
     setFormNoiDung('');
     setFormNoiDungVanBan('');
@@ -1927,7 +1941,9 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     setFormTermStartYear(item.term_start_year || 2025);
     setFormTermEndYear(item.term_end_year || 2030);
     setFormSoVanBan(item.so_van_ban ? `${item.so_van_ban}-BS` : '');
-    setFormCoQuanBanHanh(item.co_quan_ban_hanh || item.chu_the);
+    const cq = item.co_quan_ban_hanh || item.chu_the;
+    setFormCoQuanBanHanh(cq);
+    setFormDonViId(item.don_vi_id || findBestMatchingDonVi(cq, activeDonViList)?.id || null);
     setFormChuTheApDung(item.chu_the_ap_dung || item.ten_chi_dang_bo || 'Toàn Đảng bộ');
     setFormNoiDung(item.noi_dung || '');
     setFormNoiDungVanBan(item.noi_dung_van_ban || '');
@@ -2009,9 +2025,12 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       }
 
       // Tự động tìm đơn vị khớp theo chu_the / co_quan_ban_hanh để lưu don_vi_id
+      const explicitFormDonVi = formDonViId
+        ? activeDonViList.find((d) => d.id === formDonViId) || null
+        : null;
       const matchedChuTheDv = findBestMatchingDonVi(formCoQuanBanHanh, activeDonViList);
       const matchedApDungDv = findBestMatchingDonVi(formChuTheApDung, activeDonViList);
-      const primaryDonVi = matchedChuTheDv || matchedApDungDv;
+      const primaryDonVi = explicitFormDonVi || matchedChuTheDv || matchedApDungDv;
 
       const payload: CreateChuongTrinhInput = {
         nam: formTermStartYear || new Date().getFullYear(),
@@ -3323,7 +3342,12 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                   </label>
                   <select
                     value={formCoQuanBanHanh}
-                    onChange={(e) => setFormCoQuanBanHanh(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormCoQuanBanHanh(val);
+                      const matched = findBestMatchingDonVi(val, activeDonViList);
+                      setFormDonViId(matched ? matched.id : null);
+                    }}
                     className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-600"
                   >
                     <option value="Ban Chấp hành Đảng bộ">Ban Chấp hành Đảng bộ</option>
@@ -3335,6 +3359,34 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                       </option>
                     ))}
                   </select>
+                  <div className="mt-1.5 space-y-1">
+                    {!formDonViId ? (
+                      <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-semibold">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                        <span>Chưa gắn đơn vị — Vui lòng chọn đơn vị bên dưới:</span>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-emerald-700 font-medium">
+                        ✓ Đã gắn đơn vị: <strong>{activeDonViList.find((d) => d.id === formDonViId)?.ten || formDonViId}</strong>
+                      </div>
+                    )}
+                    <select
+                      value={formDonViId || ''}
+                      onChange={(e) => setFormDonViId(e.target.value || null)}
+                      className={`w-full px-2 py-1 rounded-lg border text-[11px] focus:outline-none focus:ring-1 ${
+                        formDonViId
+                          ? 'bg-emerald-50/40 border-emerald-300 text-emerald-900 font-semibold'
+                          : 'bg-amber-50/40 border-amber-300 text-slate-800'
+                      }`}
+                    >
+                      <option value="">-- Chọn đơn vị gắn (don_vi_id) --</option>
+                      {activeDonViList.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.ten}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 {/* Chủ thể áp dụng */}
@@ -6355,8 +6407,8 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                     onChange={(e) => {
                       const val = e.target.value;
                       setHnChuThe(val);
-                      const unit = allDonVi.find((d) => d.ten === val);
-                      if (unit) setHnDonViId(unit.id);
+                      const matched = findBestMatchingDonVi(val, activeDonViList);
+                      setHnDonViId(matched ? matched.id : null);
                     }}
                     className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
                   >
@@ -6380,6 +6432,34 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                         <option value={hnChuThe}>{hnChuThe}</option>
                       )}
                   </select>
+                  <div className="mt-1.5 space-y-1">
+                    {!hnDonViId ? (
+                      <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-semibold">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                        <span>Chưa gắn đơn vị — Chọn đơn vị bên dưới:</span>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-emerald-700 font-medium">
+                        ✓ Đã gắn đơn vị: <strong>{activeDonViList.find((d) => d.id === hnDonViId)?.ten || hnDonViId}</strong>
+                      </div>
+                    )}
+                    <select
+                      value={hnDonViId || ''}
+                      onChange={(e) => setHnDonViId(e.target.value || null)}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border text-[11px] focus:outline-none focus:ring-1 ${
+                        hnDonViId
+                          ? 'bg-emerald-50/40 border-emerald-300 text-emerald-900 font-semibold'
+                          : 'bg-amber-50/40 border-amber-300 text-slate-800'
+                      }`}
+                    >
+                      <option value="">-- Chọn đơn vị gắn (don_vi_id) --</option>
+                      {activeDonViList.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.ten}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 {/* Lĩnh vực KT-GS (6 lĩnh vực) */}

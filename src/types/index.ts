@@ -53,6 +53,7 @@ export interface DonVi {
   nguoi_tao_id?: string | null;
   nguoi_cap_nhat_ten?: string | null;
   nguoi_cap_nhat_id?: string | null;
+  updated_by?: string | null;
   version: number;
   sync_status: string;
   created_at: string;
@@ -90,6 +91,8 @@ export interface CreateDonViInput {
   so_quyet_dinh?: string | null;
   nguoi_tao_ten?: string | null;
   nguoi_tao_id?: string | null;
+  updated_by?: string | null;
+  version?: number;
 }
 
 export interface UpdateDonViInput {
@@ -106,6 +109,8 @@ export interface UpdateDonViInput {
   so_quyet_dinh?: string | null;
   nguoi_cap_nhat_ten?: string | null;
   nguoi_cap_nhat_id?: string | null;
+  updated_by?: string | null;
+  version?: number;
 }
 
 export interface AppInfo {
@@ -196,6 +201,8 @@ export interface ChuongTrinhKtGs {
   ghi_chu_pdf: string | null;
   danh_sach_thay_doi_bo_sung?: ThayDoiBoSungKtGs[]; // Bảng list nạp đối chiếu thay đổi bổ sung
   linh_vuc?: string | null;
+  version?: number;
+  updated_by?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -238,6 +245,8 @@ export interface CreateChuongTrinhInput {
   file_pdf_dung_luong?: number | null;
   ghi_chu_pdf?: string | null;
   danh_sach_thay_doi_bo_sung?: ThayDoiBoSungKtGs[];
+  version?: number;
+  updated_by?: string | null;
 }
 
 export interface UpdateChuongTrinhInput extends CreateChuongTrinhInput {
@@ -369,6 +378,8 @@ export interface BaoCaoThangItem {
   file_url?: string | null;
   noi_dung_tom_tat?: string;
   ghi_chu?: string;
+  version?: number;
+  updated_by?: string | null;
   created_at: string;
 }
 
@@ -422,6 +433,8 @@ export interface DiaBanRecord {
   nguoi_ket_thuc?: string | null;
   van_ban_ket_thuc?: string | null;
   ghi_chu_ket_thuc?: string | null;
+  version?: number;
+  updated_by?: string | null;
 }
 
 // ── QUẢN LÝ ĐƠN THƯ (PETITIONS & COMPLAINTS MANAGEMENT) ──────────────────────

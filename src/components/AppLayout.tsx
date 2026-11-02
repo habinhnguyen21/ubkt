@@ -255,7 +255,7 @@ export function AppLayout({
           {/* Nút Đồng bộ Cloud Firebase */}
           <button
             onClick={onOpenCloudSync}
-            title={`Đồng bộ Đám mây 2 chiều (Tự động 30s ẩn) - Lần cuối: ${lastSyncTime || 'Chưa rõ'}`}
+            title={`Đồng bộ Đám mây Realtime (onSnapshot) - Lần cuối: ${lastSyncTime || 'Chưa rõ'}`}
             style={{
               background: '#f8fafc',
               border: '1px solid #cbd5e1',
@@ -293,15 +293,15 @@ export function AppLayout({
             />
             <span>
               {lastSyncTime
-                ? `Đồng bộ ẩn (30s) · ${lastSyncTime}`
-                : 'Đồng bộ ẩn (30s)'}
+                ? `Realtime Cloud · ${lastSyncTime}`
+                : 'Realtime Cloud'}
             </span>
           </button>
 
-          {/* Trạng thái Trực tuyến */}
+          {/* Trạng thái Trực tuyến / Nút Đồng bộ ngay */}
           <button
             onClick={onRefresh}
-            title="Trạng thái kết nối máy chủ trực tuyến (Click để làm mới dữ liệu)"
+            title="Đồng bộ đầy đủ 2 chiều ngay lập tức với Firestore Cloud"
             style={{
               background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6,
               padding: '4px 10px', cursor: 'pointer', color: '#166534', fontSize: 12,
@@ -315,7 +315,7 @@ export function AppLayout({
               boxShadow: '0 0 6px rgba(34,197,94,0.6)',
               animation: isSyncing ? 'pulse 1s infinite' : 'none',
             }} />
-            <span>{isSyncing ? 'Đang làm mới...' : 'Máy chủ Online'}</span>
+            <span>{isSyncing ? 'Đang đồng bộ...' : 'Đồng bộ ngay'}</span>
           </button>
 
           {/* Notification bell */}

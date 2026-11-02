@@ -82,6 +82,26 @@ service cloud.firestore {
         && !('passwordHash' in data);
     }
 
+    // Kiểm tra version hợp lệ khi tạo mới (nếu có trường version thì bắt buộc là số nguyên = 1)
+    function isValidVersionOnCreate(newData) {
+      return !('version' in newData)
+        || (newData.version is int && newData.version == 1);
+    }
+
+    // Kiểm tra version khi cập nhật: bắt buộc tăng đúng 1 đơn vị so với bản ghi hiện có
+    function isValidVersionOnUpdate(oldData, newData) {
+      return (
+        !('version' in oldData)
+        && (!('version' in newData) || (newData.version is int && newData.version == 1))
+      ) || (
+        ('version' in oldData)
+        && oldData.version is int
+        && ('version' in newData)
+        && newData.version is int
+        && newData.version == oldData.version + 1
+      );
+    }
+
     function isValidUserPayload(userId, data) {
       return hasNoPasswordFields(data)
         && data.id is string
@@ -203,7 +223,12 @@ service cloud.firestore {
     // 3.2. Các Collection chỉ ADMIN được phép ghi (don_vi, phan_cong_dia_ban, system_config, tombstones)
     match /don_vi/{donViId} {
       allow read: if hasActiveUserDoc();
-      allow create, update: if isAdmin() && isValidDonViPayload(donViId, request.resource.data);
+      allow create: if isAdmin()
+        && isValidDonViPayload(donViId, request.resource.data)
+        && isValidVersionOnCreate(request.resource.data);
+      allow update: if isAdmin()
+        && isValidDonViPayload(donViId, request.resource.data)
+        && isValidVersionOnUpdate(resource.data, request.resource.data);
       allow delete: if isAdmin();
     }
 
@@ -232,8 +257,10 @@ service cloud.firestore {
     match /chuong_trinh/{docId} {
       allow read: if hasActiveUserDoc();
       allow create: if isValidChuongTrinhPayload(docId, request.resource.data)
+        && isValidVersionOnCreate(request.resource.data)
         && (isAdmin() || isAssignedToUnit(extractRecordUnitId(request.resource.data)));
       allow update: if isValidChuongTrinhPayload(docId, request.resource.data)
+        && isValidVersionOnUpdate(resource.data, request.resource.data)
         && (
           isAdmin()
           || (
@@ -246,7 +273,15 @@ service cloud.firestore {
 
     match /ho_so_dia_ban_records/{docId} {
       allow read: if hasActiveUserDoc();
-      allow create, update: if isValidHoSoDiaBanRecordPayload(docId, request.resource.data)
+      allow create: if isValidHoSoDiaBanRecordPayload(docId, request.resource.data)
+        && isValidVersionOnCreate(request.resource.data)
+        && (
+          isAdmin()
+          || isAssignedToUnit(docId)
+          || isAssignedToUnit(extractRecordUnitId(request.resource.data))
+        );
+      allow update: if isValidHoSoDiaBanRecordPayload(docId, request.resource.data)
+        && isValidVersionOnUpdate(resource.data, request.resource.data)
         && (
           isAdmin()
           || isAssignedToUnit(docId)
@@ -273,8 +308,10 @@ service cloud.firestore {
     match /bao_cao_thang/{docId} {
       allow read: if hasActiveUserDoc();
       allow create: if isValidBaoCaoThangPayload(docId, request.resource.data)
+        && isValidVersionOnCreate(request.resource.data)
         && (isAdmin() || isReportAssignedToBienTap(request.resource.data));
       allow update: if isValidBaoCaoThangPayload(docId, request.resource.data)
+        && isValidVersionOnUpdate(resource.data, request.resource.data)
         && (
           isAdmin()
           || (

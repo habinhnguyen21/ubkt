@@ -1,0 +1,41 @@
+name: Daily Firestore Backup
+
+on:
+  schedule:
+    # Chạy hàng ngày lúc 00:00 giờ Việt Nam (17:00 UTC)
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup-firestore:
+    name: Backup Firestore to Artifact
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install firebase-admin for backup script
+        run: npm install --no-save firebase-admin
+
+      - name: Run Firestore Backup (no repo commit)
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          BACKUP_OUTPUT_PATH: ${{ runner.temp }}/backup_firestore_${{ github.run_id }}.json
+        run: node server/backup_firestore.cjs
+
+      - name: Upload Backup Artifact (retained for 30 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: firestore-backup-${{ github.run_number }}
+          path: ${{ runner.temp }}/backup_firestore_${{ github.run_id }}.json
+          retention-days: 30
+          if-no-files-found: error
+
