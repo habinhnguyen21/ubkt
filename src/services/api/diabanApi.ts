@@ -1,6 +1,6 @@
 import type { DiaBanRecord, HoSoDiaBanFile, PhanCongDiaBan } from '../../types';
 import { centralDataService } from '../centralDataService';
-import { registerMockCommands, requestApi } from './core';
+import { registerMockCommands, requestApi, saveMockDb } from './core';
 
 registerMockCommands({
   get_dia_ban_records: async (db) => {
@@ -105,7 +105,24 @@ registerMockCommands({
         'Từ chối truy cập: Tài khoản Biên tập viên không có quyền chỉnh sửa dữ liệu phân công quản lý.'
       );
     }
-    const { assignments } = args as { assignments: PhanCongDiaBan[] };
+    const { assignments, actor_name, user_id, action_info } = args as {
+      assignments: PhanCongDiaBan[];
+      actor_name?: string;
+      user_id?: string;
+      action_info?: { hanh_dong: string; du_lieu_cu?: any; du_lieu_moi?: any };
+    };
+
+    // 1. Xóa các document phan_cong_dia_ban không còn tồn tại khỏi Firestore và memoryCache
+    const existing = centralDataService.getPhanCongList();
+    const newIds = new Set((assignments || []).map((a) => a.user_id));
+    for (const ex of existing) {
+      const exId = ex.id || ex.user_id;
+      if (exId && !newIds.has(exId)) {
+        await centralDataService.deleteDoc('phan_cong_dia_ban', exId, actor_name);
+      }
+    }
+
+    // 2. Lưu danh sách phân công mới
     localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(assignments || []));
     for (const as of assignments || []) {
       await centralDataService.saveDoc('phan_cong_dia_ban', as.user_id, {
@@ -113,6 +130,26 @@ registerMockCommands({
         id: as.id || as.user_id,
       });
     }
+
+    // 3. Ghi audit log nếu có thông tin hành động
+    if (action_info && action_info.hanh_dong) {
+      const logItem: any = {
+        id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        nguoi_dung_id: user_id || currentUser?.id || null,
+        ten_nguoi_dung: actor_name || currentUser?.ho_ten || 'Cán bộ quản trị',
+        hanh_dong: action_info.hanh_dong,
+        bang_anh_huong: 'phan_cong_dia_ban',
+        ban_ghi_id: 'phan_cong_dia_ban',
+        du_lieu_cu: action_info.du_lieu_cu ? JSON.stringify(action_info.du_lieu_cu) : null,
+        du_lieu_moi: action_info.du_lieu_moi ? JSON.stringify(action_info.du_lieu_moi) : null,
+        thoi_gian: new Date().toISOString(),
+      };
+      _db.auditLogs = _db.auditLogs || [];
+      _db.auditLogs.unshift(logItem);
+      saveMockDb(_db);
+      centralDataService.saveDoc('audit_logs', logItem.id, logItem).catch(() => {});
+    }
+
     return { success: true };
   },
 
@@ -182,13 +219,18 @@ export const diabanApi = {
   getPhanCongDiaBan: () =>
     requestApi<PhanCongDiaBan[]>('/api/phan-cong-dia-ban', 'GET', undefined, 'get_phan_cong_dia_ban'),
 
-  savePhanCongDiaBan: (assignments: PhanCongDiaBan[], actor_name?: string, user_id?: string) =>
+  savePhanCongDiaBan: (
+    assignments: PhanCongDiaBan[],
+    actor_name?: string,
+    user_id?: string,
+    action_info?: { hanh_dong: string; du_lieu_cu?: any; du_lieu_moi?: any }
+  ) =>
     requestApi<{ success: boolean }>(
       '/api/phan-cong-dia-ban',
       'POST',
-      { assignments, actor_name, user_id },
+      { assignments, actor_name, user_id, action_info },
       'save_phan_cong_dia_ban',
-      { assignments, actor_name, user_id }
+      { assignments, actor_name, user_id, action_info }
     ),
 
   getHoSoDiaBanFiles: (don_vi_id?: string) =>

@@ -1531,9 +1531,24 @@ app.get('/api/phan-cong-dia-ban', requireAdminForPhanCong, (req, res) => {
 
 app.post('/api/phan-cong-dia-ban', requireAdminForPhanCong, (req, res) => {
   const db = readDb();
-  const { assignments, user_id, actor_name } = req.body;
+  const { assignments, user_id, actor_name, action_info } = req.body;
   if (!Array.isArray(assignments)) {
     return res.status(400).json({ message: 'Danh sách phân công không hợp lệ' });
+  }
+
+  if (action_info && action_info.hanh_dong) {
+    db.auditLogs = db.auditLogs || [];
+    db.auditLogs.unshift({
+      id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      nguoi_dung_id: user_id || null,
+      ten_nguoi_dung: actor_name || 'Quản trị viên',
+      hanh_dong: action_info.hanh_dong,
+      bang_anh_huong: 'phan_cong_dia_ban',
+      ban_ghi_id: 'phan_cong_dia_ban',
+      du_lieu_cu: action_info.du_lieu_cu ? JSON.stringify(action_info.du_lieu_cu) : null,
+      du_lieu_moi: action_info.du_lieu_moi ? JSON.stringify(action_info.du_lieu_moi) : null,
+      thoi_gian: new Date().toISOString(),
+    });
   }
 
   db.phanCongDiaBan = assignments;

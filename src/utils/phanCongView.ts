@@ -122,11 +122,25 @@ export function getWaitingUnits(
   });
 }
 
+export type OrphanWarningType = 'MISSING_USER' | 'LOCKED_USER' | 'INVALID_UNIT';
+
+export interface OrphanWarning {
+  id: string;
+  type: OrphanWarningType;
+  assignment: PhanCongDiaBan;
+  reason: string;
+  userId: string;
+  userName?: string;
+  affectedUnitIds?: string[];
+  invalidUnitIds?: string[];
+  invalidUnitNames?: string[];
+}
+
 export interface AssignmentWarnings {
   unassignedCount: number;
   unassignedUnits: DonVi[];
   orphanUnitsCount: number;
-  orphanAssignments: { assignment: PhanCongDiaBan; reason: string }[];
+  orphanAssignments: OrphanWarning[];
   overloadedOfficers: { user: User; count: number }[];
 }
 
@@ -155,7 +169,7 @@ export function computePhanCongStats(
   activeUnits.forEach((u) => unitAssigneeCount.set(u.id, 0));
 
   // Kiểm tra phân công trỏ tới đơn vị đã bị xóa hoặc cán bộ bị khóa/không tồn tại
-  const orphanAssignments: { assignment: PhanCongDiaBan; reason: string }[] = [];
+  const orphanAssignments: OrphanWarning[] = [];
   const userMap = new Map((usersList || []).map((u) => [u.id, u]));
 
   for (const a of assignments || []) {
@@ -163,26 +177,50 @@ export function computePhanCongStats(
     const usr = userMap.get(a.user_id);
     if (!usr) {
       orphanAssignments.push({
+        id: `missing-user-${a.user_id}`,
+        type: 'MISSING_USER',
         assignment: a,
-        reason: `Cán bộ ID ${a.user_id} (${a.user_name}) không còn tồn tại trong hệ thống`,
+        userId: a.user_id,
+        userName: a.user_name || 'Chưa rõ họ tên',
+        affectedUnitIds: a.don_vi_ids || [],
+        reason: `Cán bộ ID ${a.user_id} (${a.user_name || 'Chưa rõ họ tên'}) không còn tồn tại trong hệ thống`,
       });
     } else if (usr.trang_thai === 0) {
       orphanAssignments.push({
+        id: `locked-user-${a.user_id}`,
+        type: 'LOCKED_USER',
         assignment: a,
+        userId: a.user_id,
+        userName: usr.ho_ten,
+        affectedUnitIds: a.don_vi_ids || [],
         reason: `Cán bộ "${usr.ho_ten}" (@${usr.ten_dang_nhap}) đã bị khóa tài khoản`,
       });
     }
 
+    // Kiểm tra đơn vị bị xóa hoặc không còn trong danh mục
+    const invalidUnitsInThisAssign: { id: string; name: string }[] = [];
     for (const uid of a.don_vi_ids || []) {
       if (!activeUnitMap.has(uid)) {
-        orphanAssignments.push({
-          assignment: a,
-          reason: `Đơn vị ID ${uid} đã bị xóa hoặc không còn trong danh mục`,
-        });
+        const deletedUnit = (allUnits || []).find((u) => u.id === uid);
+        const unitName = deletedUnit ? `${deletedUnit.ten} (đã xóa)` : `ID: ${uid}`;
+        invalidUnitsInThisAssign.push({ id: uid, name: unitName });
       } else {
         const cur = unitAssigneeCount.get(uid) || 0;
         unitAssigneeCount.set(uid, cur + 1);
       }
+    }
+
+    if (invalidUnitsInThisAssign.length > 0) {
+      orphanAssignments.push({
+        id: `invalid-units-${a.user_id}`,
+        type: 'INVALID_UNIT',
+        assignment: a,
+        userId: a.user_id,
+        userName: a.user_name || 'Chưa rõ họ tên',
+        invalidUnitIds: invalidUnitsInThisAssign.map((u) => u.id),
+        invalidUnitNames: invalidUnitsInThisAssign.map((u) => u.name),
+        reason: `Đơn vị ID ${invalidUnitsInThisAssign.map((u) => u.name).join(', ')} đã bị xóa hoặc không còn trong danh mục`,
+      });
     }
   }
 
@@ -317,4 +355,178 @@ export function getUnitDecisionNumber(
   }
 
   return null;
+}
+
+/**
+ * Tìm người dùng phù hợp nhất để gợi ý khi chuyển phân công (so khớp không dấu, hoa thường, tiền tố)
+ */
+export function findBestMatchingUser(
+  orphanUserName: string | undefined,
+  usersList: User[]
+): User | undefined {
+  if (!orphanUserName || !usersList || usersList.length === 0) return undefined;
+  // Bỏ tiền tố "Đ/c", "Đồng chí", "Đc", v.v.
+  const cleaned = orphanUserName
+    .replace(/^(đ\/c|đồng chí|đc)\s+/i, '')
+    .trim();
+  const normalizedTarget = normalizeSearch(cleaned);
+  if (!normalizedTarget) return undefined;
+
+  // 1. Khớp chính xác hoàn toàn họ tên (bỏ dấu)
+  const exactMatch = usersList.find(
+    (u) => u.trang_thai !== 0 && normalizeSearch(u.ho_ten) === normalizedTarget
+  );
+  if (exactMatch) return exactMatch;
+
+  // 2. Khớp một phần hoặc tên đăng nhập
+  const partialMatch = usersList.find(
+    (u) =>
+      u.trang_thai !== 0 &&
+      (normalizeSearch(u.ho_ten).includes(normalizedTarget) ||
+        normalizedTarget.includes(normalizeSearch(u.ho_ten)) ||
+        normalizeSearch(u.ten_dang_nhap) === normalizedTarget)
+  );
+  return partialMatch;
+}
+
+/**
+ * Chuyển toàn bộ phân công của cán bộ cũ sang tài khoản cán bộ mới
+ * Giữ nguyên don_vi_ids, số quyết định, ngày và lịch sử.
+ * Nếu tài khoản đích đã có phân công thì gộp danh sách đơn vị không trùng lặp.
+ */
+export function transferAssignmentToUser(
+  assignments: PhanCongDiaBan[],
+  sourceUserId: string,
+  targetUser: User
+): PhanCongDiaBan[] {
+  const source = (assignments || []).find((a) => a.user_id === sourceUserId);
+  if (!source) return assignments || [];
+
+  const sourceUnits = source.don_vi_ids || [];
+  const targetExists = (assignments || []).some((a) => a.user_id === targetUser.id);
+  const now = new Date().toISOString();
+
+  if (targetExists) {
+    return (assignments || [])
+      .filter((a) => a.user_id !== sourceUserId)
+      .map((a) => {
+        if (a.user_id === targetUser.id) {
+          const merged = Array.from(new Set([...(a.don_vi_ids || []), ...sourceUnits]));
+          return {
+            ...a,
+            user_name: targetUser.ho_ten,
+            don_vi_ids: merged,
+            updated_at: now,
+          };
+        }
+        return a;
+      });
+  } else {
+    return (assignments || []).map((a) => {
+      if (a.user_id === sourceUserId) {
+        return {
+          ...a,
+          id: targetUser.id,
+          user_id: targetUser.id,
+          user_name: targetUser.ho_ten,
+          updated_at: now,
+        };
+      }
+      return a;
+    });
+  }
+}
+
+/**
+ * Xóa bản ghi phân công của một cán bộ (các đơn vị trong đó sẽ trở về chưa có người phụ trách)
+ */
+export function deleteAssignment(
+  assignments: PhanCongDiaBan[],
+  userId: string
+): PhanCongDiaBan[] {
+  return (assignments || []).filter((a) => a.user_id !== userId);
+}
+
+/**
+ * Gỡ các ID đơn vị không tồn tại hoặc đã bị xóa khỏi một bản phân công
+ */
+export function removeInvalidUnitsFromAssignment(
+  assignments: PhanCongDiaBan[],
+  userId: string,
+  invalidUnitIds: string[]
+): PhanCongDiaBan[] {
+  const invalidSet = new Set(invalidUnitIds || []);
+  const now = new Date().toISOString();
+  return (assignments || []).map((a) => {
+    if (a.user_id === userId) {
+      return {
+        ...a,
+        don_vi_ids: (a.don_vi_ids || []).filter((uid) => !invalidSet.has(uid)),
+        updated_at: now,
+      };
+    }
+    return a;
+  });
+}
+
+/**
+ * Dọn tất cả cảnh báo: gỡ đơn vị không tồn tại và xóa bản phân công của cán bộ không còn trong hệ thống
+ */
+export function cleanAllOrphanWarnings(
+  assignments: PhanCongDiaBan[],
+  allUnits: DonVi[],
+  usersList: User[]
+): {
+  cleanedAssignments: PhanCongDiaBan[];
+  removedAssignmentsCount: number;
+  removedUnitsCount: number;
+  affectedUnitIds: string[];
+  removedOfficers: string[];
+} {
+  const activeUnitIds = new Set((allUnits || []).filter((u) => !u.deleted_at).map((u) => u.id));
+  const activeUserIds = new Set((usersList || []).map((u) => u.id));
+  const now = new Date().toISOString();
+
+  let removedAssignmentsCount = 0;
+  let removedUnitsCount = 0;
+  const affectedUnitIds: string[] = [];
+  const removedOfficers: string[] = [];
+
+  const cleanedAssignments: PhanCongDiaBan[] = [];
+
+  for (const a of assignments || []) {
+    // Nếu cán bộ không còn trong hệ thống
+    if (!activeUserIds.has(a.user_id)) {
+      removedAssignmentsCount++;
+      removedOfficers.push(a.user_name || a.user_id);
+      (a.don_vi_ids || []).forEach((uid) => {
+        if (activeUnitIds.has(uid)) affectedUnitIds.push(uid);
+      });
+      continue;
+    }
+
+    // Nếu cán bộ còn tồn tại, lọc bỏ các đơn vị không tồn tại/đã xóa
+    const validUnitIds: string[] = [];
+    for (const uid of a.don_vi_ids || []) {
+      if (activeUnitIds.has(uid)) {
+        validUnitIds.push(uid);
+      } else {
+        removedUnitsCount++;
+      }
+    }
+
+    cleanedAssignments.push({
+      ...a,
+      don_vi_ids: validUnitIds,
+      updated_at: now,
+    });
+  }
+
+  return {
+    cleanedAssignments,
+    removedAssignmentsCount,
+    removedUnitsCount,
+    affectedUnitIds: Array.from(new Set(affectedUnitIds)),
+    removedOfficers,
+  };
 }

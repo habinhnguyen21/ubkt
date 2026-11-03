@@ -6,6 +6,11 @@ import {
   canModifyAssignments,
   assignUnitsToOfficer,
   unassignUnitFromOfficer,
+  findBestMatchingUser,
+  transferAssignmentToUser,
+  deleteAssignment,
+  removeInvalidUnitsFromAssignment,
+  cleanAllOrphanWarnings,
 } from '../src/utils/phanCongView';
 import type { DonVi, PhanCongDiaBan, User } from '../src/types';
 
@@ -156,5 +161,125 @@ describe('phanCongView - Kiểm tra các hàm thuần phân công quản lý', (
     // Chưa phân công: 2 (dv-2, dv-3)
     expect(stats.unassignedCount).toBe(2);
     expect(stats.warnings.unassignedCount).toBe(2);
+  });
+
+  it('7. Gợi ý tài khoản trùng họ tên (bỏ dấu, hoa thường, tiền tố)', () => {
+    // mockUsers có: 'Nguyễn Văn A'
+    const suggested1 = findBestMatchingUser('Đ/c Nguyễn Văn A', mockUsers);
+    expect(suggested1?.id).toBe('u-bientap');
+
+    const suggested2 = findBestMatchingUser('nguyen van a', mockUsers);
+    expect(suggested2?.id).toBe('u-bientap');
+
+    const suggested3 = findBestMatchingUser('Đồng chí Quản trị', mockUsers);
+    expect(suggested3?.id).toBe('u-admin');
+
+    const notFound = findBestMatchingUser('Đ/c Trần Không Tồn Tại', mockUsers);
+    expect(notFound).toBeUndefined();
+  });
+
+  it('8. Chuyển phân công của cán bộ không còn tồn tại sang tài khoản khác', () => {
+    const orphanAssigns: PhanCongDiaBan[] = [
+      {
+        id: 'mock-user-1',
+        user_id: 'mock-user-1',
+        user_name: 'Đ/c Nguyễn Văn Cũ',
+        don_vi_ids: ['dv-2', 'dv-3'],
+        updated_at: '2026-01-01',
+      },
+      {
+        id: 'u-bientap',
+        user_id: 'u-bientap',
+        user_name: 'Nguyễn Văn A',
+        don_vi_ids: ['dv-1'],
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    // Chuyển sang u-bientap (người đã có phân công dv-1)
+    const targetUser = mockUsers.find((u) => u.id === 'u-bientap')!;
+    const transferred = transferAssignmentToUser(orphanAssigns, 'mock-user-1', targetUser);
+
+    // Bản ghi cũ mock-user-1 bị xóa
+    expect(transferred.find((a) => a.user_id === 'mock-user-1')).toBeUndefined();
+
+    // Bản ghi u-bientap được gộp các đơn vị không trùng lặp
+    const merged = transferred.find((a) => a.user_id === 'u-bientap');
+    expect(merged?.don_vi_ids).toEqual(['dv-1', 'dv-2', 'dv-3']);
+  });
+
+  it('9. Xóa bản phân công của cán bộ không còn tồn tại', () => {
+    const list: PhanCongDiaBan[] = [
+      {
+        id: 'mock-user-1',
+        user_id: 'mock-user-1',
+        user_name: 'Cán bộ rác',
+        don_vi_ids: ['dv-2'],
+        updated_at: '2026-01-01',
+      },
+      {
+        id: 'u-bientap',
+        user_id: 'u-bientap',
+        user_name: 'Nguyễn Văn A',
+        don_vi_ids: ['dv-1'],
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    const afterDelete = deleteAssignment(list, 'mock-user-1');
+    expect(afterDelete.length).toBe(1);
+    expect(afterDelete.find((a) => a.user_id === 'mock-user-1')).toBeUndefined();
+    expect(afterDelete[0].user_id).toBe('u-bientap');
+  });
+
+  it('10. Gỡ đơn vị không tồn tại khỏi phân công', () => {
+    const list: PhanCongDiaBan[] = [
+      {
+        id: 'u-bientap',
+        user_id: 'u-bientap',
+        user_name: 'Nguyễn Văn A',
+        don_vi_ids: ['dv-1', 'dv-deleted-id', 'dv-fake-id'],
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    const cleaned = removeInvalidUnitsFromAssignment(list, 'u-bientap', ['dv-deleted-id', 'dv-fake-id']);
+    expect(cleaned[0].don_vi_ids).toEqual(['dv-1']);
+  });
+
+  it('11. Dọn tất cả cảnh báo phân công hàng loạt', () => {
+    const dirtyAssignments: PhanCongDiaBan[] = [
+      {
+        id: 'mock-ghost-user',
+        user_id: 'mock-ghost-user',
+        user_name: 'Người ma',
+        don_vi_ids: ['dv-2', 'dv-deleted'],
+        updated_at: '2026-01-01',
+      },
+      {
+        id: 'u-bientap',
+        user_id: 'u-bientap',
+        user_name: 'Nguyễn Văn A',
+        don_vi_ids: ['dv-1', 'dv-deleted'],
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    const result = cleanAllOrphanWarnings(dirtyAssignments, mockUnits, mockUsers);
+
+    // Bản ghi mock-ghost-user bị xóa
+    expect(result.removedAssignmentsCount).toBe(1);
+    expect(result.removedOfficers).toContain('Người ma');
+
+    // Đơn vị dv-2 thuộc mock-ghost-user trở về chưa có người phụ trách
+    expect(result.affectedUnitIds).toContain('dv-2');
+
+    // dv-deleted bị gỡ khỏi u-bientap
+    expect(result.removedUnitsCount).toBe(1);
+
+    // Danh sách sau khi dọn chỉ còn u-bientap với dv-1 hợp lệ
+    expect(result.cleanedAssignments.length).toBe(1);
+    expect(result.cleanedAssignments[0].user_id).toBe('u-bientap');
+    expect(result.cleanedAssignments[0].don_vi_ids).toEqual(['dv-1']);
   });
 });

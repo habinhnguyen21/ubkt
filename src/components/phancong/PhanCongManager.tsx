@@ -18,6 +18,10 @@ import {
   Briefcase,
   ChevronRight,
   Eye,
+  Trash2,
+  ArrowRightLeft,
+  Eraser,
+  Sparkles,
 } from 'lucide-react';
 import type { DonVi, PhanCongDiaBan, User, DiaBanRecord, LichSuPhuTrachDiaBan } from '../../types';
 import {
@@ -30,6 +34,12 @@ import {
   getUnitDecisionNumber,
   matchesSearch,
   MAX_UNITS_PER_OFFICER_DEFAULT,
+  findBestMatchingUser,
+  transferAssignmentToUser,
+  deleteAssignment,
+  removeInvalidUnitsFromAssignment,
+  cleanAllOrphanWarnings,
+  type OrphanWarning,
 } from '../../utils/phanCongView';
 
 export interface PhanCongManagerProps {
@@ -38,7 +48,10 @@ export interface PhanCongManagerProps {
   usersList: User[];
   assignments: PhanCongDiaBan[];
   diaBanRecords: DiaBanRecord[];
-  onSaveAssignments: (updated: PhanCongDiaBan[]) => void;
+  onSaveAssignments: (
+    updated: PhanCongDiaBan[],
+    auditInfo?: { hanh_dong: string; du_lieu_cu?: any; du_lieu_moi?: any }
+  ) => void;
   onReloadUsers?: () => void;
   onOpenCreateUserModal?: () => void;
   onOpenHistoryModal?: (unit: { id: string; ten: string; record?: DiaBanRecord }) => void;
@@ -102,27 +115,150 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
   // 7. Lọc theo thẻ số liệu ở đầu trang ('ALL' | 'ASSIGNED' | 'UNASSIGNED' | 'MULTI')
   const [statFilter, setStatFilter] = useState<'ALL' | 'ASSIGNED' | 'UNASSIGNED' | 'MULTI'>('ALL');
 
-  // 8. Toast thông báo có nút "Hoàn tác" (tự động biến mất sau 6 giây)
+  // 8. Toast thông báo có nút "Hoàn tác" (đếm ngược 10 giây)
   const [undoToast, setUndoToast] = useState<{
     message: string;
     previousAssignments: PhanCongDiaBan[];
+    secondsLeft: number;
   } | null>(null);
 
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const showUndoNotification = (message: string, previousAssignments: PhanCongDiaBan[]) => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setUndoToast({ message, previousAssignments });
-    toastTimerRef.current = setTimeout(() => {
-      setUndoToast(null);
-    }, 6000);
+  const showUndoNotification = (
+    message: string,
+    previousAssignments: PhanCongDiaBan[],
+    durationSeconds = 10
+  ) => {
+    if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    setUndoToast({
+      message,
+      previousAssignments,
+      secondsLeft: durationSeconds,
+    });
+
+    countdownTimerRef.current = setInterval(() => {
+      setUndoToast((prev) => {
+        if (!prev || prev.secondsLeft <= 1) {
+          if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+          return null;
+        }
+        return { ...prev, secondsLeft: prev.secondsLeft - 1 };
+      });
+    }, 1000);
   };
+
+  useEffect(() => {
+    return () => {
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    };
+  }, []);
 
   const handleExecuteUndo = () => {
     if (!undoToast) return;
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    onSaveAssignments(undoToast.previousAssignments);
+    if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    const toRestore = undoToast.previousAssignments;
     setUndoToast(null);
+    onSaveAssignments(toRestore, {
+      hanh_dong: 'Hoàn tác thay đổi phân công quản lý địa bàn',
+      du_lieu_cu: assignments,
+      du_lieu_moi: toRestore,
+    });
+  };
+
+  // 9. Trạng thái các modal dọn dẹp cảnh báo dữ liệu phân công (chỉ ADMIN)
+  const [transferModalTarget, setTransferModalTarget] = useState<OrphanWarning | null>(null);
+  const [selectedTransferUserId, setSelectedTransferUserId] = useState<string>('');
+
+  const [deleteModalTarget, setDeleteModalTarget] = useState<OrphanWarning | null>(null);
+
+  const [removeUnitsModalTarget, setRemoveUnitsModalTarget] = useState<OrphanWarning | null>(null);
+
+  const [isCleanAllModalOpen, setIsCleanAllModalOpen] = useState<boolean>(false);
+  const [cleanAllStep, setCleanAllStep] = useState<1 | 2>(1);
+
+  const handleOpenTransferModal = (warn: OrphanWarning) => {
+    setTransferModalTarget(warn);
+    const suggested = findBestMatchingUser(warn.userName, usersList);
+    const defaultUser = suggested || usersList.find((u) => u.trang_thai !== 0);
+    setSelectedTransferUserId(defaultUser ? defaultUser.id : '');
+  };
+
+  const handleConfirmTransfer = () => {
+    if (!transferModalTarget || !isAdmin) return;
+    const targetUser = usersList.find((u) => u.id === selectedTransferUserId);
+    if (!targetUser) {
+      alert('Vui lòng chọn tài khoản cán bộ tiếp nhận.');
+      return;
+    }
+    const prev = assignments;
+    const updated = transferAssignmentToUser(assignments, transferModalTarget.userId, targetUser);
+    onSaveAssignments(updated, {
+      hanh_dong: `Chuyển phân công từ "${transferModalTarget.userName}" (ID: ${transferModalTarget.userId}) sang Đ/c ${targetUser.ho_ten}`,
+      du_lieu_cu: prev,
+      du_lieu_moi: updated,
+    });
+    showUndoNotification(
+      `Đã chuyển phân công của "${transferModalTarget.userName}" sang Đ/c ${targetUser.ho_ten}`,
+      prev,
+      10
+    );
+    setTransferModalTarget(null);
+  };
+
+  const handleConfirmDeleteAssignment = () => {
+    if (!deleteModalTarget || !isAdmin) return;
+    const prev = assignments;
+    const updated = deleteAssignment(assignments, deleteModalTarget.userId);
+    onSaveAssignments(updated, {
+      hanh_dong: `Xóa bản phân công của cán bộ không còn tồn tại: "${deleteModalTarget.userName}" (ID: ${deleteModalTarget.userId})`,
+      du_lieu_cu: prev,
+      du_lieu_moi: updated,
+    });
+    showUndoNotification(
+      `Đã xóa bản phân công của "${deleteModalTarget.userName}". Các đơn vị đã chuyển về Chưa có người phụ trách`,
+      prev,
+      10
+    );
+    setDeleteModalTarget(null);
+  };
+
+  const handleConfirmRemoveInvalidUnits = () => {
+    if (!removeUnitsModalTarget || !isAdmin) return;
+    const prev = assignments;
+    const updated = removeInvalidUnitsFromAssignment(
+      assignments,
+      removeUnitsModalTarget.userId,
+      removeUnitsModalTarget.invalidUnitIds || []
+    );
+    onSaveAssignments(updated, {
+      hanh_dong: `Gỡ ${(removeUnitsModalTarget.invalidUnitIds || []).length} đơn vị không tồn tại khỏi phân công của ${removeUnitsModalTarget.userName}`,
+      du_lieu_cu: prev,
+      du_lieu_moi: updated,
+    });
+    showUndoNotification(
+      `Đã gỡ các đơn vị không tồn tại khỏi phân công của Đ/c ${removeUnitsModalTarget.userName}`,
+      prev,
+      10
+    );
+    setRemoveUnitsModalTarget(null);
+  };
+
+  const handleConfirmCleanAll = () => {
+    if (!isAdmin) return;
+    const prev = assignments;
+    const res = cleanAllOrphanWarnings(assignments, allDonVi, usersList);
+    onSaveAssignments(res.cleanedAssignments, {
+      hanh_dong: `Dọn tất cả cảnh báo phân công: Xóa ${res.removedAssignmentsCount} cán bộ không tồn tại, gỡ ${res.removedUnitsCount} đơn vị rác`,
+      du_lieu_cu: prev,
+      du_lieu_moi: res.cleanedAssignments,
+    });
+    showUndoNotification(
+      `Đã dọn sạch toàn bộ cảnh báo (${res.removedAssignmentsCount} bản phân công, ${res.removedUnitsCount} đơn vị rác)`,
+      prev,
+      10
+    );
+    setIsCleanAllModalOpen(false);
+    setCleanAllStep(1);
   };
 
   // 9. Thống kê & cảnh báo
@@ -209,14 +345,18 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
     setTimeout(() => {
       // 2. Lưu phân công mới
       const updated = assignUnitsToOfficer(assignments, selectedUserId, selectedUserObj.ho_ten, unitIdsToAssign);
-      onSaveAssignments(updated);
+      onSaveAssignments(updated, {
+        hanh_dong: `Giao ${count} đơn vị cho Đ/c ${selectedUserObj.ho_ten}`,
+        du_lieu_cu: previous,
+        du_lieu_moi: updated,
+      });
 
       // 3. Xóa trạng thái fade & clear selection
       setFadingUnitIds(new Set());
       setSelectedWaitingUnitIds(new Set());
 
-      // 4. Bật Toast Hoàn tác trong 6 giây
-      showUndoNotification(`Đã giao ${label} cho Đ/c ${selectedUserObj.ho_ten}`, previous);
+      // 4. Bật Toast Hoàn tác trong 10 giây
+      showUndoNotification(`Đã giao ${label} cho Đ/c ${selectedUserObj.ho_ten}`, previous, 10);
     }, 300);
   };
 
@@ -235,8 +375,12 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
 
     const previous = assignments;
     const updated = unassignUnitFromOfficer(assignments, selectedUserId, unit.id);
-    onSaveAssignments(updated);
-    showUndoNotification(`Đã bỏ phân công đơn vị "${unit.ten}" khỏi Đ/c ${selectedUserObj.ho_ten}`, previous);
+    onSaveAssignments(updated, {
+      hanh_dong: `Bỏ phân công đơn vị "${unit.ten}" khỏi Đ/c ${selectedUserObj.ho_ten}`,
+      du_lieu_cu: previous,
+      du_lieu_moi: updated,
+    });
+    showUndoNotification(`Đã bỏ phân công đơn vị "${unit.ten}" khỏi Đ/c ${selectedUserObj.ho_ten}`, previous, 10);
   };
 
   // Xuất Excel cho Bảng phân công
@@ -338,7 +482,7 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
             className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer shrink-0"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>Hoàn tác (6s)</span>
+            <span>Hoàn tác ({undoToast.secondsLeft}s)</span>
           </button>
         </div>
       )}
@@ -475,21 +619,96 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
 
       {/* ── 3. BANNER CẢNH BÁO NẾU CÓ BẤT THƯỜNG ── */}
       {(stats.warnings.orphanUnitsCount > 0 || stats.warnings.overloadedOfficers.length > 0) && (
-        <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900 space-y-1">
-          <div className="flex items-center gap-1.5 font-bold text-rose-800">
-            <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
-            <span>Phát hiện cảnh báo dữ liệu phân công:</span>
+        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-900 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-rose-200/80">
+            <div className="flex items-center gap-2 font-bold text-rose-800 text-sm">
+              <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0" />
+              <span>Phát hiện cảnh báo dữ liệu phân công ({stats.warnings.orphanUnitsCount} mục cần xử lý):</span>
+            </div>
+            {isAdmin && stats.warnings.orphanUnitsCount > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCleanAllModalOpen(true);
+                  setCleanAllStep(1);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-semibold rounded-lg text-xs shadow-xs transition cursor-pointer self-start sm:self-auto"
+                title="Dọn nhanh tất cả đơn vị không tồn tại và xóa bản phân công của cán bộ không còn trong hệ thống"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Dọn tất cả cảnh báo</span>
+              </button>
+            )}
           </div>
-          {stats.warnings.orphanAssignments.map((warn, i) => (
-            <p key={i} className="pl-5 text-rose-700">
-              • {warn.reason} (bản ghi phân công của {warn.assignment.user_name})
-            </p>
-          ))}
-          {stats.warnings.overloadedOfficers.map((ov, i) => (
-            <p key={i} className="pl-5 text-amber-800">
-              • Cán bộ <strong>{ov.user.ho_ten}</strong> đang phụ trách {ov.count} đơn vị (vượt ngưỡng {MAX_UNITS_PER_OFFICER_DEFAULT} đơn vị).
-            </p>
-          ))}
+
+          {/* Danh sách các cảnh báo cụ thể */}
+          <div className="space-y-2">
+            {stats.warnings.orphanAssignments.map((warn) => (
+              <div
+                key={warn.id}
+                className="p-3 bg-white/90 border border-rose-200 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-2.5 shadow-2xs"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-start gap-1.5 font-medium text-rose-900">
+                    {warn.type === 'INVALID_UNIT' ? (
+                      <Building2 className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    )}
+                    <span>{warn.reason}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 pl-5.5">
+                    Bản ghi phân công: <strong className="text-slate-700">{warn.userName || warn.userId}</strong>
+                    {warn.affectedUnitIds && warn.affectedUnitIds.length > 0 && (
+                      <span> • Đang chứa {warn.affectedUnitIds.length} đơn vị</span>
+                    )}
+                  </div>
+                </div>
+
+                {isAdmin && (
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0 pl-5.5 md:pl-0">
+                    {(warn.type === 'MISSING_USER' || warn.type === 'LOCKED_USER') && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenTransferModal(warn)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold transition cursor-pointer"
+                        >
+                          <ArrowRightLeft className="w-3.5 h-3.5" />
+                          <span>Chuyển sang tài khoản khác</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteModalTarget(warn)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Xóa bản phân công này</span>
+                        </button>
+                      </>
+                    )}
+
+                    {warn.type === 'INVALID_UNIT' && (
+                      <button
+                        type="button"
+                        onClick={() => setRemoveUnitsModalTarget(warn)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-xs font-semibold transition cursor-pointer"
+                      >
+                        <Eraser className="w-3.5 h-3.5" />
+                        <span>Gỡ đơn vị không tồn tại khỏi phân công</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {stats.warnings.overloadedOfficers.map((ov, i) => (
+              <div key={i} className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-xl text-amber-900">
+                • Cán bộ <strong>{ov.user.ho_ten}</strong> đang phụ trách {ov.count} đơn vị (vượt ngưỡng {MAX_UNITS_PER_OFFICER_DEFAULT} đơn vị).
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -1064,6 +1283,364 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ── MODAL: CHUYỂN PHÂN CÔNG SANG TÀI KHOẢN KHÁC ── */}
+      {transferModalTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-blue-700 font-bold text-base">
+                <ArrowRightLeft className="w-5 h-5" />
+                <span>Chuyển phân công sang tài khoản khác</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTransferModalTarget(null)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-600 space-y-3">
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900">
+                <p>
+                  Bản phân công của <strong>{transferModalTarget.userName}</strong> (ID:{' '}
+                  <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">{transferModalTarget.userId}</code>) không còn tài khoản hợp lệ trong hệ thống.
+                </p>
+                <p className="mt-1">
+                  Đang phụ trách <strong>{transferModalTarget.affectedUnitIds?.length || 0}</strong> đơn vị.
+                </p>
+              </div>
+
+              {transferModalTarget.affectedUnitIds && transferModalTarget.affectedUnitIds.length > 0 && (
+                <div>
+                  <p className="font-semibold text-slate-700 mb-1.5">Danh sách đơn vị sẽ được chuyển giao:</p>
+                  <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                    {transferModalTarget.affectedUnitIds.map((uid) => {
+                      const u = allDonVi.find((x) => x.id === uid);
+                      return (
+                        <span
+                          key={uid}
+                          className="inline-flex items-center px-2 py-1 bg-white border border-slate-200 rounded text-[11px] text-slate-700 font-medium"
+                        >
+                          {u?.ten || `ID: ${uid}`}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">
+                  Chọn tài khoản cán bộ tiếp nhận:
+                </label>
+                <select
+                  value={selectedTransferUserId}
+                  onChange={(e) => setSelectedTransferUserId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                >
+                  {usersList
+                    .filter((u) => u.trang_thai !== 0)
+                    .map((u) => {
+                      const isSuggested =
+                        u.id === findBestMatchingUser(transferModalTarget.userName, usersList)?.id;
+                      return (
+                        <option key={u.id} value={u.id}>
+                          {u.ho_ten} (@{u.ten_dang_nhap} - {u.chuc_danh || u.vai_tro})
+                          {isSuggested ? ' ★ [Gợi ý trùng khớp tên]' : ''}
+                        </option>
+                      );
+                    })}
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Hệ thống tự động so khớp tên không phân biệt dấu và gợi ý tài khoản phù hợp nhất.
+                </p>
+              </div>
+
+              <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-900 leading-relaxed">
+                💡 <strong>Nguyên tắc:</strong> Toàn bộ đơn vị, số quyết định và ngày phân công sẽ được giữ nguyên. Nếu tài khoản đích đã có phân công thì các đơn vị sẽ được gộp lại (không trùng lặp).
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setTransferModalTarget(null)}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmTransfer}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
+              >
+                Xác nhận chuyển
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: XÓA BẢN PHÂN CÔNG CỦA CÁN BỘ KHÔNG TỒN TẠI ── */}
+      {deleteModalTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-rose-700 font-bold text-base">
+                <Trash2 className="w-5 h-5" />
+                <span>Xác nhận xóa bản phân công</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteModalTarget(null)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-600 space-y-3">
+              <p>
+                Bạn có chắc chắn muốn xóa bản phân công của cán bộ <strong>{deleteModalTarget.userName}</strong> (ID:{' '}
+                <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">{deleteModalTarget.userId}</code>)?
+              </p>
+
+              {deleteModalTarget.affectedUnitIds && deleteModalTarget.affectedUnitIds.length > 0 && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 space-y-1.5">
+                  <p className="font-semibold">
+                    Các đơn vị sau sẽ trở về trạng thái "Chưa có người phụ trách" ({deleteModalTarget.affectedUnitIds.length} đơn vị):
+                  </p>
+                  <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+                    {deleteModalTarget.affectedUnitIds.map((uid) => {
+                      const u = allDonVi.find((x) => x.id === uid);
+                      return (
+                        <span
+                          key={uid}
+                          className="inline-block px-2 py-0.5 bg-white border border-rose-200 rounded text-[11px] text-rose-800 font-medium"
+                        >
+                          {u?.ten || `ID: ${uid}`}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDeleteModalTarget(null)}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteAssignment}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
+              >
+                Xác nhận xóa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: GỠ ĐƠN VỊ KHÔNG TỒN TẠI KHỎI PHÂN CÔNG ── */}
+      {removeUnitsModalTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-amber-700 font-bold text-base">
+                <Eraser className="w-5 h-5" />
+                <span>Gỡ đơn vị không tồn tại khỏi phân công</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRemoveUnitsModalTarget(null)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-600 space-y-3">
+              <p>
+                Bản phân công của Đ/c <strong>{removeUnitsModalTarget.userName}</strong> đang chứa các đơn vị đã bị xóa hoặc không còn trong danh mục.
+              </p>
+
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 space-y-1.5">
+                <p className="font-semibold">
+                  Danh sách đơn vị sẽ được gỡ bỏ ({removeUnitsModalTarget.invalidUnitIds?.length || 0} đơn vị):
+                </p>
+                <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+                  {(removeUnitsModalTarget.invalidUnitNames || removeUnitsModalTarget.invalidUnitIds || []).map((name, i) => (
+                    <span
+                      key={i}
+                      className="inline-block px-2 py-0.5 bg-white border border-amber-200 rounded text-[11px] text-amber-800 font-medium"
+                    >
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setRemoveUnitsModalTarget(null)}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRemoveInvalidUnits}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
+              >
+                Gỡ khỏi phân công
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: DỌN TẤT CẢ CẢNH BÁO (2 BƯỚC) ── */}
+      {isCleanAllModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-rose-700 font-bold text-base">
+                <Sparkles className="w-5 h-5" />
+                <span>
+                  {cleanAllStep === 1
+                    ? 'Dọn tất cả cảnh báo phân công (Bước 1/2)'
+                    : 'Xác nhận dọn sạch toàn bộ cảnh báo (Bước 2/2)'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCleanAllModalOpen(false);
+                  setCleanAllStep(1);
+                }}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {cleanAllStep === 1 ? (
+              <div className="text-xs text-slate-600 space-y-3">
+                <p>Hệ thống đã quét toàn bộ dữ liệu phân công và tính toán các mục sẽ được dọn dẹp:</p>
+
+                {(() => {
+                  const summary = cleanAllOrphanWarnings(assignments, allDonVi, usersList);
+                  return (
+                    <div className="space-y-2">
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+                        <div className="flex items-center justify-between font-semibold text-slate-800">
+                          <span>Bản phân công của cán bộ không còn tồn tại:</span>
+                          <span className="text-rose-600 font-bold text-sm">
+                            {summary.removedAssignmentsCount} bản ghi
+                          </span>
+                        </div>
+                        {summary.removedOfficers.length > 0 && (
+                          <p className="text-[11px] text-slate-500">
+                            Cán bộ liên quan: {summary.removedOfficers.join(', ')}
+                          </p>
+                        )}
+                        <p className="text-[11px] text-slate-600">
+                          → <strong>{summary.affectedUnitIds.length}</strong> đơn vị sẽ được chuyển về Chưa có người phụ trách.
+                        </p>
+                      </div>
+
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+                        <div className="flex items-center justify-between font-semibold text-slate-800">
+                          <span>Đơn vị rác / đã xóa trong các phân công khác:</span>
+                          <span className="text-amber-600 font-bold text-sm">
+                            {summary.removedUnitsCount} đơn vị
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500">
+                          → Tự động gỡ các ID đơn vị này khỏi danh sách phụ trách.
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <p className="text-[11px] text-slate-500 italic">
+                  * Thao tác có thể Hoàn tác trong vòng 10 giây sau khi xác nhận.
+                </p>
+              </div>
+            ) : (
+              <div className="text-xs text-slate-600 space-y-3">
+                <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-rose-800">
+                    <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+                    <span>Cảnh báo hành động hàng loạt:</span>
+                  </div>
+                  <p>
+                    Bạn đang chuẩn bị áp dụng làm sạch toàn bộ dữ liệu phân công rác. Tất cả bản ghi không hợp lệ sẽ được xóa, các đơn vị liên quan sẽ về danh sách chờ giao để bạn phân công lại.
+                  </p>
+                  <p className="text-[11px] text-rose-700">
+                    Hệ thống sẽ ghi Audit log và hiển thị nút "Hoàn tác (10s)" ngay sau khi thực hiện.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              {cleanAllStep === 1 ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCleanAllModalOpen(false);
+                      setCleanAllStep(1);
+                    }}
+                    className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCleanAllStep(2)}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1"
+                  >
+                    <span>Tiếp tục sang bước 2</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setCleanAllStep(1)}
+                    className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Quay lại bước 1
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmCleanAll}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Xác nhận dọn sạch ngay</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

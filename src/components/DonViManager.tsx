@@ -567,7 +567,10 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
     }
   };
 
-  const saveAssignmentsToStorage = (newAssignments: PhanCongDiaBan[]) => {
+  const saveAssignmentsToStorage = (
+    newAssignments: PhanCongDiaBan[],
+    auditInfo?: { hanh_dong: string; du_lieu_cu?: any; du_lieu_moi?: any }
+  ) => {
     if (!isAdmin) {
       alert('Từ chối thao tác: Chỉ tài khoản Quản trị viên (ADMIN) mới có quyền lưu phân công quản lý.');
       return;
@@ -575,7 +578,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
     const sanitized = sanitizeStrictAssignments(newAssignments);
     setAssignments(sanitized);
     localStorage.setItem(STORAGE_PHAN_CONG, JSON.stringify(sanitized));
-    api.savePhanCongDiaBan(sanitized, user.ho_ten, user.id).catch(console.error);
+    api.savePhanCongDiaBan(sanitized, user.ho_ten, user.id, auditInfo).catch(console.error);
 
     // Đồng bộ sang Hồ sơ địa bàn (bảo toàn hồ sơ hiện có, cập nhật cán bộ phụ trách)
     try {
