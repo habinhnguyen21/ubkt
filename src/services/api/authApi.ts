@@ -1,5 +1,6 @@
-import type { User } from '../../types';
+import type { User, PhanCongDiaBan, DiaBanRecord, NhatKy } from '../../types';
 import { centralDataService } from '../centralDataService';
+import { deriveAllOfficerFields } from '../../utils/diaBanSync';
 import {
   auth,
   db as firestoreDb,
@@ -16,6 +17,9 @@ import {
   updatePassword,
   EmailAuthProvider,
   reauthenticateWithCredential,
+  setPersistence,
+  browserSessionPersistence,
+  browserLocalPersistence,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import {
@@ -29,10 +33,19 @@ import { mockInvoke, registerMockCommands, requestApi, saveMockDb } from './core
 
 registerMockCommands({
   login: async (db, args) => {
-    const { req } = args as { req: { ten_dang_nhap: string; mat_khau: string } };
+    const { req } = args as { req: { ten_dang_nhap: string; mat_khau: string; ghi_nho?: boolean } };
     const normalizedU = (req.ten_dang_nhap || '').trim().toLowerCase();
     if (!normalizedU || !req.mat_khau) {
       throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
+    }
+
+    if (typeof window !== 'undefined') {
+      try {
+        const persistence = req.ghi_nho ? browserLocalPersistence : browserSessionPersistence;
+        await setPersistence(auth, persistence);
+      } catch (pErr) {
+        console.warn('[Auth] Không thể thiết lập persistence cho Firebase Auth:', pErr);
+      }
     }
 
     const authEmail = usernameToAuthEmail(normalizedU);
@@ -372,6 +385,33 @@ registerMockCommands({
     user.updated_at = new Date().toISOString();
     saveMockDb(db);
     await centralDataService.saveDoc('users', user.id, sanitizeUserForCloud(user));
+
+    // Nếu tài khoản bị khóa (trang_thai === 0), đồng bộ hồ sơ địa bàn đưa các đơn vị về "Chưa phân công"
+    if (req.trang_thai === 0) {
+      const rawPc = typeof localStorage !== 'undefined' ? localStorage.getItem('ubkt_phan_cong_dia_ban') : null;
+      const pcList: PhanCongDiaBan[] = rawPc ? JSON.parse(rawPc) : (db.phanCongDiaBan || []);
+      const rawRecords = typeof localStorage !== 'undefined' ? localStorage.getItem('ubkt_ho_so_dia_ban_records') : null;
+      const records: DiaBanRecord[] = rawRecords
+        ? JSON.parse(rawRecords)
+        : centralDataService.getHoSoDiaBanRecords();
+      const updatedRecords = deriveAllOfficerFields(records, pcList, db.users);
+      if (updatedRecords !== records) {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(updatedRecords));
+        }
+        for (const r of updatedRecords) {
+          const oldR = records.find((x) => x.id === r.id);
+          if (oldR !== r) {
+            await centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r);
+          }
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated', { detail: updatedRecords }));
+          window.dispatchEvent(new CustomEvent('ubkt_assignments_updated', { detail: pcList }));
+        }
+      }
+    }
+
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
     }
@@ -379,11 +419,75 @@ registerMockCommands({
   },
 
   delete_user: async (db, args) => {
-    const { user_id } = args as { user_id: string };
+    const { user_id, actor_id, actor_name } = args as {
+      user_id: string;
+      actor_id?: string;
+      actor_name?: string;
+    };
+    const deletedUser = db.users.find((u) => u.id === user_id);
     db.users = db.users.filter((u) => u.id !== user_id);
     saveMockDb(db);
-    await centralDataService.deleteDoc('users', user_id);
+    await centralDataService.deleteDoc('users', user_id, actor_name);
+
+    // 1. Xóa bản phân công của người đó (cả localStorage và Firestore)
+    const rawPc = typeof localStorage !== 'undefined' ? localStorage.getItem('ubkt_phan_cong_dia_ban') : null;
+    let pcList: PhanCongDiaBan[] = rawPc ? JSON.parse(rawPc) : (db.phanCongDiaBan || []);
+    const userAssignment = pcList.find((p) => p.user_id === user_id);
+    const affectedUnitIds = userAssignment?.don_vi_ids || [];
+
+    pcList = pcList.filter((p) => p.user_id !== user_id);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(pcList));
+    }
+    db.phanCongDiaBan = pcList;
+    await centralDataService.deleteDoc('phan_cong_dia_ban', user_id, actor_name);
+
+    // 2. Cập nhật hồ sơ địa bàn bằng deriveAllOfficerFields rồi lưu những hồ sơ thay đổi
+    const rawRecords = typeof localStorage !== 'undefined' ? localStorage.getItem('ubkt_ho_so_dia_ban_records') : null;
+    let records: DiaBanRecord[] = rawRecords
+      ? JSON.parse(rawRecords)
+      : centralDataService.getHoSoDiaBanRecords();
+    const updatedRecords = deriveAllOfficerFields(records, pcList, db.users);
+    if (updatedRecords !== records) {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(updatedRecords));
+      }
+      for (const r of updatedRecords) {
+        const oldR = records.find((x) => x.id === r.id);
+        if (oldR !== r) {
+          await centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r);
+        }
+      }
+    }
+
+    // 3. Ghi audit log
+    const affectedUnitNames = affectedUnitIds
+      .map((id) => (db.donViList || []).find((d) => d.id === id)?.ten || id)
+      .join(', ');
+    const logItem: NhatKy = {
+      id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      nguoi_dung_id: actor_id || null,
+      ten_nguoi_dung: actor_name || 'Quản trị viên',
+      hanh_dong: `Xóa tài khoản cán bộ "${deletedUser?.ho_ten || user_id}" (@${deletedUser?.ten_dang_nhap || ''}). ${
+        affectedUnitIds.length > 0
+          ? `Đã xóa phân công và chuyển ${affectedUnitIds.length} đơn vị về Chưa phân công: ${affectedUnitNames}`
+          : 'Cán bộ không có đơn vị phân công'
+      }`,
+      bang_anh_huong: 'users',
+      ban_ghi_id: user_id,
+      du_lieu_cu: deletedUser ? JSON.stringify(deletedUser) : null,
+      du_lieu_moi: null,
+      thoi_gian: new Date().toISOString(),
+    };
+    db.auditLogs = db.auditLogs || [];
+    db.auditLogs.unshift(logItem);
+    saveMockDb(db);
+    centralDataService.saveDoc('audit_logs', logItem.id, logItem).catch(() => {});
+
+    // 4. Bắn các sự kiện đồng bộ
     if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ubkt_assignments_updated', { detail: pcList }));
+      window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated', { detail: updatedRecords }));
       window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
     }
     return undefined;
@@ -391,7 +495,7 @@ registerMockCommands({
 });
 
 export const authApi = {
-  login: (req: { ten_dang_nhap: string; mat_khau: string }) =>
+  login: (req: { ten_dang_nhap: string; mat_khau: string; ghi_nho?: boolean }) =>
     mockInvoke<{ user: User; token: string }>('login', { req }),
 
   logout: async () => {

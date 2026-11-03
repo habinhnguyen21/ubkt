@@ -13,6 +13,7 @@ import {
 import { db as firestoreDb, auth } from './firebase';
 import { isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import { sanitizeUserForCloud } from '../utils/passwordCrypto';
+import { sessionStore } from '../utils/sessionStore';
 import type {
   DonVi,
   ChuongTrinhKtGs,
@@ -74,14 +75,8 @@ export interface SaveDocOptions {
 }
 
 function getCurrentUserName(): string {
-  try {
-    const raw = localStorage.getItem('ubkt_current_user');
-    if (!raw) return 'Cán bộ hệ thống';
-    const u = JSON.parse(raw);
-    return u?.ho_ten || u?.ten_dang_nhap || 'Cán bộ hệ thống';
-  } catch {
-    return 'Cán bộ hệ thống';
-  }
+  const u = sessionStore.getCurrentUser();
+  return u?.ho_ten || u?.ten_dang_nhap || 'Cán bộ hệ thống';
 }
 
 function requestConflictResolution(conflict: VersionConflictPayload): Promise<'reload' | 'overwrite'> {
@@ -136,13 +131,7 @@ let isListening = false;
 let currentListeningUid: string | null = null;
 
 function getCurrentUserRole(): string | null {
-  try {
-    const raw = localStorage.getItem('ubkt_current_user');
-    if (!raw) return null;
-    return JSON.parse(raw)?.vai_tro || null;
-  } catch {
-    return null;
-  }
+  return sessionStore.getCurrentUser()?.vai_tro || null;
 }
 
 function isCurrentUserAdmin(): boolean {

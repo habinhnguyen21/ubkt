@@ -11,6 +11,9 @@ import {
   deleteAssignment,
   removeInvalidUnitsFromAssignment,
   cleanAllOrphanWarnings,
+  transferAllUnitsBetweenOfficers,
+  toggleOfficerUnitRole,
+  getAssigneesForUnit,
 } from '../src/utils/phanCongView';
 import type { DonVi, PhanCongDiaBan, User } from '../src/types';
 
@@ -281,5 +284,183 @@ describe('phanCongView - Kiểm tra các hàm thuần phân công quản lý', (
     expect(result.cleanedAssignments.length).toBe(1);
     expect(result.cleanedAssignments[0].user_id).toBe('u-bientap');
     expect(result.cleanedAssignments[0].don_vi_ids).toEqual(['dv-1']);
+  });
+
+  it('12. Chuyển giao toàn bộ đơn vị từ cán bộ A sang cán bộ B', () => {
+    const list: PhanCongDiaBan[] = [
+      {
+        id: 'pc-a',
+        user_id: 'u-a',
+        user_name: 'Đồng chí A',
+        don_vi_ids: ['dv-1', 'dv-2'],
+        don_vi_roles: { 'dv-1': 'CHINH', 'dv-2': 'PHOI_HOP' },
+        updated_at: '2026-01-01',
+      },
+      {
+        id: 'pc-b',
+        user_id: 'u-b',
+        user_name: 'Đồng chí B',
+        don_vi_ids: ['dv-2', 'dv-3'],
+        don_vi_roles: { 'dv-2': 'PHOI_HOP', 'dv-3': 'CHINH' },
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    const targetUser: User = {
+      id: 'u-b',
+      ten_dang_nhap: 'dongchib',
+      ho_ten: 'Đồng chí B',
+      vai_tro: 'BIEN_TAP',
+      trang_thai: 1,
+      must_change_password: false,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+
+    const transferred = transferAllUnitsBetweenOfficers(list, 'u-a', targetUser, {
+      ngayHieuLuc: '2026-03-01',
+      soQuyetDinh: '99-QĐ/UBKT',
+    });
+
+    const assignA = transferred.find((a) => a.user_id === 'u-a');
+    const assignB = transferred.find((a) => a.user_id === 'u-b');
+
+    // A được đánh dấu DA_CHUYEN_GIAO, xóa don_vi_ids, ghi den_ngay và lịch sử
+    expect(assignA).toBeDefined();
+    expect(assignA?.trang_thai).toBe('DA_CHUYEN_GIAO');
+    expect(assignA?.don_vi_ids).toEqual([]);
+    expect(assignA?.den_ngay).toBe('2026-03-01');
+    expect(assignA?.lich_su_chuyen_giao?.length).toBe(1);
+    expect(assignA?.lich_su_chuyen_giao?.[0].to_user_name).toBe('Đồng chí B');
+    expect(assignA?.lich_su_chuyen_giao?.[0].don_vi_ids).toEqual(['dv-1', 'dv-2']);
+
+    // B được gộp đơn vị không trùng lặp: dv-2, dv-3 + dv-1 -> ['dv-2', 'dv-3', 'dv-1']
+    expect(assignB).toBeDefined();
+    expect(assignB?.don_vi_ids).toContain('dv-1');
+    expect(assignB?.don_vi_ids).toContain('dv-2');
+    expect(assignB?.don_vi_ids).toContain('dv-3');
+    expect(assignB?.don_vi_ids?.length).toBe(3);
+    expect(assignB?.so_quyet_dinh).toBe('99-QĐ/UBKT');
+  });
+
+  it('13. Giao thêm đơn vị: đơn vị đã có người phụ trách tự động mặc định vai trò PHOI_HOP', () => {
+    const list: PhanCongDiaBan[] = [
+      {
+        id: 'pc-1',
+        user_id: 'u-1',
+        user_name: 'Cán bộ 1',
+        don_vi_ids: ['dv-1'], // dv-1 đã có người
+        don_vi_roles: { 'dv-1': 'CHINH' },
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    const targetUser: User = {
+      id: 'u-2',
+      ten_dang_nhap: 'canbo2',
+      ho_ten: 'Cán bộ 2',
+      vai_tro: 'BIEN_TAP',
+      trang_thai: 1,
+      must_change_password: false,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+
+    // Giao dv-1 (đã có người) và dv-2 (chưa có người) cho Cán bộ 2
+    const updated = assignUnitsToOfficer(list, targetUser.id, targetUser.ho_ten, ['dv-1', 'dv-2']);
+    const assign2 = updated.find((a) => a.user_id === 'u-2');
+
+    expect(assign2).toBeDefined();
+    // dv-1 đã có người -> mặc định PHOI_HOP
+    expect(assign2?.don_vi_roles?.['dv-1']).toBe('PHOI_HOP');
+    // dv-2 chưa có ai -> mặc định CHINH
+    expect(assign2?.don_vi_roles?.['dv-2']).toBe('CHINH');
+  });
+
+  it('14. Đổi vai trò đơn vị (toggleOfficerUnitRole) và tương thích dữ liệu cũ', () => {
+    // Dữ liệu cũ không có don_vi_roles
+    const legacyList: PhanCongDiaBan[] = [
+      {
+        id: 'pc-old',
+        user_id: 'u-old',
+        user_name: 'Cán bộ Cũ',
+        don_vi_ids: ['dv-1'],
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    const dummyUser: User = {
+      id: 'u-old',
+      ten_dang_nhap: 'old',
+      ho_ten: 'Cán bộ Cũ',
+      vai_tro: 'BIEN_TAP',
+      trang_thai: 1,
+      must_change_password: false,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+
+    // getAssigneesForUnit đọc dữ liệu cũ phải mặc định là CHINH
+    const assignees = getAssigneesForUnit('dv-1', legacyList, [dummyUser]);
+    expect(assignees[0].role).toBe('CHINH');
+
+    // Chuyển sang PHOI_HOP
+    const toggled1 = toggleOfficerUnitRole(legacyList, 'u-old', 'dv-1', 'PHOI_HOP');
+    expect(toggled1[0].don_vi_roles?.['dv-1']).toBe('PHOI_HOP');
+
+    // Chuyển lại sang CHINH
+    const toggled2 = toggleOfficerUnitRole(toggled1, 'u-old', 'dv-1', 'CHINH');
+    expect(toggled2[0].don_vi_roles?.['dv-1']).toBe('CHINH');
+  });
+
+  it('15. Phát hiện cảnh báo đơn vị có nhiều hơn 1 cán bộ phụ trách CHÍNH (multiMainUnits)', () => {
+    const list: PhanCongDiaBan[] = [
+      {
+        id: 'pc-1',
+        user_id: 'u-1',
+        user_name: 'Cán bộ 1',
+        don_vi_ids: ['dv-1'],
+        don_vi_roles: { 'dv-1': 'CHINH' },
+        updated_at: '2026-01-01',
+      },
+      {
+        id: 'pc-2',
+        user_id: 'u-2',
+        user_name: 'Cán bộ 2',
+        don_vi_ids: ['dv-1'],
+        don_vi_roles: { 'dv-1': 'CHINH' }, // Trùng 2 cán bộ CHINH cho dv-1
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    const users: User[] = [
+      {
+        id: 'u-1',
+        ten_dang_nhap: 'cb1',
+        ho_ten: 'Cán bộ 1',
+        vai_tro: 'BIEN_TAP',
+        trang_thai: 1,
+        must_change_password: false,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+      {
+        id: 'u-2',
+        ten_dang_nhap: 'cb2',
+        ho_ten: 'Cán bộ 2',
+        vai_tro: 'BIEN_TAP',
+        trang_thai: 1,
+        must_change_password: false,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    const stats = computePhanCongStats(mockUnits, list, users);
+    expect(stats.warnings.multiMainUnits.length).toBe(1);
+    expect(stats.warnings.multiMainUnits[0].unit.id).toBe('dv-1');
+    expect(stats.warnings.multiMainUnits[0].count).toBe(2);
+    expect(stats.warnings.multiMainUnits[0].officerNames).toContain('Cán bộ 1');
+    expect(stats.warnings.multiMainUnits[0].officerNames).toContain('Cán bộ 2');
   });
 });

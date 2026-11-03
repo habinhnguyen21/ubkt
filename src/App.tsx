@@ -18,9 +18,11 @@ import { CloudSyncModal } from './components/CloudSyncModal';
 import { VersionConflictModal } from './components/VersionConflictModal';
 import { cloudSyncService } from './services/cloudSyncService';
 import { centralDataService } from './services/centralDataService';
-import { auth } from './services/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
+import { auth, db as firestoreDb } from './services/firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 import { isSameData } from './utils/syncUtils';
+import { sessionStore, SESSION_IDLE_TIMEOUT_MS } from './utils/sessionStore';
 
 const ThongKeManager = lazy(() => import('./components/ThongKeManager'));
 
@@ -49,11 +51,7 @@ const HASH_TO_TAB: Record<string, TabKey> = {
   '#bao_cao': 'bao_cao',
 };
 
-/**
- * Hằng số cấu hình thời gian tự động khóa phiên làm việc khi không có thao tác chuột/bàn phím/chạm (15 phút).
- */
-export const SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
-const SESSION_LOCKED_STORAGE_KEY = 'ubkt_session_locked';
+export { SESSION_IDLE_TIMEOUT_MS };
 
 // Khởi tạo trạng thái môi trường chính thức
 if (typeof window !== 'undefined') {
@@ -68,14 +66,8 @@ if (typeof window !== 'undefined') {
 }
 
 export function App() {
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    try {
-      const saved = localStorage.getItem('ubkt_current_user');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [showAuditLogs, setShowAuditLogs] = useState(false);
@@ -84,13 +76,7 @@ export function App() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [accessDeniedMessage, setAccessDeniedMessage] = useState<string | null>(null);
-  const [isSessionLocked, setIsSessionLocked] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(SESSION_LOCKED_STORAGE_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [isSessionLocked, setIsSessionLocked] = useState<boolean>(() => sessionStore.isSessionLocked());
 
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
     if (typeof window !== 'undefined' && window.location.hash) {
@@ -206,10 +192,75 @@ export function App() {
 
     let cleanupRealtime = () => {};
 
-    // Chỉ khởi tạo bộ lắng nghe thời gian thực Firestore tập trung sau khi Firebase Auth đã đăng nhập
-    const unsubAuth = onAuthStateChanged(auth, (firebaseUser) => {
+    // Khởi tạo bộ lắng nghe xác thực Firebase Auth và đồng bộ Firestore
+    const unsubAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       cleanupRealtime();
       if (firebaseUser) {
+        // 1. Kiểm tra hết hạn tuyệt đối (12 giờ)
+        if (sessionStore.isSessionExpired()) {
+          console.warn('[App] Phiên đăng nhập đã hết hạn tuyệt đối 12 giờ.');
+          sessionStore.clearSession();
+          await signOut(auth).catch(() => {});
+          setCurrentUser(null);
+          setIsSessionLocked(false);
+          setIsAuthChecking(false);
+          return;
+        }
+
+        // 2. Không tin riêng dữ liệu trong storage: Firebase UID phải khớp với ID bản ghi trong storage
+        const storedUser = sessionStore.getCurrentUser();
+        if (!storedUser || storedUser.id !== firebaseUser.uid) {
+          console.warn('[App] Không tìm thấy phiên hoặc Firebase UID không khớp với tài khoản trong storage! Buộc đăng xuất.');
+          sessionStore.clearSession();
+          await signOut(auth).catch(() => {});
+          setCurrentUser(null);
+          setIsSessionLocked(false);
+          setIsAuthChecking(false);
+          return;
+        }
+
+        // 3. Xác thực vai trò và trạng thái chống can thiệp từ DevTools
+        let verifiedUser: User = storedUser;
+        try {
+          const userDocSnap = await getDoc(doc(firestoreDb, 'users', firebaseUser.uid));
+          if (userDocSnap.exists()) {
+            const cloudUser = userDocSnap.data() as User;
+            if (cloudUser.trang_thai === 0) {
+              console.warn('[App] Tài khoản đang bị tạm khóa.');
+              sessionStore.clearSession();
+              await signOut(auth).catch(() => {});
+              setCurrentUser(null);
+              setIsSessionLocked(false);
+              setIsAuthChecking(false);
+              return;
+            }
+            if (storedUser.vai_tro !== cloudUser.vai_tro) {
+              console.warn('[App] Phát hiện sai lệch vai trò giữa storage và máy chủ! Buộc đăng xuất.');
+              sessionStore.clearSession();
+              await signOut(auth).catch(() => {});
+              setCurrentUser(null);
+              setIsSessionLocked(false);
+              setIsAuthChecking(false);
+              return;
+            }
+            verifiedUser = { ...storedUser, ...cloudUser, id: firebaseUser.uid };
+            sessionStore.setCurrentUser(verifiedUser);
+          }
+        } catch (fetchErr) {
+          console.warn('[App] Không thể kiểm tra vai trò người dùng từ Firestore:', fetchErr);
+        }
+
+        // 4. Kiểm tra thời gian không thao tác (idle timeout > 15 phút)
+        if (sessionStore.isIdleTimedOut() || sessionStore.isSessionLocked()) {
+          sessionStore.setSessionLocked(true);
+          setIsSessionLocked(true);
+        } else {
+          sessionStore.recordActivity(true);
+        }
+
+        setCurrentUser(verifiedUser);
+        setIsAuthChecking(false);
+
         cleanupRealtime = centralDataService.initRealtimeSync();
         centralDataService.ensureProductionSeed().catch((err) => {
           console.warn('[App] Lỗi kiểm tra seed dữ liệu gốc:', err);
@@ -219,6 +270,11 @@ export function App() {
           console.warn('[App] Lỗi đồng bộ đám mây ban đầu:', err);
         });
       } else {
+        // Firebase không có phiên đăng nhập hợp lệ -> Xóa sạch storage
+        sessionStore.clearSession();
+        setCurrentUser(null);
+        setIsSessionLocked(false);
+        setIsAuthChecking(false);
         cloudSyncService.stopAutoSync();
       }
     });
@@ -245,20 +301,13 @@ export function App() {
 
   const handleLockSession = useCallback(() => {
     setIsSessionLocked(true);
-    try {
-      localStorage.setItem(SESSION_LOCKED_STORAGE_KEY, 'true');
-    } catch {
-      // ignore
-    }
+    sessionStore.setSessionLocked(true);
   }, []);
 
   const handleUnlockSession = useCallback(() => {
     setIsSessionLocked(false);
-    try {
-      localStorage.removeItem(SESSION_LOCKED_STORAGE_KEY);
-    } catch {
-      // ignore
-    }
+    sessionStore.setSessionLocked(false);
+    sessionStore.recordActivity(true);
   }, []);
 
   // Tự động khóa phiên làm việc (LockScreen) sau SESSION_IDLE_TIMEOUT_MS (15 phút) không có thao tác chuột/bàn phím/chạm
@@ -268,10 +317,20 @@ export function App() {
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
     const resetIdleTimer = () => {
+      sessionStore.recordActivity();
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         handleLockSession();
       }, SESSION_IDLE_TIMEOUT_MS);
+    };
+
+    const handleVisibilityOrFocus = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (sessionStore.isIdleTimedOut()) {
+        handleLockSession();
+      } else {
+        resetIdleTimer();
+      }
     };
 
     const activityEvents: (keyof WindowEventMap)[] = [
@@ -285,6 +344,8 @@ export function App() {
     activityEvents.forEach((evt) => {
       window.addEventListener(evt, resetIdleTimer, { passive: true });
     });
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
 
     resetIdleTimer();
 
@@ -293,32 +354,31 @@ export function App() {
       activityEvents.forEach((evt) => {
         window.removeEventListener(evt, resetIdleTimer);
       });
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
     };
   }, [currentUser, isSessionLocked, handleLockSession]);
 
-  const handleLoginSuccess = (user: User, token: string) => {
+  const handleLoginSuccess = (user: User, token: string, rememberMe = false) => {
+    sessionStore.saveSession(user, token, rememberMe);
     setCurrentUser(user);
     setIsSessionLocked(false);
-    localStorage.setItem('ubkt_current_user', JSON.stringify(user));
-    localStorage.setItem('ubkt_session_token', token);
-    localStorage.removeItem(SESSION_LOCKED_STORAGE_KEY);
     fetchAppInfo();
     checkUrlRouting(user);
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     centralDataService.stopRealtimeSync();
     cloudSyncService.stopAutoSync();
+    signOut(auth).catch(() => {});
     api.logout().catch(() => {});
+    sessionStore.clearSession();
     setCurrentUser(null);
     setIsSessionLocked(false);
-    localStorage.removeItem('ubkt_current_user');
-    localStorage.removeItem('ubkt_session_token');
-    localStorage.removeItem(SESSION_LOCKED_STORAGE_KEY);
     if (typeof window !== 'undefined' && window.location.hash) {
       window.location.hash = '';
     }
-  };
+  }, []);
 
   const handleManualSync = async () => {
     setIsSyncing(true);
@@ -403,8 +463,41 @@ export function App() {
           </button>
         </div>
       )}
+      {/* Màn hình kiểm tra phiên lúc khởi động */}
+      {isAuthChecking && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 99999,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: '#f8fafc',
+            fontFamily: "'Segoe UI', sans-serif",
+          }}
+        >
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              border: '3.5px solid #e2e8f0',
+              borderTopColor: '#c8282c',
+              borderRadius: '50%',
+              animation: 'spin 0.8s linear infinite',
+              marginBottom: 14,
+            }}
+          />
+          <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+          <p style={{ fontSize: 13, fontWeight: 500, color: '#64748b', margin: 0 }}>
+            Đang kiểm tra phiên làm việc...
+          </p>
+        </div>
+      )}
+
       {/* Nếu chưa đăng nhập → chỉ hiện màn hình đăng nhập */}
-      {!currentUser && (
+      {!isAuthChecking && !currentUser && (
         <LoginModal onLoginSuccess={handleLoginSuccess} />
       )}
 
@@ -445,7 +538,7 @@ export function App() {
           onSuccess={() => {
             const updated = { ...currentUser, must_change_password: false };
             setCurrentUser(updated);
-            localStorage.setItem('ubkt_current_user', JSON.stringify(updated));
+            sessionStore.setCurrentUser(updated);
             setShowChangePasswordModal(false);
             fetchAppInfo();
           }}

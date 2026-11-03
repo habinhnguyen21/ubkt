@@ -22,6 +22,8 @@ import {
   exportUnitsToCsv,
 } from '../services/donViService';
 import { PhanCongManager } from './phancong/PhanCongManager';
+import { deriveAllOfficerFields } from '../utils/diaBanSync';
+import { validatePasswordPolicy, generateSecurePassword } from '../utils/passwordCrypto';
 import {
   Building2,
   FolderTree,
@@ -39,6 +41,10 @@ import {
   Download,
   Upload,
   Power,
+  Eye,
+  EyeOff,
+  Copy,
+  Sparkles,
 } from 'lucide-react';
 
 import { OrgStatsCards } from './donvi/OrgStatsCards';
@@ -172,7 +178,9 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
   const [newTenDangNhap, setNewTenDangNhap] = useState('');
   const [newHoTen, setNewHoTen] = useState('');
-  const [newMatKhau, setNewMatKhau] = useState('12345678');
+  const [newMatKhau, setNewMatKhau] = useState('');
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [copiedPw, setCopiedPw] = useState(false);
   const [newVaiTro, setNewVaiTro] = useState<'ADMIN' | 'BIEN_TAP' | 'XEM'>('BIEN_TAP');
   const [userError, setUserError] = useState<string | null>(null);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
@@ -536,7 +544,8 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
 
     if (!newTenDangNhap.trim()) return setUserError('Tên đăng nhập không được để trống');
     if (!newHoTen.trim()) return setUserError('Họ tên cán bộ không được để trống');
-    if (newMatKhau.length < 6) return setUserError('Mật khẩu phải từ 6 ký tự trở lên');
+    const pwPolicyErr = validatePasswordPolicy(newMatKhau);
+    if (pwPolicyErr) return setUserError(pwPolicyErr);
 
     setIsCreatingUser(true);
     try {
@@ -554,10 +563,12 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
       setIsCreateUserModalOpen(false);
       setNewTenDangNhap('');
       setNewHoTen('');
-      setNewMatKhau('12345678');
+      setNewMatKhau('');
+      setShowNewPw(false);
+      setCopiedPw(false);
       await reloadUsers(created.id);
       setAssignSuccess(
-        `Đã tạo tài khoản "${created.ho_ten}" thành công! Có thể chọn đơn vị phân công ngay.`,
+        `Đã tạo tài khoản "${created.ho_ten}" thành công! Người dùng sẽ phải đổi mật khẩu khi đăng nhập lần đầu.`,
       );
       setTimeout(() => setAssignSuccess(''), 4000);
     } catch (err: unknown) {
@@ -586,124 +597,24 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
       const records: DiaBanRecord[] = rawRecords ? JSON.parse(rawRecords) : [];
       const todayStr = new Date().toLocaleDateString('vi-VN');
 
-      // 1. Cập nhật các bản ghi hồ sơ địa bàn hiện có
-      const updated = (records || []).map((r) => {
-        const assignedItems = sanitized.filter((a) => a.don_vi_ids?.includes(r.id));
-        const existingHistory: LichSuPhuTrachDiaBan[] = Array.isArray(r.lich_su_phu_trach)
-          ? r.lich_su_phu_trach
-          : [];
-
-        if (assignedItems.length > 0) {
-          const canBoIds = assignedItems.map((a) => a.user_id);
-          const canBoNames = assignedItems.map((a) => {
-            const u = usersList.find((x) => x.id === a.user_id);
-            return 'Đ/c ' + (u ? u.ho_ten : a.user_name || 'Cán bộ');
-          });
-          const newTen = canBoNames.join(', ');
-          const newChucVu = assignedItems
-            .map((a) => {
-              const u = usersList.find((x) => x.id === a.user_id);
-              return u?.chuc_danh || '';
-            })
-            .filter(Boolean)
-            .join(', ');
-
-          const isPrimaryChanged = r.can_bo_phu_trach_id !== canBoIds[0];
-          if (isPrimaryChanged) {
-            const updatedHistory = existingHistory.map((item, idx) => {
-              if (idx === existingHistory.length - 1 && !item.den_ngay) {
-                return { ...item, den_ngay: todayStr };
-              }
-              return item;
-            });
-
-            const newEntry: LichSuPhuTrachDiaBan = {
-              id: 'ls-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-              can_bo_id: canBoIds[0],
-              can_bo_ten: newTen,
-              can_bo_chuc_vu: newChucVu,
-              tu_ngay: todayStr,
-              den_ngay: undefined,
-              van_ban_phan_cong: `Phân công theo dõi địa bàn (${todayStr})`,
-              created_at: new Date().toISOString(),
-            };
-
-            return {
-              ...r,
-              can_bo_phu_trach_id: canBoIds[0],
-              can_bo_phu_trach_ids: canBoIds,
-              can_bo_phu_trach_ten: newTen,
-              can_bo_chuc_vu: newChucVu,
-              thoi_gian_phan_cong: todayStr,
-              lich_su_phu_trach: [...updatedHistory, newEntry],
-              thoi_diem_cap_nhat_gan_nhat:
-                new Date().toLocaleDateString('vi-VN') +
-                ' ' +
-                new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-              nguoi_cap_nhat_gan_nhat: user.ho_ten,
-            };
-          }
-
-          return {
-            ...r,
-            can_bo_phu_trach_id: canBoIds[0],
-            can_bo_phu_trach_ids: canBoIds,
-            can_bo_phu_trach_ten: newTen,
-            can_bo_chuc_vu: newChucVu,
-          };
-        } else {
-          // Bị gỡ phân công
-          if (r.can_bo_phu_trach_id) {
-            const updatedHistory = existingHistory.map((item, idx) => {
-              if (idx === existingHistory.length - 1 && !item.den_ngay) {
-                return { ...item, den_ngay: todayStr };
-              }
-              return item;
-            });
-            return {
-              ...r,
-              can_bo_phu_trach_id: undefined,
-              can_bo_phu_trach_ids: [],
-              can_bo_phu_trach_ten: 'Chưa phân công',
-              can_bo_chuc_vu: '',
-              lich_su_phu_trach: updatedHistory,
-              thoi_diem_cap_nhat_gan_nhat:
-                new Date().toLocaleDateString('vi-VN') +
-                ' ' +
-                new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-              nguoi_cap_nhat_gan_nhat: user.ho_ten,
-            };
-          }
-          return {
-            ...r,
-            can_bo_phu_trach_ids: [],
-          };
-        }
-      });
-
-      // 2. Tự động bổ sung hồ sơ địa bàn cho các đơn vị trong danh mục chưa có hồ sơ
-      const existingIds = new Set(updated.map((r) => r.id));
+      // 1. Tự động bổ sung hồ sơ địa bàn cho các đơn vị trong danh mục chưa có hồ sơ
+      const existingMap = new Map((records || []).map((r) => [r.id, r]));
+      const fullList: DiaBanRecord[] = [...records];
       allDonVi.forEach((u) => {
-        if (!existingIds.has(u.id)) {
-          const assignedItems = sanitized.filter((a) => a.don_vi_ids?.includes(u.id));
-          const canBoIds = assignedItems.map((a) => a.user_id);
-          const canBoNames = assignedItems.map((a) => {
-            const usr = usersList.find((x) => x.id === a.user_id);
-            return 'Đ/c ' + (usr ? usr.ho_ten : a.user_name || 'Cán bộ');
-          });
-          updated.push({
+        if (!u.deleted_at && !existingMap.has(u.id)) {
+          fullList.push({
             id: u.id,
             ten_dia_ban: u.ten,
             loai_to_chuc: u.loai,
             trang_thai_to_chuc: u.trang_thai,
-            can_bo_phu_trach_id: canBoIds[0],
-            can_bo_phu_trach_ids: canBoIds,
-            can_bo_phu_trach_ten: canBoNames.length > 0 ? canBoNames.join(', ') : 'Chưa phân công',
+            can_bo_phu_trach_id: undefined,
+            can_bo_phu_trach_ids: [],
+            can_bo_phu_trach_ten: 'Chưa phân công',
             can_bo_chuc_vu: '',
-            thoi_gian_phan_cong: canBoIds.length > 0 ? todayStr : 'Chưa có',
-            van_ban_phan_cong: canBoIds.length > 0 ? `Quyết định phân công (${todayStr})` : 'Chưa ban hành',
+            thoi_gian_phan_cong: 'Chưa có',
+            van_ban_phan_cong: 'Chưa ban hành',
             tinh_trang_bao_cao_thang: 'CHUA_NOP',
-            thang_hien_tai: 'T10/2026',
+            thang_hien_tai: 'T11/2026',
             so_van_de_theo_doi: 0,
             danh_sach_van_de: [],
             so_chi_dao_chua_hoan_thanh: 0,
@@ -714,6 +625,9 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
           });
         }
       });
+
+      // 2. Đồng bộ các trường cán bộ phụ trách từ danh sách phân công và người dùng
+      const updated = deriveAllOfficerFields(fullList, sanitized, usersList);
 
       localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(updated));
       setDiaBanRecords(updated);
@@ -1148,7 +1062,9 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
           onOpenCreateUserModal={() => {
             setNewTenDangNhap('');
             setNewHoTen('');
-            setNewMatKhau('12345678');
+            setNewMatKhau('');
+            setShowNewPw(false);
+            setCopiedPw(false);
             setUserError(null);
             setIsCreateUserModalOpen(true);
           }}
@@ -1470,34 +1386,81 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
-                    Vai trò
-                  </label>
-                  <select
-                    value={newVaiTro}
-                    onChange={(e) => setNewVaiTro(e.target.value as 'ADMIN' | 'BIEN_TAP' | 'XEM')}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                  >
-                    <option value="BIEN_TAP">Biên tập viên</option>
-                    <option value="ADMIN">Quản trị viên</option>
-                    <option value="XEM">Chỉ xem</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
+                  Vai trò
+                </label>
+                <select
+                  value={newVaiTro}
+                  onChange={(e) => setNewVaiTro(e.target.value as 'ADMIN' | 'BIEN_TAP' | 'XEM')}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                >
+                  <option value="BIEN_TAP">Biên tập viên</option>
+                  <option value="ADMIN">Quản trị viên</option>
+                  <option value="XEM">Chỉ xem</option>
+                </select>
+              </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
-                    Mật khẩu khởi tạo
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 uppercase">
+                    Mật khẩu khởi tạo <span className="text-red-600">*</span>
                   </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const generated = generateSecurePassword();
+                      setNewMatKhau(generated);
+                      setShowNewPw(true);
+                      setUserError(null);
+                    }}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium inline-flex items-center gap-1 cursor-pointer transition hover:underline"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Tạo mật khẩu tạm ngẫu nhiên</span>
+                  </button>
+                </div>
+                <div className="relative flex items-center">
                   <input
-                    type="text"
+                    type={showNewPw ? 'text' : 'password'}
                     required
                     value={newMatKhau}
                     onChange={(e) => setNewMatKhau(e.target.value)}
-                    placeholder="Tối thiểu 6 ký tự"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-mono text-xs"
+                    placeholder="Ít nhất 8 ký tự (hoa, thường, số, ký hiệu)"
+                    className="w-full px-3 py-2 pr-20 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-mono text-xs"
                   />
+                  <div className="absolute right-2 flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPw(!showNewPw)}
+                      title={showNewPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                      className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      {showNewPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!newMatKhau}
+                      onClick={async () => {
+                        if (!newMatKhau) return;
+                        try {
+                          if (navigator?.clipboard?.writeText) {
+                            await navigator.clipboard.writeText(newMatKhau);
+                          }
+                          setCopiedPw(true);
+                          setTimeout(() => setCopiedPw(false), 2000);
+                        } catch {}
+                      }}
+                      title={copiedPw ? 'Đã sao chép' : 'Sao chép mật khẩu'}
+                      className="p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30 cursor-pointer"
+                    >
+                      {copiedPw ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+                  <span>Người dùng bắt buộc đổi mật khẩu khi đăng nhập lần đầu.</span>
+                  {copiedPw && <span className="text-emerald-600 font-semibold">Đã sao chép!</span>}
                 </div>
               </div>
 

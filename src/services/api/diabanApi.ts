@@ -1,6 +1,7 @@
 import type { DiaBanRecord, HoSoDiaBanFile, PhanCongDiaBan } from '../../types';
 import { centralDataService } from '../centralDataService';
 import { registerMockCommands, requestApi, saveMockDb } from './core';
+import { sessionStore } from '../../utils/sessionStore';
 
 registerMockCommands({
   get_dia_ban_records: async (db) => {
@@ -74,8 +75,7 @@ registerMockCommands({
 
   get_phan_cong_dia_ban: async (db) => {
     try {
-      const rawUser = localStorage.getItem('ubkt_current_user');
-      const currentUser = rawUser ? JSON.parse(rawUser) : null;
+      const currentUser = sessionStore.getCurrentUser();
       if (!currentUser) {
         return [];
       }
@@ -98,8 +98,7 @@ registerMockCommands({
   },
 
   save_phan_cong_dia_ban: async (_db, args) => {
-    const rawUser = localStorage.getItem('ubkt_current_user');
-    const currentUser = rawUser ? JSON.parse(rawUser) : null;
+    const currentUser = sessionStore.getCurrentUser();
     if (currentUser?.vai_tro !== 'ADMIN') {
       throw new Error(
         'Từ chối truy cập: Tài khoản Biên tập viên không có quyền chỉnh sửa dữ liệu phân công quản lý.'

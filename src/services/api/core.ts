@@ -11,6 +11,7 @@ import type {
 } from '../../types';
 import { cloudSyncService } from '../cloudSyncService';
 import { INITIAL_SEED_ADMIN_HASH } from '../../utils/passwordCrypto';
+import { sessionStore } from '../../utils/sessionStore';
 
 export const STORAGE_DELETED_DON_VI_IDS = 'ubkt_deleted_don_vi_ids';
 export const STORAGE_DELETED_CHUONG_TRINH_IDS = 'ubkt_deleted_chuong_trinh_ids';
@@ -275,7 +276,7 @@ export async function requestApi<T>(
   };
 
   try {
-    const token = localStorage.getItem('ubkt_session_token');
+    const token = sessionStore.getToken();
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }

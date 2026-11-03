@@ -12,6 +12,7 @@ import type {
   ThayDoiBoSungKtGs,
   LichSuPhuTrachDiaBan,
   TrangThaiHoSoDiaBan,
+  PhanCongDiaBan,
 } from '../types';
 import {
   isGoogleDriveConfigured,
@@ -22,6 +23,7 @@ import {
 } from '../services/googleDriveService';
 import { centralDataService } from '../services/centralDataService';
 import { reconcileById, isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
+import { deriveAllOfficerFields } from '../utils/diaBanSync';
 import {
   MapPin,
   Building2,
@@ -471,28 +473,13 @@ export function HoSoDiaBanManager({ user }: Props) {
   };
 
   // Nạp danh sách đơn vị và người dùng (Tự động đồng bộ với các tài khoản được phân công quản trị)
-  const syncUsersAndRecords = (usrs: User[]) => {
+  const syncUsersAndRecords = (usrs: User[], asgns: PhanCongDiaBan[] = []) => {
     const safeUsrs = Array.isArray(usrs) ? usrs : [];
     setUsersList((prev) => reconcileById(prev, safeUsrs, (u) => u.id));
     setRecords((prev) => {
       if (!Array.isArray(prev)) return [];
-      const userMap = new Map(safeUsrs.map((u) => [u.id, u]));
-      let changed = false;
-      const updated = prev.map((r) => {
-        if (r.can_bo_phu_trach_id) {
-          const u = userMap.get(r.can_bo_phu_trach_id);
-          if (u) {
-            const newTen = `Đ/c ${u.ho_ten}`;
-            const newChucVu = u.chuc_danh || (u.vai_tro === 'ADMIN' ? 'Chủ nhiệm UBKT' : 'Chuyên viên UBKT');
-            if (r.can_bo_phu_trach_ten !== newTen || r.can_bo_chuc_vu !== newChucVu) {
-              changed = true;
-              return { ...r, can_bo_phu_trach_ten: newTen, can_bo_chuc_vu: newChucVu };
-            }
-          }
-        }
-        return r;
-      });
-      if (changed) {
+      const updated = deriveAllOfficerFields(prev, asgns, safeUsrs);
+      if (updated !== prev) {
         localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(updated));
         return updated;
       }
@@ -513,7 +500,8 @@ export function HoSoDiaBanManager({ user }: Props) {
       const activeInputSnap = captureActiveInput();
       const dvs = Array.isArray(rawDvs) ? rawDvs : [];
       const usrs = Array.isArray(rawUsrs) ? rawUsrs : [];
-      syncUsersAndRecords(usrs);
+      const assignments = Array.isArray(serverAssignments) ? serverAssignments : [];
+      syncUsersAndRecords(usrs, assignments);
 
       setRecords((prev) => {
         const dvMap = new Map(dvs.map((d) => [d.id, d]));
@@ -527,63 +515,27 @@ export function HoSoDiaBanManager({ user }: Props) {
           .filter((dv) => dv && !dv.deleted_at)
           .forEach((dv) => {
             const existing = recMap.get(dv.id);
-
-            // Tìm tất cả các phân công cho đơn vị này
-            const assignedList = Array.isArray(serverAssignments)
-              ? serverAssignments.filter((a) => Array.isArray(a?.don_vi_ids) && a.don_vi_ids.includes(dv.id))
-              : [];
-
-            const canBoIds = assignedList.map((a) => a.user_id).filter(Boolean);
-            const canBoNames = assignedList.map((a) => {
-              const u = usrs.find((x) => x.id === a.user_id);
-              return 'Đ/c ' + (u?.ho_ten || a.user_name || 'Cán bộ');
-            });
-            const canBoChucVus = assignedList
-              .map((a) => {
-                const u = usrs.find((x) => x.id === a.user_id);
-                return u?.chuc_danh || '';
-              })
-              .filter(Boolean)
-              .join(', ');
-
-            const hasAssignments = assignedList.length > 0;
-            const primaryId = hasAssignments ? canBoIds[0] : existing?.can_bo_phu_trach_id;
-            const displayTen = hasAssignments
-              ? canBoNames.join(', ')
-              : existing?.can_bo_phu_trach_ten || 'Chưa phân công';
-            const displayChucVu = hasAssignments
-              ? canBoChucVus
-              : existing?.can_bo_chuc_vu || '';
-
             if (existing) {
-              // Cập nhật tên mới nhất từ danh mục và phân công hiện tại
               combined.push({
                 ...existing,
                 ten_dia_ban: dv.ten || existing.ten_dia_ban || 'Tổ chức đảng',
                 loai_to_chuc: dv.loai || existing.loai_to_chuc,
                 trang_thai_to_chuc: dv.trang_thai || existing.trang_thai_to_chuc || 'DANG_HOAT_DONG',
-                can_bo_phu_trach_id: primaryId,
-                can_bo_phu_trach_ids: hasAssignments
-                  ? canBoIds
-                  : (Array.isArray(existing.can_bo_phu_trach_ids) ? existing.can_bo_phu_trach_ids : (primaryId ? [primaryId] : [])),
-                can_bo_phu_trach_ten: displayTen,
-                can_bo_chuc_vu: displayChucVu,
               });
             } else {
-              // Bổ sung hồ sơ mới cho đơn vị mới
               combined.push({
                 id: dv.id,
                 ten_dia_ban: dv.ten || 'Tổ chức đảng',
                 loai_to_chuc: dv.loai || 'CHI_BO',
                 trang_thai_to_chuc: dv.trang_thai || 'DANG_HOAT_DONG',
-                can_bo_phu_trach_id: primaryId,
-                can_bo_phu_trach_ids: canBoIds,
-                can_bo_phu_trach_ten: displayTen,
-                can_bo_chuc_vu: displayChucVu,
-                thoi_gian_phan_cong: hasAssignments ? new Date().toLocaleDateString('vi-VN') : 'Chưa có',
-                van_ban_phan_cong: hasAssignments ? 'Quyết định phân công' : 'Chưa ban hành',
+                can_bo_phu_trach_id: undefined,
+                can_bo_phu_trach_ids: [],
+                can_bo_phu_trach_ten: 'Chưa phân công',
+                can_bo_chuc_vu: '',
+                thoi_gian_phan_cong: 'Chưa có',
+                van_ban_phan_cong: 'Chưa ban hành',
                 tinh_trang_bao_cao_thang: 'CHUA_NOP',
-                thang_hien_tai: 'T10/2026',
+                thang_hien_tai: 'T11/2026',
                 so_van_de_theo_doi: 0,
                 danh_sach_van_de: [],
                 so_chi_dao_chua_hoan_thanh: 0,
@@ -607,8 +559,11 @@ export function HoSoDiaBanManager({ user }: Props) {
           });
         }
 
+        // 3. Suy ra cán bộ phụ trách từ nguồn dữ liệu phân công và người dùng
+        const derivedCombined = deriveAllOfficerFields(combined, assignments, usrs);
+
         // So sánh dữ liệu mới với dữ liệu cũ theo id ổn định; giữ nguyên tham chiếu nếu không đổi
-        const reconciled = reconcileById(prev, combined, (r) => r.id);
+        const reconciled = reconcileById(prev, derivedCombined, (r) => r.id);
         if (reconciled === prev) {
           return prev;
         }

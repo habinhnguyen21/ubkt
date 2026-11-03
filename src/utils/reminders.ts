@@ -103,7 +103,7 @@ function isPersonMatch(assigned?: string | null, userName?: string | null): bool
   return a === u || a.includes(u) || u.includes(a);
 }
 
-/** Các đơn vị mà người dùng (biên tập viên) được phân công phụ trách */
+/** Các đơn vị mà người dùng (biên tập viên) được phân công phụ trách (bao gồm cả vai trò CHINH và PHOI_HOP) */
 export function getUserUnitIds(
   user: ReminderInput['user'],
   phanCong: PhanCongDiaBan[]
@@ -117,6 +117,21 @@ export function getUserUnitIds(
   if (user.don_vi_id) ids.add(user.don_vi_id);
   for (const id of user.pham_vi_quan_ly || []) if (id) ids.add(id);
   return ids;
+}
+
+/** Lấy tên cán bộ phụ trách CHÍNH của một đơn vị (vai trò CHINH, mặc định cho dữ liệu cũ) */
+export function getPrimaryOfficerForUnit(
+  unitId: string,
+  phanCong: PhanCongDiaBan[],
+  users?: { id: string; ho_ten: string }[]
+): string | null {
+  const active = (phanCong || []).filter(
+    (a) => a.trang_thai !== 'DA_CHUYEN_GIAO' && Array.isArray(a.don_vi_ids) && a.don_vi_ids.includes(unitId)
+  );
+  if (active.length === 0) return null;
+  const mainAssign = active.find((a) => (a.don_vi_roles?.[unitId] || 'CHINH') === 'CHINH') || active[0];
+  const u = users?.find((usr) => usr.id === mainAssign.user_id);
+  return u?.ho_ten || mainAssign.user_name || null;
 }
 
 /** Chương trình có thuộc một trong các đơn vị đã cho không (theo ID trước, theo tên sau) */

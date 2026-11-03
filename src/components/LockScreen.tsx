@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { api } from '../services/api';
 import type { User } from '../types';
 import { Lock, ShieldAlert, LogOut, ArrowRight } from 'lucide-react';
+import { sessionStore } from '../utils/sessionStore';
 
 
 interface LockScreenProps {
@@ -24,10 +25,13 @@ export const LockScreen: React.FC<LockScreenProps> = ({ user, onUnlock, onLogout
       const res = await api.login({
         ten_dang_nhap: user.ten_dang_nhap,
         mat_khau: password,
+        ghi_nho: sessionStore.isRememberMe(),
       });
       if (res?.token) {
-        localStorage.setItem('ubkt_session_token', res.token);
+        sessionStore.setToken(res.token);
       }
+      sessionStore.recordActivity(true);
+      sessionStore.setSessionLocked(false);
       setPassword('');
       onUnlock();
     } catch (err: unknown) {

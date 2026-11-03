@@ -304,16 +304,30 @@ export interface HoSoDiaBanFile {
   nguoi_tao?: string;
 }
 
+export type VaiTroPhuTrach = 'CHINH' | 'PHOI_HOP';
+
+export interface LichSuChuyenGiaoDiaBan {
+  id?: string;
+  ngay_chuyen_giao: string;
+  to_user_id: string;
+  to_user_name: string;
+  so_quyet_dinh?: string | null;
+  don_vi_ids: string[];
+  ghi_chu?: string;
+}
+
 export interface PhanCongDiaBan {
   id?: string;
   user_id: string;
   user_name: string;
   don_vi_ids: string[];
+  don_vi_roles?: Record<string, VaiTroPhuTrach>;
   loai_phan_cong?: 'THUONG_XUYEN' | 'DOAN_KIEM_TRA';
   tu_ngay?: string;
   den_ngay?: string | null;
   so_quyet_dinh?: string | null;
   trang_thai?: 'DANG_PHU_TRACH' | 'DA_CHUYEN_GIAO';
+  lich_su_chuyen_giao?: LichSuChuyenGiaoDiaBan[];
   ghi_chu?: string;
   updated_at: string;
 }

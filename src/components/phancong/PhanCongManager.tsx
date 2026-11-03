@@ -31,6 +31,8 @@ import {
   canModifyAssignments,
   assignUnitsToOfficer,
   unassignUnitFromOfficer,
+  toggleOfficerUnitRole,
+  transferAllUnitsBetweenOfficers,
   getUnitDecisionNumber,
   matchesSearch,
   MAX_UNITS_PER_OFFICER_DEFAULT,
@@ -261,6 +263,85 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
     setCleanAllStep(1);
   };
 
+  // 10. Modal Chuyển giao toàn bộ địa bàn phụ trách từ cán bộ A sang cán bộ B
+  const [transferAllSourceUser, setTransferAllSourceUser] = useState<User | null>(null);
+  const [transferAllTargetUserId, setTransferAllTargetUserId] = useState<string>('');
+  const [transferAllEffectiveDate, setTransferAllEffectiveDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [transferAllDecisionNo, setTransferAllDecisionNo] = useState<string>('');
+  const [isTransferAllModalOpen, setIsTransferAllModalOpen] = useState<boolean>(false);
+
+  const handleOpenTransferAllModal = (sourceUser: User) => {
+    if (!isAdmin) return;
+    const assign = assignments.find((a) => a.user_id === sourceUser.id && a.trang_thai !== 'DA_CHUYEN_GIAO');
+    const unitCount = assign?.don_vi_ids?.length || 0;
+    if (unitCount === 0) {
+      alert(`Đ/c ${sourceUser.ho_ten} hiện không phụ trách đơn vị nào để chuyển giao.`);
+      return;
+    }
+    setTransferAllSourceUser(sourceUser);
+    const otherUsers = usersList.filter((u) => u.id !== sourceUser.id && u.trang_thai !== 0);
+    setTransferAllTargetUserId(otherUsers[0]?.id || '');
+    setTransferAllEffectiveDate(new Date().toISOString().slice(0, 10));
+    setTransferAllDecisionNo(assign?.so_quyet_dinh || '');
+    setIsTransferAllModalOpen(true);
+  };
+
+  const handleConfirmTransferAll = () => {
+    if (!isAdmin || !transferAllSourceUser || !transferAllTargetUserId) return;
+    const targetUser = usersList.find((u) => u.id === transferAllTargetUserId);
+    if (!targetUser) {
+      alert('Vui lòng chọn cán bộ tiếp nhận.');
+      return;
+    }
+
+    const sourceAssign = assignments.find((a) => a.user_id === transferAllSourceUser.id && a.trang_thai !== 'DA_CHUYEN_GIAO');
+    const unitCount = sourceAssign?.don_vi_ids?.length || 0;
+    const previous = [...assignments];
+
+    const updated = transferAllUnitsBetweenOfficers(
+      assignments,
+      transferAllSourceUser.id,
+      targetUser,
+      {
+        ngayHieuLuc: transferAllEffectiveDate,
+        soQuyetDinh: transferAllDecisionNo.trim() || undefined,
+      }
+    );
+
+    onSaveAssignments(updated, {
+      hanh_dong: `Chuyển giao toàn bộ ${unitCount} đơn vị từ Đ/c ${transferAllSourceUser.ho_ten} sang Đ/c ${targetUser.ho_ten}`,
+      du_lieu_cu: previous,
+      du_lieu_moi: updated,
+    });
+
+    setIsTransferAllModalOpen(false);
+    showUndoNotification(
+      `Đã chuyển giao toàn bộ ${unitCount} đơn vị từ Đ/c ${transferAllSourceUser.ho_ten} sang Đ/c ${targetUser.ho_ten}`,
+      previous,
+      10
+    );
+  };
+
+  const handleToggleUnitRole = (targetUserId: string, unitId: string, currentRole: 'CHINH' | 'PHOI_HOP') => {
+    if (!isAdmin || !targetUserId) return;
+    const nextRole = currentRole === 'CHINH' ? 'PHOI_HOP' : 'CHINH';
+    const targetUser = usersList.find((u) => u.id === targetUserId);
+    const previous = [...assignments];
+    const updated = toggleOfficerUnitRole(assignments, targetUserId, unitId, nextRole);
+
+    onSaveAssignments(updated, {
+      hanh_dong: `Đổi vai trò sang ${nextRole === 'CHINH' ? 'CHÍNH' : 'PHỐI HỢP'} cho Đ/c ${targetUser?.ho_ten || targetUserId}`,
+      du_lieu_cu: previous,
+      du_lieu_moi: updated,
+    });
+
+    showUndoNotification(
+      `Đã đổi vai trò sang: ${nextRole === 'CHINH' ? 'Phụ trách chính' : 'Phối hợp'}`,
+      previous,
+      6
+    );
+  };
+
   // 9. Thống kê & cảnh báo
   const stats = useMemo(() => {
     return computePhanCongStats(allDonVi, assignments, usersList, MAX_UNITS_PER_OFFICER_DEFAULT);
@@ -293,6 +374,19 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
     const heldSet = new Set(userAssign.don_vi_ids);
     return activeUnits.filter((u) => heldSet.has(u.id));
   }, [selectedUserId, assignments, activeUnits]);
+
+  // Danh sách đơn vị của cán bộ nguồn khi chuyển giao toàn bộ
+  const transferAllSourceUnits = useMemo(() => {
+    if (!transferAllSourceUser) return [];
+    const assign = assignments.find((a) => a.user_id === transferAllSourceUser.id && a.trang_thai !== 'DA_CHUYEN_GIAO');
+    if (!assign?.don_vi_ids) return [];
+    const set = new Set(assign.don_vi_ids);
+    return activeUnits.filter((u) => set.has(u.id));
+  }, [transferAllSourceUser, assignments, activeUnits]);
+
+  const transferAllTargetUser = useMemo(() => {
+    return usersList.find((u) => u.id === transferAllTargetUserId) || null;
+  }, [usersList, transferAllTargetUserId]);
 
   // Danh sách đơn vị CHỜ GIAO (cột phải)
   const waitingUnits = useMemo(() => {
@@ -618,7 +712,9 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
       </div>
 
       {/* ── 3. BANNER CẢNH BÁO NẾU CÓ BẤT THƯỜNG ── */}
-      {(stats.warnings.orphanUnitsCount > 0 || stats.warnings.overloadedOfficers.length > 0) && (
+      {(stats.warnings.orphanUnitsCount > 0 ||
+        stats.warnings.overloadedOfficers.length > 0 ||
+        (stats.warnings.multiMainUnits && stats.warnings.multiMainUnits.length > 0)) && (
         <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-900 shadow-xs space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-rose-200/80">
             <div className="flex items-center gap-2 font-bold text-rose-800 text-sm">
@@ -706,6 +802,17 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
             {stats.warnings.overloadedOfficers.map((ov, i) => (
               <div key={i} className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-xl text-amber-900">
                 • Cán bộ <strong>{ov.user.ho_ten}</strong> đang phụ trách {ov.count} đơn vị (vượt ngưỡng {MAX_UNITS_PER_OFFICER_DEFAULT} đơn vị).
+              </div>
+            ))}
+
+            {stats.warnings.multiMainUnits && stats.warnings.multiMainUnits.map((mm, i) => (
+              <div key={`mm-${i}`} className="p-2.5 bg-amber-50/80 border border-amber-300 rounded-xl text-amber-900 flex items-center justify-between">
+                <span>
+                  • Đơn vị <strong>{mm.unit.ten}</strong> hiện có <strong>{mm.count}</strong> cán bộ phụ trách CHÍNH ({mm.officerNames.join(', ')}). Mỗi đơn vị chỉ nên có đúng một cán bộ phụ trách chính.
+                </span>
+                <span className="text-[11px] text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300 font-medium shrink-0 ml-2">
+                  Trùng vai trò chính
+                </span>
               </div>
             ))}
           </div>
@@ -832,7 +939,7 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                       </div>
 
                       {/* Số đơn vị đang giữ (Cân bằng khối lượng công việc) */}
-                      <div className="shrink-0 text-right">
+                      <div className="shrink-0 flex items-center gap-1.5">
                         <span
                           className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${
                             isOverloaded
@@ -845,6 +952,19 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                         >
                           {count} đơn vị
                         </span>
+                        {isAdmin && count > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenTransferAllModal(usr);
+                            }}
+                            className="p-1 rounded-md text-slate-400 hover:text-amber-700 hover:bg-amber-100/80 transition"
+                            title={`Chuyển giao toàn bộ ${count} đơn vị của Đ/c ${usr.ho_ten} sang người khác`}
+                          >
+                            <ArrowRightLeft className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -869,9 +989,22 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                     </h3>
                   </div>
 
-                  <span className="text-xs font-bold text-slate-700 px-3 py-1 bg-slate-100 rounded-lg">
-                    Đang phụ trách {assignedUnitsForSelectedUser.length} đơn vị
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-700 px-3 py-1 bg-slate-100 rounded-lg">
+                      Đang phụ trách {assignedUnitsForSelectedUser.length} đơn vị
+                    </span>
+                    {isAdmin && selectedUserObj && assignedUnitsForSelectedUser.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenTransferAllModal(selectedUserObj)}
+                        className="px-2.5 py-1 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        title="Chuyển tất cả đơn vị của đồng chí này sang cán bộ khác"
+                      >
+                        <ArrowRightLeft className="w-3.5 h-3.5" />
+                        <span>Chuyển giao toàn bộ</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* 2. Phần "ĐÃ GIAO CHO ĐỒNG CHÍ NÀY" (Dạng chip nhỏ gọn có dấu ✕) */}
@@ -881,7 +1014,7 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                       <span>Đã giao cho đồng chí này ({assignedUnitsForSelectedUser.length} đơn vị)</span>
                     </span>
-                    <span className="text-[11px] text-slate-400 italic">Bấm ✕ để bỏ phân công</span>
+                    <span className="text-[11px] text-slate-400 italic">Bấm nhãn để đổi Chính/Phối hợp • Bấm ✕ để gỡ</span>
                   </div>
 
                   {assignedUnitsForSelectedUser.length === 0 ? (
@@ -890,12 +1023,29 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                     <div className="flex flex-wrap gap-1.5 pt-1">
                       {assignedUnitsForSelectedUser.map((u) => {
                         const decisionNo = getUnitDecisionNumber(u.id, diaBanRecords);
+                        const userAssign = assignments.find((a) => a.user_id === selectedUserId && a.trang_thai !== 'DA_CHUYEN_GIAO');
+                        const role = userAssign?.don_vi_roles?.[u.id] || 'CHINH';
+                        const isChinh = role === 'CHINH';
+
                         return (
                           <span
                             key={u.id}
                             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-800 shadow-2xs hover:border-slate-300 transition"
                           >
                             <span>{u.ten}</span>
+                            <button
+                              type="button"
+                              disabled={!isAdmin}
+                              onClick={() => isAdmin && handleToggleUnitRole(selectedUserId, u.id, role)}
+                              className={`px-1.5 py-0.2 rounded text-[10px] font-bold transition ${
+                                isChinh
+                                  ? 'bg-blue-100 text-blue-800 border border-blue-200 hover:bg-blue-200'
+                                  : 'bg-purple-100 text-purple-800 border border-purple-200 hover:bg-purple-200'
+                              } ${isAdmin ? 'cursor-pointer' : 'cursor-default'}`}
+                              title={isAdmin ? `Bấm để đổi vai trò sang: ${isChinh ? 'Phối hợp' : 'Chính'}` : `Vai trò: ${isChinh ? 'Chính' : 'Phối hợp'}`}
+                            >
+                              ({isChinh ? 'chính' : 'phối hợp'})
+                            </button>
                             {decisionNo && (
                               <span className="text-[10px] text-blue-600 font-mono bg-blue-50 px-1 rounded" title={`Số QĐ: ${decisionNo}`}>
                                 QĐ
@@ -1026,7 +1176,7 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                             {/* Nhãn người đang phụ trách nếu bật công tắc */}
                             {currentAssignees.length > 0 ? (
                               <span className="text-[11px] font-medium text-amber-800 bg-amber-100/70 px-2 py-0.5 rounded-md border border-amber-300">
-                                Đang giao: <strong>{currentAssignees.map((a) => a.userName).join(', ')}</strong>
+                                Đang giao: <strong>{currentAssignees.map((a) => `${a.userName} (${a.role === 'CHINH' ? 'chính' : 'phối hợp'})`).join(', ')}</strong>
                               </span>
                             ) : (
                               <span className="text-[11px] text-slate-400 italic">Chưa có người</span>
@@ -1177,11 +1327,22 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                               {assignees.map((a) => (
                                 <span
                                   key={a.userId}
-                                  className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold border ${
                                     userColorMap.get(a.userId) || 'bg-slate-100 text-slate-700'
                                   }`}
                                 >
-                                  {a.userName}
+                                  <span>{a.userName}</span>
+                                  <button
+                                    type="button"
+                                    disabled={!isAdmin}
+                                    onClick={() => isAdmin && handleToggleUnitRole(a.userId, u.id, a.role)}
+                                    className={`text-[9px] px-1 rounded uppercase tracking-wider font-bold transition ${
+                                      a.role === 'CHINH' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'
+                                    } ${isAdmin ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
+                                    title={isAdmin ? `Bấm để đổi vai trò sang: ${a.role === 'CHINH' ? 'Phối hợp' : 'Chính'}` : undefined}
+                                  >
+                                    {a.role === 'CHINH' ? 'chính' : 'phối hợp'}
+                                  </button>
                                 </span>
                               ))}
                             </div>
@@ -1250,34 +1411,64 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                     {heldUnits.length === 0 ? (
                       <p className="text-xs text-slate-400 italic py-4 text-center">Chưa phụ trách đơn vị nào</p>
                     ) : (
-                      heldUnits.map((u, i) => (
-                        <div
-                          key={u.id}
-                          className="p-2 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-between text-xs"
-                        >
-                          <span className="font-medium text-slate-800">
-                            {i + 1}. {u.ten}
-                          </span>
-                          {u.ma && <span className="text-[10px] font-mono text-slate-400">{u.ma}</span>}
-                        </div>
-                      ))
+                      heldUnits.map((u, i) => {
+                        const role = assign?.don_vi_roles?.[u.id] || 'CHINH';
+                        const isChinh = role === 'CHINH';
+                        return (
+                          <div
+                            key={u.id}
+                            className="p-2 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-between text-xs"
+                          >
+                            <span className="font-medium text-slate-800 truncate mr-2">
+                              {i + 1}. {u.ten}
+                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                disabled={!isAdmin}
+                                onClick={() => isAdmin && handleToggleUnitRole(usr.id, u.id, role)}
+                                className={`px-1.5 py-0.2 rounded text-[10px] font-bold transition ${
+                                  isChinh
+                                    ? 'bg-blue-100 text-blue-800 border border-blue-200 hover:bg-blue-200'
+                                    : 'bg-purple-100 text-purple-800 border border-purple-200 hover:bg-purple-200'
+                                } ${isAdmin ? 'cursor-pointer' : 'cursor-default'}`}
+                                title={isAdmin ? `Bấm để đổi sang vai trò ${isChinh ? 'Phối hợp' : 'Chính'}` : `Vai trò: ${isChinh ? 'Chính' : 'Phối hợp'}`}
+                              >
+                                ({isChinh ? 'chính' : 'phối hợp'})
+                              </button>
+                              {u.ma && <span className="text-[10px] font-mono text-slate-400">{u.ma}</span>}
+                            </div>
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 </div>
 
                 {isAdmin && (
-                  <div className="pt-3 mt-3 border-t border-slate-100">
+                  <div className="pt-3 mt-3 border-t border-slate-100 flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => {
                         setSelectedUserId(usr.id);
                         setViewMode('GIAO_VIEC');
                       }}
-                      className="w-full py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-lg transition flex items-center justify-center gap-1 cursor-pointer"
+                      className="flex-1 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-lg transition flex items-center justify-center gap-1 cursor-pointer"
                     >
-                      <span>Giao thêm / Điều chỉnh đơn vị</span>
+                      <span>Giao thêm / Điều chỉnh</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
+                    {heldUnits.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenTransferAllModal(usr)}
+                        className="py-1.5 px-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold text-xs rounded-lg transition flex items-center gap-1 cursor-pointer"
+                        title="Chuyển giao toàn bộ đơn vị của cán bộ này sang cán bộ khác"
+                      >
+                        <ArrowRightLeft className="w-3.5 h-3.5" />
+                        <span>Chuyển giao</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1506,6 +1697,140 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                 className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
               >
                 Gỡ khỏi phân công
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: CHUYỂN GIAO TOÀN BỘ ĐƠN VỊ TỪ CÁN BỘ A SANG CÁN BỘ B ── */}
+      {isTransferAllModalOpen && transferAllSourceUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-amber-800 font-bold text-base">
+                <ArrowRightLeft className="w-5 h-5 text-amber-600" />
+                <span>Chuyển giao toàn bộ địa bàn phụ trách</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsTransferAllModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-600 space-y-3">
+              {/* Thông tin cán bộ nguồn */}
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900">
+                <p>
+                  Cán bộ chuyển giao: <strong>{transferAllSourceUser.ho_ten}</strong>
+                  {transferAllSourceUser.chuc_danh ? ` (${transferAllSourceUser.chuc_danh})` : ''}
+                </p>
+                <p className="mt-1">
+                  Đang phụ trách: <strong>{transferAllSourceUnits.length}</strong> đơn vị.
+                </p>
+              </div>
+
+              {/* Danh sách đơn vị chuyển giao */}
+              <div>
+                <p className="font-semibold text-slate-700 mb-1.5">
+                  Danh sách đơn vị sẽ được chuyển giao ({transferAllSourceUnits.length} đơn vị):
+                </p>
+                <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                  {transferAllSourceUnits.map((u) => (
+                    <span
+                      key={u.id}
+                      className="inline-flex items-center px-2 py-1 bg-white border border-slate-200 rounded text-[11px] text-slate-700 font-medium"
+                    >
+                      {u.ten}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Chọn cán bộ tiếp nhận */}
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">
+                  Chọn cán bộ tiếp nhận: <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={transferAllTargetUserId}
+                  onChange={(e) => setTransferAllTargetUserId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                >
+                  <option value="">-- Chọn cán bộ tiếp nhận --</option>
+                  {usersList
+                    .filter((u) => u.id !== transferAllSourceUser.id && u.trang_thai !== 0)
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.ho_ten} (@{u.ten_dang_nhap} {u.chuc_danh ? `- ${u.chuc_danh}` : ''})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Ngày hiệu lực và Số quyết định */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Ngày hiệu lực chuyển giao:
+                  </label>
+                  <input
+                    type="date"
+                    value={transferAllEffectiveDate}
+                    onChange={(e) => setTransferAllEffectiveDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Số quyết định phân công:
+                  </label>
+                  <input
+                    type="text"
+                    value={transferAllDecisionNo}
+                    onChange={(e) => setTransferAllDecisionNo(e.target.value)}
+                    placeholder="VD: 45-QĐ/UBKT"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-900 leading-relaxed space-y-1">
+                <p>
+                  💡 <strong>Quy trình xử lý tự động:</strong>
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 text-blue-800">
+                  <li>
+                    Bản phân công của Đ/c <strong>{transferAllSourceUser.ho_ten}</strong> sẽ chuyển trạng thái <code>ĐÃ CHUYỂN GIAO</code> (đến ngày {transferAllEffectiveDate}).
+                  </li>
+                  <li>
+                    Bản phân công của Đ/c <strong>{transferAllTargetUser?.ho_ten || 'cán bộ tiếp nhận'}</strong> được gộp thêm {transferAllSourceUnits.length} đơn vị (không trùng).
+                  </li>
+                  <li>Hồ sơ địa bàn tự động cập nhật lịch sử các thời kỳ phụ trách.</li>
+                  <li>Hệ thống ghi nhận Audit log và cho phép <strong>Hoàn tác trong 10 giây</strong>.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsTransferAllModalOpen(false)}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={!transferAllTargetUserId}
+                onClick={handleConfirmTransferAll}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                <ArrowRightLeft className="w-4 h-4" />
+                <span>Xác nhận chuyển giao</span>
               </button>
             </div>
           </div>

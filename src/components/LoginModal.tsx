@@ -13,12 +13,13 @@ if (typeof document !== 'undefined' && !document.getElementById('gfont-bevietnam
 }
 
 interface LoginModalProps {
-  onLoginSuccess: (user: User, token: string) => void;
+  onLoginSuccess: (user: User, token: string, rememberMe?: boolean) => void;
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPw, setShowPw] = useState(false);
@@ -31,8 +32,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
       const res = await api.login({
         ten_dang_nhap: username.trim(),
         mat_khau: password,
+        ghi_nho: rememberMe,
       });
-      onLoginSuccess(res.user, res.token);
+      onLoginSuccess(res.user, res.token, rememberMe);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -286,6 +288,33 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
                 )}
               </button>
             </div>
+          </div>
+
+          {/* Ghi nhớ đăng nhập trên thiết bị này */}
+          <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              id="login-remember-me"
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              style={{
+                width: 16,
+                height: 16,
+                accentColor: '#c8282c',
+                cursor: 'pointer',
+              }}
+            />
+            <label
+              htmlFor="login-remember-me"
+              style={{
+                fontSize: 13,
+                color: '#4b5563',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+            >
+              Ghi nhớ đăng nhập trên thiết bị này
+            </label>
           </div>
 
           {/* Nút đăng nhập */}

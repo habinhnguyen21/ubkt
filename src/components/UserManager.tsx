@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { IS_CLOUD_FUNCTIONS_ENABLED, usernameToAuthEmail } from '../services/firebase';
-import { validatePasswordPolicy } from '../utils/passwordCrypto';
-import type { User } from '../types';
+import { validatePasswordPolicy, generateSecurePassword } from '../utils/passwordCrypto';
+import { getUserAssignmentImpact } from '../utils/diaBanSync';
+import type { User, DonVi } from '../types';
 
 interface Props {
   currentUser: User;
@@ -50,6 +51,11 @@ export default function UserManager({ currentUser, onClose }: Props) {
   const [formNewPw, setFormNewPw] = useState('');
   const [formNewPw2, setFormNewPw2] = useState('');
   const [showPw, setShowPw] = useState(false);
+  const [copiedPw, setCopiedPw] = useState(false);
+
+  // Danh sách đơn vị bị ảnh hưởng khi xóa tài khoản
+  const [deleteImpactUnits, setDeleteImpactUnits] = useState<DonVi[]>([]);
+  const [loadingImpact, setLoadingImpact] = useState<boolean>(false);
 
   const isAdmin = currentUser.vai_tro === 'ADMIN';
 
@@ -92,6 +98,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
     setFormNewPw('');
     setFormNewPw2('');
     setShowPw(false);
+    setCopiedPw(false);
     setModalMode('create');
     setError('');
   };
@@ -115,15 +122,27 @@ export default function UserManager({ currentUser, onClose }: Props) {
     setError('');
   };
 
-  const openDelete = (u: User) => {
+  const openDelete = async (u: User) => {
     setSelectedUser(u);
     setModalMode('delete');
     setError('');
+    setLoadingImpact(true);
+    try {
+      const [pc, dvs] = await Promise.all([api.getPhanCongDiaBan(), api.getAllDonVi()]);
+      const impact = getUserAssignmentImpact(u.id, pc, dvs);
+      setDeleteImpactUnits(impact);
+    } catch {
+      setDeleteImpactUnits([]);
+    } finally {
+      setLoadingImpact(false);
+    }
   };
 
   const closeModal = () => {
     setModalMode(null);
     setSelectedUser(null);
+    setDeleteImpactUnits([]);
+    setCopiedPw(false);
     setError('');
   };
 
@@ -224,6 +243,35 @@ export default function UserManager({ currentUser, onClose }: Props) {
       showSuccess(`Đã xóa tài khoản "${selectedUser.ho_ten}"`);
     } catch (e: unknown) {
       setError((e as Error).message || 'Xóa tài khoản thất bại');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLockInsteadOfDelete = async () => {
+    if (!selectedUser) return;
+    setLoading(true);
+    setError('');
+    try {
+      await api.updateUser(
+        {
+          user_id: selectedUser.id,
+          ho_ten: selectedUser.ho_ten,
+          vai_tro: selectedUser.vai_tro,
+          trang_thai: 0, // Khóa tài khoản
+          chuc_danh: selectedUser.chuc_danh,
+        },
+        currentUser.id,
+        currentUser.ho_ten
+      );
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
+      }
+      await load();
+      closeModal();
+      showSuccess(`Đã khóa tài khoản "${selectedUser.ho_ten}" (bảo lưu lịch sử phụ trách)`);
+    } catch (e: unknown) {
+      setError((e as Error).message || 'Khóa tài khoản thất bại');
     } finally {
       setLoading(false);
     }
@@ -417,19 +465,83 @@ export default function UserManager({ currentUser, onClose }: Props) {
               ))}
             </select>
           </FormField>
-          <FormField label="Mật khẩu ban đầu *">
+          <FormField
+            label="Mật khẩu ban đầu *"
+            action={
+              <button
+                type="button"
+                onClick={() => {
+                  const generated = generateSecurePassword();
+                  setFormMatKhau(generated);
+                  setShowPw(true);
+                  setError('');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#60a5fa',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: 0,
+                }}
+              >
+                ✨ Tạo mật khẩu tạm ngẫu nhiên
+              </button>
+            }
+          >
             <div style={{ position: 'relative' }}>
               <input
                 id="input-create-password"
-                style={styles.input}
+                style={{ ...styles.input, paddingRight: 70 }}
                 type={showPw ? 'text' : 'password'}
                 value={formMatKhau}
                 onChange={(e) => setFormMatKhau(e.target.value)}
-                placeholder="Ít nhất 8 ký tự"
+                placeholder="Ít nhất 8 ký tự (hoa, thường, số, ký hiệu)"
               />
-              <button style={styles.eyeBtn} onClick={() => setShowPw(!showPw)}>{showPw ? '🙈' : '👁️'}</button>
+              <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  style={styles.eyeBtnSimple}
+                  title={showPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  onClick={() => setShowPw(!showPw)}
+                >
+                  {showPw ? '🙈' : '👁️'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!formMatKhau}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: formMatKhau ? 'pointer' : 'default',
+                    opacity: formMatKhau ? 1 : 0.3,
+                    fontSize: 14,
+                    padding: 0,
+                  }}
+                  title={copiedPw ? 'Đã sao chép' : 'Sao chép mật khẩu'}
+                  onClick={async () => {
+                    if (!formMatKhau) return;
+                    try {
+                      if (navigator?.clipboard?.writeText) {
+                        await navigator.clipboard.writeText(formMatKhau);
+                      }
+                      setCopiedPw(true);
+                      setTimeout(() => setCopiedPw(false), 2000);
+                    } catch {}
+                  }}
+                >
+                  {copiedPw ? '✅' : '📋'}
+                </button>
+              </div>
             </div>
-            <div style={styles.hint}>Người dùng sẽ bắt buộc đổi mật khẩu khi đăng nhập lần đầu</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={styles.hint}>Người dùng sẽ bắt buộc đổi mật khẩu khi đăng nhập lần đầu</div>
+              {copiedPw && <span style={{ fontSize: 12, color: '#4ade80', fontWeight: 600 }}>Đã sao chép!</span>}
+            </div>
           </FormField>
           <FormField label="Vai trò">
             <select id="select-create-role" style={styles.select} value={formVaiTro} onChange={(e) => setFormVaiTro(e.target.value)}>
@@ -494,19 +606,82 @@ export default function UserManager({ currentUser, onClose }: Props) {
             <div style={styles.warningBox}>
               ⚠ Mật khẩu cũ sẽ bị vô hiệu hóa ngay lập tức thông qua Cloud Function <code>adminResetPassword</code>. Người dùng sẽ phải dùng mật khẩu mới để đăng nhập và được yêu cầu đổi mật khẩu lần đầu.
             </div>
-            <FormField label="Mật khẩu mới *">
+            <FormField
+              label="Mật khẩu mới *"
+              action={
+                <button
+                  type="button"
+                  onClick={() => {
+                    const generated = generateSecurePassword();
+                    setFormNewPw(generated);
+                    setFormNewPw2(generated);
+                    setShowPw(true);
+                    setError('');
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#fbbf24',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: 0,
+                  }}
+                >
+                  ✨ Tạo mật khẩu tạm ngẫu nhiên
+                </button>
+              }
+            >
               <div style={{ position: 'relative' }}>
                 <input
                   id="input-reset-pw1"
-                  style={styles.input}
+                  style={{ ...styles.input, paddingRight: 70 }}
                   type={showPw ? 'text' : 'password'}
                   value={formNewPw}
                   onChange={(e) => setFormNewPw(e.target.value)}
-                  placeholder="Ít nhất 8 ký tự (hoa, thường, số)"
+                  placeholder="Ít nhất 8 ký tự (hoa, thường, số, ký hiệu)"
                   autoFocus
                 />
-                <button style={styles.eyeBtn} onClick={() => setShowPw(!showPw)}>{showPw ? '🙈' : '👁️'}</button>
+                <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    type="button"
+                    style={styles.eyeBtnSimple}
+                    title={showPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                    onClick={() => setShowPw(!showPw)}
+                  >
+                    {showPw ? '🙈' : '👁️'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!formNewPw}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: formNewPw ? 'pointer' : 'default',
+                      opacity: formNewPw ? 1 : 0.3,
+                      fontSize: 14,
+                      padding: 0,
+                    }}
+                    title={copiedPw ? 'Đã sao chép' : 'Sao chép mật khẩu'}
+                    onClick={async () => {
+                      if (!formNewPw) return;
+                      try {
+                        if (navigator?.clipboard?.writeText) {
+                          await navigator.clipboard.writeText(formNewPw);
+                        }
+                        setCopiedPw(true);
+                        setTimeout(() => setCopiedPw(false), 2000);
+                      } catch {}
+                    }}
+                  >
+                    {copiedPw ? '✅' : '📋'}
+                  </button>
+                </div>
               </div>
+              {copiedPw && <div style={{ fontSize: 12, color: '#4ade80', fontWeight: 600, marginTop: 4 }}>Đã sao chép!</div>}
             </FormField>
             <FormField label="Xác nhận mật khẩu mới *">
               <input
@@ -614,15 +789,57 @@ export default function UserManager({ currentUser, onClose }: Props) {
 
       {/* ── MODAL: Xóa ───────────────────────────────────────────────────── */}
       {modalMode === 'delete' && selectedUser && (
-        <ModalBox title="Xác nhận Xóa Tài khoản" onClose={closeModal} onConfirm={handleDelete} confirmLabel="Xóa tài khoản" loading={loading} error={error} confirmColor="#ef4444">
+        <ModalBox
+          title="Xác nhận Xóa Tài khoản"
+          onClose={closeModal}
+          onConfirm={handleDelete}
+          confirmLabel="Xóa tài khoản"
+          loading={loading}
+          error={error}
+          confirmColor="#ef4444"
+        >
           <div style={styles.warningBox}>
-            ⚠ Thao tác này không thể hoàn tác. Tài khoản sẽ bị xóa khỏi hệ thống.
+            ⚠ Thao tác này không thể hoàn tác. Tài khoản và toàn bộ phân công của cán bộ sẽ bị xóa khỏi hệ thống.
           </div>
           <div style={{ color: '#e2e8f0', marginTop: 12, lineHeight: 1.6 }}>
             Bạn có chắc chắn muốn xóa tài khoản:<br />
             <strong style={{ color: '#f1f5f9', fontSize: 16 }}>"{selectedUser.ho_ten}"</strong>
             <span style={{ color: '#94a3b8' }}> ({selectedUser.ten_dang_nhap})</span>?
           </div>
+
+          {loadingImpact ? (
+            <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 12, fontStyle: 'italic' }}>
+              ⏳ Đang kiểm tra danh sách đơn vị phụ trách...
+            </div>
+          ) : deleteImpactUnits.length > 0 ? (
+            <div style={{ marginTop: 14, padding: 12, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 8 }}>
+              <div style={{ fontWeight: 600, color: '#fca5a5', fontSize: 13, marginBottom: 6 }}>
+                📌 Đồng chí này đang phụ trách {deleteImpactUnits.length} đơn vị:
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 120, overflowY: 'auto', marginBottom: 10 }}>
+                {deleteImpactUnits.map((u) => (
+                  <span key={u.id} style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(248, 113, 113, 0.4)', color: '#fecaca', padding: '3px 8px', borderRadius: 4, fontSize: 11 }}>
+                    {u.ten}
+                  </span>
+                ))}
+              </div>
+              <div style={{ color: '#fed7aa', fontSize: 12, lineHeight: 1.5, marginBottom: 10 }}>
+                💡 <strong>Lưu ý:</strong> Các đơn vị này sẽ chuyển thành <em>Chưa phân công</em>. Với cán bộ nghỉ hoặc chuyển công tác, nên chọn <strong>Khóa tài khoản</strong> để giữ lịch sử phụ trách.
+              </div>
+              <button
+                type="button"
+                style={{ ...styles.btnSecondary, width: '100%', borderColor: '#f59e0b', color: '#fbbf24', fontWeight: 600, fontSize: 12 }}
+                onClick={handleLockInsteadOfDelete}
+                disabled={loading}
+              >
+                🔒 Khóa tài khoản thay vì xóa
+              </button>
+            </div>
+          ) : (
+            <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 12 }}>
+              Cán bộ này hiện không phụ trách đơn vị nào.
+            </div>
+          )}
         </ModalBox>
       )}
     </div>
@@ -630,12 +847,15 @@ export default function UserManager({ currentUser, onClose }: Props) {
 }
 
 // ── Helper Components ─────────────────────────────────────────────────────────
-function FormField({ label, children }: { label: string; children: React.ReactNode }) {
+function FormField({ label, children, action }: { label: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 16 }}>
-      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-        {label}
-      </label>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          {label}
+        </label>
+        {action}
+      </div>
       {children}
     </div>
   );
@@ -961,5 +1181,13 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     fontSize: 16,
     padding: 0,
+  },
+  eyeBtnSimple: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: 16,
+    padding: 0,
+    lineHeight: 1,
   },
 };

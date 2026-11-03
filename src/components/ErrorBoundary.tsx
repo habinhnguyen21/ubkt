@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle, RefreshCw, RotateCcw } from 'lucide-react';
+import { sessionStore } from '../utils/sessionStore';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -35,8 +36,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   handleResetState = () => {
     try {
-      localStorage.removeItem('ubkt_current_user');
-      localStorage.removeItem('ubkt_session_token');
+      sessionStore.clearSession();
       localStorage.removeItem('ubkt_active_tab');
       sessionStorage.clear();
     } catch {

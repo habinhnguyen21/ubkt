@@ -36,6 +36,7 @@ export interface UnitAssigneeInfo {
   userName: string;
   chucDanh?: string;
   isLocked?: boolean;
+  role: 'CHINH' | 'PHOI_HOP';
 }
 
 /**
@@ -53,11 +54,13 @@ export function getAssigneesForUnit(
 
   for (const a of activeAssignments) {
     const matchedUser = (usersList || []).find((u) => u.id === a.user_id);
+    const role = a.don_vi_roles?.[unitId] || 'CHINH';
     result.push({
       userId: a.user_id,
       userName: matchedUser?.ho_ten || a.user_name || 'Cán bộ',
       chucDanh: matchedUser?.chuc_danh,
       isLocked: matchedUser ? matchedUser.trang_thai === 0 : false,
+      role,
     });
   }
   return result;
@@ -142,6 +145,7 @@ export interface AssignmentWarnings {
   orphanUnitsCount: number;
   orphanAssignments: OrphanWarning[];
   overloadedOfficers: { user: User; count: number }[];
+  multiMainUnits: { unit: DonVi; count: number; officerNames: string[] }[];
 }
 
 export interface PhanCongStats {
@@ -250,6 +254,20 @@ export function computePhanCongStats(
     }
   }
 
+  // Đơn vị có nhiều hơn 1 cán bộ phụ trách CHÍNH
+  const multiMainUnits: { unit: DonVi; count: number; officerNames: string[] }[] = [];
+  for (const u of activeUnits) {
+    const assignees = getAssigneesForUnit(u.id, assignments, usersList);
+    const mainAssignees = assignees.filter((a) => a.role === 'CHINH');
+    if (mainAssignees.length >= 2) {
+      multiMainUnits.push({
+        unit: u,
+        count: mainAssignees.length,
+        officerNames: mainAssignees.map((a) => a.userName),
+      });
+    }
+  }
+
   return {
     totalUnits: activeUnits.length,
     assignedCount,
@@ -261,6 +279,7 @@ export function computePhanCongStats(
       orphanUnitsCount: orphanAssignments.length,
       orphanAssignments,
       overloadedOfficers,
+      multiMainUnits,
     },
   };
 }
@@ -273,27 +292,52 @@ export function canModifyAssignments(currentUser: User | null): boolean {
 }
 
 /**
- * Giao thêm một danh sách đơn vị cho cán bộ
+ * Giao thêm một danh sách đơn vị cho cán bộ:
+ * - Khi giao thêm người cho đơn vị đã có người phụ trách: mặc định vai trò là 'PHOI_HOP'.
+ * - Khi giao cho đơn vị chưa có ai: mặc định vai trò là 'CHINH'.
+ * - Dữ liệu cũ không có trường don_vi_roles mặc định là 'CHINH'.
  */
 export function assignUnitsToOfficer(
   assignments: PhanCongDiaBan[],
   userId: string,
   userName: string,
-  unitIds: string[]
+  unitIds: string[],
+  customRoles?: Record<string, 'CHINH' | 'PHOI_HOP'>
 ): PhanCongDiaBan[] {
   if (!unitIds || unitIds.length === 0) return assignments;
   const now = new Date().toISOString();
   let found = false;
 
+  // Xác định các đơn vị đã có cán bộ khác đang phụ trách (active)
+  const unitsWithOtherAssignees = new Set<string>();
+  (assignments || []).forEach((a) => {
+    if (a.user_id !== userId && a.trang_thai !== 'DA_CHUYEN_GIAO') {
+      (a.don_vi_ids || []).forEach((id) => unitsWithOtherAssignees.add(id));
+    }
+  });
+
   const result = (assignments || []).map((a) => {
     if (a.user_id === userId) {
       found = true;
       const existing = new Set(a.don_vi_ids || []);
-      unitIds.forEach((id) => existing.add(id));
+      const roles: Record<string, 'CHINH' | 'PHOI_HOP'> = { ...(a.don_vi_roles || {}) };
+
+      unitIds.forEach((id) => {
+        existing.add(id);
+        if (!roles[id]) {
+          if (customRoles && customRoles[id]) {
+            roles[id] = customRoles[id];
+          } else {
+            roles[id] = unitsWithOtherAssignees.has(id) ? 'PHOI_HOP' : 'CHINH';
+          }
+        }
+      });
+
       return {
         ...a,
         user_name: userName || a.user_name,
         don_vi_ids: Array.from(existing),
+        don_vi_roles: roles,
         updated_at: now,
       };
     }
@@ -301,10 +345,20 @@ export function assignUnitsToOfficer(
   });
 
   if (!found) {
+    const roles: Record<string, 'CHINH' | 'PHOI_HOP'> = {};
+    unitIds.forEach((id) => {
+      if (customRoles && customRoles[id]) {
+        roles[id] = customRoles[id];
+      } else {
+        roles[id] = unitsWithOtherAssignees.has(id) ? 'PHOI_HOP' : 'CHINH';
+      }
+    });
+
     result.push({
       user_id: userId,
       user_name: userName,
       don_vi_ids: Array.from(new Set(unitIds)),
+      don_vi_roles: roles,
       updated_at: now,
     });
   }
@@ -323,14 +377,150 @@ export function unassignUnitFromOfficer(
   const now = new Date().toISOString();
   return (assignments || []).map((a) => {
     if (a.user_id === userId) {
+      const updatedRoles = { ...(a.don_vi_roles || {}) };
+      delete updatedRoles[unitId];
       return {
         ...a,
         don_vi_ids: (a.don_vi_ids || []).filter((id) => id !== unitId),
+        don_vi_roles: Object.keys(updatedRoles).length > 0 ? updatedRoles : undefined,
         updated_at: now,
       };
     }
     return a;
   });
+}
+
+/**
+ * Đổi vai trò phụ trách của cán bộ trên một đơn vị ('CHINH' <-> 'PHOI_HOP')
+ */
+export function toggleOfficerUnitRole(
+  assignments: PhanCongDiaBan[],
+  userId: string,
+  unitId: string,
+  targetRole?: 'CHINH' | 'PHOI_HOP'
+): PhanCongDiaBan[] {
+  const now = new Date().toISOString();
+  return (assignments || []).map((a) => {
+    if (a.user_id === userId) {
+      const currentRole = a.don_vi_roles?.[unitId] || 'CHINH';
+      const nextRole = targetRole || (currentRole === 'CHINH' ? 'PHOI_HOP' : 'CHINH');
+      return {
+        ...a,
+        don_vi_roles: {
+          ...(a.don_vi_roles || {}),
+          [unitId]: nextRole,
+        },
+        updated_at: now,
+      };
+    }
+    return a;
+  });
+}
+
+export interface TransferAllOfficersOptions {
+  ngayHieuLuc?: string;
+  soQuyetDinh?: string;
+  ghiChu?: string;
+}
+
+/**
+ * Chuyển giao toàn bộ đơn vị của cán bộ A sang cán bộ B:
+ * - Bản phân công của A: chuyển trang_thai = 'DA_CHUYEN_GIAO', đặt den_ngay, xóa danh sách đơn vị hiện tại (nhưng giữ lịch sử bản ghi).
+ * - Bản phân công của B: gộp thêm các đơn vị từ A (không trùng lặp), bảo lưu vai trò.
+ */
+export function transferAllUnitsBetweenOfficers(
+  assignments: PhanCongDiaBan[],
+  fromUserId: string,
+  targetUser: User,
+  options?: TransferAllOfficersOptions
+): PhanCongDiaBan[] {
+  const source = (assignments || []).find((a) => a.user_id === fromUserId && a.trang_thai !== 'DA_CHUYEN_GIAO');
+  if (!source || !Array.isArray(source.don_vi_ids) || source.don_vi_ids.length === 0) {
+    return assignments || [];
+  }
+
+  const sourceUnits = source.don_vi_ids;
+  const sourceRoles = source.don_vi_roles || {};
+  const now = new Date().toISOString();
+  const effectiveDate = options?.ngayHieuLuc || now.slice(0, 10);
+  const decisionNo = options?.soQuyetDinh || source.so_quyet_dinh || null;
+
+  let targetFound = false;
+
+  const result: PhanCongDiaBan[] = (assignments || []).map((a) => {
+    // 1. Cán bộ nguồn (A): chuyển sang DA_CHUYEN_GIAO, gắn den_ngay, giải phóng don_vi_ids
+    if (a.user_id === fromUserId && a.trang_thai !== 'DA_CHUYEN_GIAO') {
+      const existingHistory = Array.isArray(a.lich_su_chuyen_giao) ? a.lich_su_chuyen_giao : [];
+      const historyEntry = {
+        id: `cg-${Date.now()}`,
+        ngay_chuyen_giao: effectiveDate,
+        to_user_id: targetUser.id,
+        to_user_name: targetUser.ho_ten,
+        so_quyet_dinh: decisionNo,
+        don_vi_ids: [...sourceUnits],
+        ghi_chu: options?.ghiChu || `Đã chuyển giao toàn bộ đơn vị cho Đ/c ${targetUser.ho_ten}`,
+      };
+
+      return {
+        ...a,
+        don_vi_ids: [],
+        trang_thai: 'DA_CHUYEN_GIAO',
+        den_ngay: effectiveDate,
+        so_quyet_dinh: decisionNo || a.so_quyet_dinh,
+        lich_su_chuyen_giao: [...existingHistory, historyEntry],
+        ghi_chu: options?.ghiChu || `Đã chuyển giao toàn bộ đơn vị cho Đ/c ${targetUser.ho_ten}`,
+        updated_at: now,
+      };
+    }
+
+    // 2. Cán bộ đích (B): gộp các đơn vị không trùng lặp và bảo lưu vai trò
+    if (a.user_id === targetUser.id) {
+      targetFound = true;
+      const mergedIds = Array.from(new Set([...(a.don_vi_ids || []), ...sourceUnits]));
+      const mergedRoles: Record<string, 'CHINH' | 'PHOI_HOP'> = { ...(a.don_vi_roles || {}) };
+
+      sourceUnits.forEach((uid) => {
+        if (!mergedRoles[uid]) {
+          mergedRoles[uid] = sourceRoles[uid] || 'CHINH';
+        }
+      });
+
+      return {
+        ...a,
+        user_name: targetUser.ho_ten,
+        don_vi_ids: mergedIds,
+        don_vi_roles: mergedRoles,
+        trang_thai: 'DANG_PHU_TRACH',
+        so_quyet_dinh: decisionNo || a.so_quyet_dinh,
+        tu_ngay: a.tu_ngay || effectiveDate,
+        updated_at: now,
+      };
+    }
+
+    return a;
+  });
+
+  // Nếu cán bộ đích chưa có bản ghi phân công nào trong danh sách
+  if (!targetFound) {
+    const targetRoles: Record<string, 'CHINH' | 'PHOI_HOP'> = {};
+    sourceUnits.forEach((uid) => {
+      targetRoles[uid] = sourceRoles[uid] || 'CHINH';
+    });
+
+    result.push({
+      id: targetUser.id,
+      user_id: targetUser.id,
+      user_name: targetUser.ho_ten,
+      don_vi_ids: [...sourceUnits],
+      don_vi_roles: targetRoles,
+      trang_thai: 'DANG_PHU_TRACH',
+      tu_ngay: effectiveDate,
+      so_quyet_dinh: decisionNo,
+      updated_at: now,
+    });
+  }
+
+  return result;
 }
 
 /**

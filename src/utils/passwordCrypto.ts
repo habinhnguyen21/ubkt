@@ -147,6 +147,53 @@ export function validatePasswordPolicy(password: string): string | null {
 }
 
 /**
+ * Tạo mật khẩu tạm ngẫu nhiên an toàn (12 ký tự gồm chữ hoa, chữ thường, số và ký tự đặc biệt).
+ * Sử dụng crypto.getRandomValues để sinh ngẫu nhiên mạnh và bảo đảm thỏa mãn validatePasswordPolicy.
+ */
+export function generateSecurePassword(length = 12): string {
+  const UPPER = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const LOWER = 'abcdefghijkmnpqrstuvwxyz';
+  const DIGITS = '23456789';
+  const SYMBOLS = '@#$%&*!~?=+-';
+  const ALL = UPPER + LOWER + DIGITS + SYMBOLS;
+
+  const getRandomInt = (max: number): number => {
+    if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
+      const arr = new Uint32Array(1);
+      globalThis.crypto.getRandomValues(arr);
+      return arr[0] % max;
+    }
+    return Math.floor(Math.random() * max);
+  };
+
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const chars: string[] = [
+      UPPER[getRandomInt(UPPER.length)],
+      LOWER[getRandomInt(LOWER.length)],
+      DIGITS[getRandomInt(DIGITS.length)],
+      SYMBOLS[getRandomInt(SYMBOLS.length)],
+    ];
+
+    while (chars.length < length) {
+      chars.push(ALL[getRandomInt(ALL.length)]);
+    }
+
+    // Fisher-Yates shuffle
+    for (let i = chars.length - 1; i > 0; i--) {
+      const j = getRandomInt(i + 1);
+      [chars[i], chars[j]] = [chars[j], chars[i]];
+    }
+
+    const password = chars.join('');
+    if (!validatePasswordPolicy(password)) {
+      return password;
+    }
+  }
+
+  return 'Ubkt@2026!Pass';
+}
+
+/**
  * Loại bỏ hoàn toàn mọi trường mật khẩu (mat_khau, mat_khau_hash, password, passwordHash)
  * trước khi lưu hoặc đồng bộ lên Firestore Cloud (xác thực do Firebase Authentication đảm nhiệm).
  */

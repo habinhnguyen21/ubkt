@@ -11,6 +11,7 @@ import {
 import { db as firestoreDb, auth } from './firebase';
 import { isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import { sanitizeUserForCloud } from '../utils/passwordCrypto';
+import { sessionStore } from '../utils/sessionStore';
 import type {
   DonVi,
   ChuongTrinhKtGs,
@@ -169,14 +170,7 @@ export const cloudSyncService = {
       await setDoc(docRef, cleanData, { merge: true });
       this.clearDirty(collectionName, String(id));
       // Xoá tombstone nếu bản ghi được tạo lại (chỉ ADMIN có quyền ghi/xóa tombstones)
-      const isAdmin = (() => {
-        try {
-          const raw = localStorage.getItem('ubkt_current_user');
-          return raw ? JSON.parse(raw)?.vai_tro === 'ADMIN' : false;
-        } catch {
-          return false;
-        }
-      })();
+      const isAdmin = sessionStore.getCurrentUser()?.vai_tro === 'ADMIN';
       if (isAdmin) {
         const tombRef = doc(firestoreDb, 'tombstones', String(id));
         deleteDoc(tombRef).catch(() => {});
@@ -195,14 +189,7 @@ export const cloudSyncService = {
         this.markDirty(collectionName, String(id), undefined, 'delete');
         return;
       }
-      const isAdmin = (() => {
-        try {
-          const raw = localStorage.getItem('ubkt_current_user');
-          return raw ? JSON.parse(raw)?.vai_tro === 'ADMIN' : false;
-        } catch {
-          return false;
-        }
-      })();
+      const isAdmin = sessionStore.getCurrentUser()?.vai_tro === 'ADMIN';
       if (isAdmin) {
         // Ghi tombstone vào Firestore trước để các máy khác biết và không bao giờ đẩy lại
         const tombRef = doc(firestoreDb, 'tombstones', String(id));
@@ -298,14 +285,7 @@ export const cloudSyncService = {
         }
       };
 
-      const isAdminUser = (() => {
-        try {
-          const raw = localStorage.getItem('ubkt_current_user');
-          return raw ? JSON.parse(raw)?.vai_tro === 'ADMIN' : false;
-        } catch {
-          return false;
-        }
-      })();
+      const isAdminUser = sessionStore.getCurrentUser()?.vai_tro === 'ADMIN';
 
       if (isAdminUser) {
         onProgress?.(`Đang đẩy ${donViList.length} cơ cấu tổ chức lên Cloud...`);
@@ -406,14 +386,7 @@ export const cloudSyncService = {
       }
       onProgress?.('Đang kết nối Firestore Cloud...');
 
-      const isAdminPull = (() => {
-        try {
-          const raw = localStorage.getItem('ubkt_current_user');
-          return raw ? JSON.parse(raw)?.vai_tro === 'ADMIN' : false;
-        } catch {
-          return false;
-        }
-      })();
+      const isAdminPull = sessionStore.getCurrentUser()?.vai_tro === 'ADMIN';
 
       const [
         donViSnap,
@@ -791,14 +764,7 @@ export const cloudSyncService = {
     try {
       onProgress?.('Đang kết nối Firestore Cloud...');
 
-      const isAdminSync = (() => {
-        try {
-          const raw = localStorage.getItem('ubkt_current_user');
-          return raw ? JSON.parse(raw)?.vai_tro === 'ADMIN' : false;
-        } catch {
-          return false;
-        }
-      })();
+      const isAdminSync = sessionStore.getCurrentUser()?.vai_tro === 'ADMIN';
 
       const [
         donViSnap,
@@ -1215,14 +1181,7 @@ export const cloudSyncService = {
         }
       });
       const cloudPcKeys = new Set(cloudPhanCong.map((p) => p.user_id || p.id));
-      const isAdminUser = (() => {
-        try {
-          const raw = localStorage.getItem('ubkt_current_user');
-          return raw ? JSON.parse(raw)?.vai_tro === 'ADMIN' : false;
-        } catch {
-          return false;
-        }
-      })();
+      const isAdminUser = sessionStore.getCurrentUser()?.vai_tro === 'ADMIN';
 
       if (isAdminUser) {
         currentPhanCong.forEach((p) => {
@@ -1265,14 +1224,7 @@ export const cloudSyncService = {
       // Đẩy các mục mới ở máy này lên Cloud (lọc theo quyền hạn của vai trò hiện tại để không vi phạm Firestore Rules)
       const filteredItemsToPush = itemsToPushToCloud.filter((item) => {
         if (isAdminSync) return true;
-        const userRole = (() => {
-          try {
-            const raw = localStorage.getItem('ubkt_current_user');
-            return raw ? JSON.parse(raw)?.vai_tro : null;
-          } catch {
-            return null;
-          }
-        })();
+        const userRole = sessionStore.getCurrentUser()?.vai_tro || null;
         if (userRole !== 'BIEN_TAP') return false;
         const adminOnlyColls = new Set(['don_vi', 'users', 'phan_cong_dia_ban', 'system_config', 'tombstones']);
         if (adminOnlyColls.has(item.collection)) return false;

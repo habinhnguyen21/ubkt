@@ -14,6 +14,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { cloudSyncService } from '../services/cloudSyncService';
+import { sessionStore } from '../utils/sessionStore';
 
 interface CloudSyncModalProps {
   isOpen: boolean;
@@ -22,16 +23,7 @@ interface CloudSyncModalProps {
 }
 
 export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose, onSynced }) => {
-  const isAdmin = (() => {
-    try {
-      const raw = localStorage.getItem('ubkt_current_user');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        return parsed?.vai_tro === 'ADMIN';
-      }
-    } catch {}
-    return false;
-  })();
+  const isAdmin = sessionStore.getCurrentUser()?.vai_tro === 'ADMIN';
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
   const [lastSynced, setLastSynced] = useState<string | null>(null);
