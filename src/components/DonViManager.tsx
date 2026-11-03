@@ -21,17 +21,15 @@ import {
   DEFAULT_LOAI_HINH_LIST,
   exportUnitsToCsv,
 } from '../services/donViService';
+import { PhanCongManager } from './phancong/PhanCongManager';
 import {
   Building2,
   FolderTree,
   Plus,
-  Search,
   ShieldAlert,
   CheckCircle2,
   X,
   Users,
-  Briefcase,
-  AlertCircle,
   UserPlus,
   RotateCw,
   History,
@@ -79,7 +77,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
 
   // Khóa chặt theo mode phân hệ: 'to_chuc' (Cơ cấu tổ chức) hoặc 'phan_cong' (Phân công quản lý)
   const currentMode = mode || initialTab || 'to_chuc';
-  const activeTab: 'to_chuc' | 'phan_cong' = currentMode === 'phan_cong' && isAdmin ? 'phan_cong' : 'to_chuc';
+  const activeTab: 'to_chuc' | 'phan_cong' = currentMode === 'phan_cong' ? 'phan_cong' : 'to_chuc';
 
   // Dữ liệu đơn vị
   const [treeData, setTreeData] = useState<DonViTreeItem[]>([]);
@@ -132,7 +130,6 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
   // ──────────────────────────────────────────────────────────────────────────
   const [usersList, setUsersList] = useState<User[]>([]);
   const [selectedAssignUserId, setSelectedAssignUserId] = useState<string>('');
-  const [assignSearchUnit, setAssignSearchUnit] = useState('');
   const [assignSuccess, setAssignSuccess] = useState('');
 
   const [assignments, setAssignments] = useState<PhanCongDiaBan[]>(() => {
@@ -196,7 +193,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
         api.getDonViTree(),
         api.getAllDonVi(),
         api.getAllUsers(),
-        isAdmin ? api.getPhanCongDiaBan() : Promise.resolve([]),
+        api.getPhanCongDiaBan(),
         api.getDiaBanRecords(),
       ]);
       const activeInputSnap = captureActiveInput();
@@ -728,61 +725,6 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
     window.dispatchEvent(new CustomEvent('ubkt_assignments_updated', { detail: sanitized }));
   };
 
-  const handleToggleAssignUnit = (unitId: string) => {
-    if (!selectedAssignUserId) return;
-
-    const selectedUserObj = usersList.find((u) => u.id === selectedAssignUserId);
-    const userName = selectedUserObj ? selectedUserObj.ho_ten : 'Cán bộ';
-
-    const currentAssign = assignments.find((a) => a.user_id === selectedAssignUserId);
-    const isCurrentlyMine = Boolean(currentAssign?.don_vi_ids?.includes(unitId));
-
-    let updatedAssignments: PhanCongDiaBan[];
-
-    if (isCurrentlyMine) {
-      updatedAssignments = assignments.map((a) => {
-        if (a.user_id === selectedAssignUserId) {
-          return {
-            ...a,
-            don_vi_ids: (a.don_vi_ids || []).filter((id) => id !== unitId),
-            updated_at: new Date().toISOString(),
-          };
-        }
-        return a;
-      });
-      setAssignSuccess(`Đã bỏ phân công đơn vị khỏi đồng chí ${userName}`);
-    } else {
-      let foundUserRecord = false;
-      updatedAssignments = assignments.map((a) => {
-        if (a.user_id === selectedAssignUserId) {
-          foundUserRecord = true;
-          const currentUnits = (a.don_vi_ids || []).filter((id) => id !== unitId);
-          return {
-            ...a,
-            user_name: userName,
-            don_vi_ids: [...currentUnits, unitId],
-            updated_at: new Date().toISOString(),
-          };
-        }
-        return a;
-      });
-
-      if (!foundUserRecord) {
-        updatedAssignments.push({
-          user_id: selectedAssignUserId,
-          user_name: userName,
-          don_vi_ids: [unitId],
-          updated_at: new Date().toISOString(),
-        });
-      }
-
-      setAssignSuccess(`Đã phân công đơn vị cho đồng chí ${userName}`);
-    }
-
-    saveAssignmentsToStorage(updatedAssignments);
-    setTimeout(() => setAssignSuccess(''), 3000);
-  };
-
   const handleOpenEditCanCuInDonVi = (entry?: LichSuPhuTrachDiaBan | null) => {
     if (entry) {
       setEditingCanCuEntry(entry);
@@ -1182,288 +1124,37 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
       )}
 
       {/* ──────────────────────────────────────────────────────────────────────── */}
-      {/* TAB 2: PHÂN CÔNG QUẢN LÝ (CHỈ DÀNH RIÊNG CHO QUẢN TRỊ VIÊN ADMIN)        */}
+      {/* TAB 2: PHÂN CÔNG QUẢN LÝ                                                 */}
       {/* ──────────────────────────────────────────────────────────────────────── */}
-      {isAdmin && activeTab === 'phan_cong' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="p-4 border-b border-slate-200 bg-slate-50/60">
-            <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
-              <Briefcase className="w-5 h-5 text-blue-700" />
-              <span>Phân công Phụ trách & Quản lý Chi, Đảng bộ</span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Phân chia quyền theo dõi, kiểm tra, giám sát và quản lý hồ sơ địa bàn của từng chi,
-              đảng bộ cho cán bộ cơ quan theo nhiệm vụ được phân công
-            </p>
-          </div>
-
+      {activeTab === 'phan_cong' && (
+        <>
           {assignSuccess && (
-            <div className="m-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs font-semibold flex items-center space-x-2">
+            <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center space-x-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
               <span>{assignSuccess}</span>
             </div>
           )}
-
-          <div className="grid grid-cols-1 md:grid-cols-12 divide-y md:divide-y-0 md:divide-x divide-slate-200 min-h-[480px]">
-            {/* Cột trái: Danh sách cán bộ */}
-            <div className="md:col-span-4 p-4 bg-slate-50/40 space-y-2">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">
-                  Cán bộ / Tài khoản ({usersList.length})
-                </p>
-                <div className="flex items-center space-x-1">
-                  <button
-                    type="button"
-                    onClick={() => reloadUsers()}
-                    className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-md transition cursor-pointer"
-                    title="Làm mới danh sách cán bộ"
-                  >
-                    <RotateCw className="w-3.5 h-3.5" />
-                  </button>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNewTenDangNhap('');
-                        setNewHoTen('');
-                        setNewMatKhau('12345678');
-                        setUserError(null);
-                        setIsCreateUserModalOpen(true);
-                      }}
-                      className="px-2.5 py-1 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-md transition flex items-center space-x-1 cursor-pointer shadow-xs"
-                      title="Tạo tài khoản cán bộ mới để phân công"
-                    >
-                      <UserPlus className="w-3.5 h-3.5" />
-                      <span>+ Thêm cán bộ</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {usersList.length === 0 ? (
-                <div className="text-center py-8 text-slate-400">
-                  <Users className="w-8 h-8 mx-auto mb-1 text-slate-300" />
-                  <p className="text-xs">Chưa có tài khoản nào</p>
-                </div>
-              ) : (
-                usersList.map((usr) => {
-                  const assign = assignments.find((a) => a.user_id === usr.id);
-                  const count = assign?.don_vi_ids?.length || 0;
-                  const isSelected = selectedAssignUserId === usr.id;
-
-                  return (
-                    <div
-                      key={usr.id}
-                      onClick={() => setSelectedAssignUserId(usr.id)}
-                      className={`p-3 rounded-xl border transition cursor-pointer flex items-center justify-between ${
-                        isSelected
-                          ? 'bg-blue-50 border-blue-300 shadow-xs ring-1 ring-blue-300'
-                          : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                      }`}
-                    >
-                      <div>
-                        <p
-                          className={`text-sm font-bold ${
-                            isSelected ? 'text-blue-900' : 'text-slate-800'
-                          }`}
-                        >
-                          {usr.ho_ten}
-                        </p>
-                        <p className="text-xs text-slate-500 font-mono">@{usr.ten_dang_nhap}</p>
-                        <div className="flex items-center flex-wrap gap-1 mt-1">
-                          {usr.chuc_danh && (
-                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                              {usr.chuc_danh}
-                            </span>
-                          )}
-                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600">
-                            {usr.vai_tro === 'ADMIN'
-                              ? 'Quản trị viên'
-                              : usr.vai_tro === 'BIEN_TAP'
-                              ? 'Biên tập viên'
-                              : 'Chỉ xem'}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <span
-                          className={`inline-block px-2.5 py-1 rounded-full text-xs font-bold ${
-                            count > 0
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-amber-100 text-amber-800 border border-amber-200'
-                          }`}
-                        >
-                          {count > 0 ? `${count} đơn vị` : 'Chưa giao'}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Cột phải: Chọn đơn vị phân công */}
-            <div className="md:col-span-8 p-4 flex flex-col justify-between">
-              <div>
-                {(() => {
-                  const curUser = usersList.find((u) => u.id === selectedAssignUserId);
-                  const curAssign = assignments.find((a) => a.user_id === selectedAssignUserId);
-                  const curCount = curAssign?.don_vi_ids?.length || 0;
-
-                  return (
-                    <div className="mb-4 pb-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div>
-                        <h4 className="text-base font-bold text-slate-900 flex items-center flex-wrap gap-2">
-                          <span>Phân công cho:</span>
-                          <span className="text-blue-700">{curUser?.ho_ten || 'Chọn cán bộ'}</span>
-                          {curUser?.chuc_danh && (
-                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200">
-                              {curUser.chuc_danh}
-                            </span>
-                          )}
-                        </h4>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          Tích chọn các tổ chức Đảng trực tiếp theo dõi, hướng dẫn và quản lý hồ sơ
-                        </p>
-                      </div>
-
-                      <span className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-800 font-bold text-xs border border-blue-200 shrink-0">
-                        Đang phụ trách: {curCount} đơn vị
-                      </span>
-                    </div>
-                  );
-                })()}
-
-                {/* Hướng dẫn nghiệp vụ phân công */}
-                <div className="mb-3 px-3.5 py-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-start space-x-2">
-                  <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-                  <div className="leading-relaxed">
-                    <strong>Nghiệp vụ phân công:</strong> Tích chọn tổ chức để phân công cho đồng chí đang chọn. Hệ thống liên kết dữ liệu theo mã định danh ổn định của tổ chức và cán bộ, hỗ trợ phân công nhiều cán bộ cùng phụ trách một địa bàn theo yêu cầu công tác.
-                  </div>
-                </div>
-
-                {/* Tìm kiếm */}
-                <div className="relative mb-3">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    value={assignSearchUnit}
-                    onChange={(e) => setAssignSearchUnit(e.target.value)}
-                    placeholder="Tìm chi bộ / đảng bộ để phân công..."
-                    className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                  />
-                </div>
-
-                {/* Danh sách checkbox đơn vị */}
-                <div className="max-h-[380px] overflow-y-auto space-y-1.5 pr-1">
-                  {allDonVi
-                    .filter((d) => !d.deleted_at)
-                    .filter(
-                      (d) =>
-                        !assignSearchUnit ||
-                        d.ten.toLowerCase().includes(assignSearchUnit.toLowerCase()),
-                    )
-                    .map((d) => {
-                      const curAssign = assignments.find((a) => a.user_id === selectedAssignUserId);
-                      const isChecked = Boolean(curAssign?.don_vi_ids?.includes(d.id));
-                      const otherAssigns = assignments.filter(
-                        (a) => a.user_id !== selectedAssignUserId && a.don_vi_ids?.includes(d.id),
-                      );
-
-                      return (
-                        <label
-                          key={d.id}
-                          className={`flex items-center justify-between p-2.5 rounded-lg border transition cursor-pointer ${
-                            isChecked
-                              ? 'bg-blue-50/60 border-blue-300'
-                              : otherAssigns.length > 0
-                              ? 'bg-amber-50/30 border-amber-200 hover:bg-amber-50/60'
-                              : 'bg-white border-slate-200 hover:bg-slate-50'
-                          }`}
-                        >
-                          <div className="flex items-center space-x-3">
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => handleToggleAssignUnit(d.id)}
-                              disabled={!canEdit}
-                              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-600 cursor-pointer"
-                            />
-                            <div>
-                              <span className="text-xs font-bold text-slate-800">{d.ten}</span>
-                              <div className="flex items-center space-x-2 mt-0.5">
-                                {d.ma && (
-                                  <span className="text-[11px] font-mono font-bold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">
-                                    {d.ma}
-                                  </span>
-                                )}
-                                <span className="text-[11px] text-slate-500 font-mono">
-                                  #{d.thu_tu}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center space-x-2">
-                            {(() => {
-                              const matchRec = diaBanRecords.find((rec) => rec.id === d.id);
-                              const historyCount = matchRec?.lich_su_phu_trach?.length || 0;
-                              return (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    setHistoryTargetUnit({
-                                      id: d.id,
-                                      ten: d.ten,
-                                      record: matchRec,
-                                    });
-                                  }}
-                                  className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition cursor-pointer"
-                                  title="Xem lịch sử các thời kỳ cán bộ phụ trách đơn vị này"
-                                >
-                                  <History className="w-3 h-3 text-indigo-600" />
-                                  <span>{historyCount > 1 ? `${historyCount} đời cán bộ` : 'Lịch sử'}</span>
-                                </button>
-                              );
-                            })()}
-
-                            {otherAssigns.length > 0 && !isChecked && (
-                              <span
-                                className="text-[11px] font-medium text-amber-800 bg-amber-100/70 hover:bg-amber-200/80 px-2.5 py-1 rounded-md border border-amber-300 flex items-center space-x-1 transition"
-                                title="Đơn vị đang được phân công"
-                              >
-                                <span>
-                                  Đang giao: <strong>{otherAssigns.map((a) => a.user_name).join(', ')}</strong>
-                                </span>
-                              </span>
-                            )}
-                            {isChecked && (
-                              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200 flex items-center space-x-1">
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>
-                                  {otherAssigns.length > 0
-                                    ? `Đang phụ trách (cùng đ/c ${otherAssigns.map((a) => a.user_name).join(', ')})`
-                                    : 'Đang phụ trách'}
-                                </span>
-                              </span>
-                            )}
-                            {!isChecked && otherAssigns.length === 0 && (
-                              <span className="text-[11px] text-slate-400 italic">
-                                Chưa phân công
-                              </span>
-                            )}
-                          </div>
-                        </label>
-                      );
-                    })}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+          <PhanCongManager
+          currentUser={user}
+          allDonVi={allDonVi}
+          usersList={usersList}
+          assignments={assignments}
+          diaBanRecords={diaBanRecords}
+          onSaveAssignments={saveAssignmentsToStorage}
+          onReloadUsers={reloadUsers}
+          onOpenCreateUserModal={() => {
+            setNewTenDangNhap('');
+            setNewHoTen('');
+            setNewMatKhau('12345678');
+            setUserError(null);
+            setIsCreateUserModalOpen(true);
+          }}
+          onOpenHistoryModal={(unit) => {
+            setHistoryTargetUnit(unit);
+          }}
+          onOpenEditCanCuModal={handleOpenEditCanCuInDonVi}
+        />
+        </>
       )}
 
       {/* ──────────────────────────────────────────────────────────────────────── */}
