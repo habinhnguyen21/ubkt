@@ -100,7 +100,7 @@ describe('diaBanSync - Đồng bộ cán bộ phụ trách trên hồ sơ địa
     expect(result.lich_su_phu_trach?.[0].den_ngay).toBe('03/11/2026');
   });
 
-  it('3. Cán bộ đã bị xóa khỏi hệ thống: tự động đặt về Chưa phân công', () => {
+  it('3. Cán bộ đã bị xóa khỏi hệ thống: tự động đặt về Chưa phân công khi usersComplete = true', () => {
     const recordWithDeletedUser: DiaBanRecord = {
       ...baseRecord,
       can_bo_phu_trach_id: 'mock-deleted-user',
@@ -110,7 +110,13 @@ describe('diaBanSync - Đồng bộ cán bộ phụ trách trên hồ sơ địa
     };
 
     const assignments: PhanCongDiaBan[] = [];
-    const result = deriveOfficerFields(recordWithDeletedUser, assignments, mockUsers, new Date('2026-11-03'));
+    const result = deriveOfficerFields(
+      recordWithDeletedUser,
+      assignments,
+      mockUsers,
+      new Date('2026-11-03'),
+      { usersComplete: true }
+    );
     expect(result.can_bo_phu_trach_id).toBeUndefined();
     expect(result.can_bo_phu_trach_ten).toBe('Chưa phân công');
     expect(result.can_bo_chuc_vu).toBe('');
@@ -276,6 +282,265 @@ describe('diaBanSync - Đồng bộ cán bộ phụ trách trên hồ sơ địa
     // Cán bộ chưa có phân công nào
     const impact3 = getUserAssignmentImpact('u-none', assignments, mockDonViList);
     expect(impact3).toEqual([]);
+  });
+
+  it('11. (a) usersComplete=false, users chỉ có 1 người: hồ sơ của cán bộ khác KHÔNG đổi, lịch sử không bị đóng', () => {
+    const otherOfficerRecord: DiaBanRecord = {
+      ...baseRecord,
+      id: 'dv-other',
+      can_bo_phu_trach_id: 'u-other-officer',
+      can_bo_phu_trach_ten: 'Đ/c Trần Thị B',
+      can_bo_chuc_vu: 'Phó Chủ nhiệm UBKT',
+      can_bo_phu_trach_ids: ['u-other-officer'],
+      lich_su_phu_trach: [
+        {
+          id: 'ls-1',
+          can_bo_id: 'u-other-officer',
+          can_bo_ten: 'Đ/c Trần Thị B',
+          can_bo_chuc_vu: 'Phó Chủ nhiệm UBKT',
+          tu_ngay: '01/01/2026',
+          den_ngay: null,
+          van_ban_phan_cong: 'QĐ 01',
+          created_at: '2026-01-01',
+        },
+      ],
+    };
+
+    // Phân công có u-other-officer phụ trách dv-other
+    const assignments: PhanCongDiaBan[] = [
+      {
+        id: 'pc-other',
+        user_id: 'u-other-officer',
+        user_name: 'Trần Thị B',
+        don_vi_ids: ['dv-other'],
+        trang_thai: 'DANG_PHU_TRACH',
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    // Người dùng hiện tại chỉ là u-bientap, users chỉ có 1 người duy nhất!
+    const singleUserList: User[] = [
+      {
+        id: 'u-bientap',
+        ten_dang_nhap: 'bientap',
+        ho_ten: 'Nguyễn Văn Biên Tập',
+        vai_tro: 'BIEN_TAP',
+        trang_thai: 1,
+        must_change_password: false,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    const result = deriveOfficerFields(
+      otherOfficerRecord,
+      assignments,
+      singleUserList,
+      new Date('2026-11-04'),
+      { usersComplete: false }
+    );
+
+    // Cán bộ u-other-officer KHÔNG bị xóa, thông tin giữ nguyên
+    expect(result.can_bo_phu_trach_id).toBe('u-other-officer');
+    expect(result.can_bo_phu_trach_ten).toBe('Đ/c Trần Thị B');
+    expect(result.can_bo_chuc_vu).toBe('Phó Chủ nhiệm UBKT');
+    expect(result.can_bo_phu_trach_ids).toEqual(['u-other-officer']);
+    // Lịch sử phụ trách KHÔNG bị đóng den_ngay
+    expect(result.lich_su_phu_trach?.length).toBe(1);
+    expect(result.lich_su_phu_trach?.[0].den_ngay).toBeNull();
+  });
+
+  it('12. (b) usersComplete=false nhưng user đó có trong users và bị khóa (trang_thai = 0): hồ sơ về Chưa phân công', () => {
+    const lockedOfficerRecord: DiaBanRecord = {
+      ...baseRecord,
+      id: 'dv-locked',
+      can_bo_phu_trach_id: 'u-locked-user',
+      can_bo_phu_trach_ten: 'Đ/c Người Bị Khóa',
+      can_bo_chuc_vu: 'Chuyên viên',
+      can_bo_phu_trach_ids: ['u-locked-user'],
+      lich_su_phu_trach: [
+        {
+          id: 'ls-locked',
+          can_bo_id: 'u-locked-user',
+          can_bo_ten: 'Đ/c Người Bị Khóa',
+          can_bo_chuc_vu: 'Chuyên viên',
+          tu_ngay: '01/01/2026',
+          den_ngay: null,
+          van_ban_phan_cong: 'QĐ 02',
+          created_at: '2026-01-01',
+        },
+      ],
+    };
+
+    const assignments: PhanCongDiaBan[] = [
+      {
+        id: 'pc-locked',
+        user_id: 'u-locked-user',
+        user_name: 'Người Bị Khóa',
+        don_vi_ids: ['dv-locked'],
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    const users: User[] = [
+      {
+        id: 'u-locked-user',
+        ten_dang_nhap: 'locked',
+        ho_ten: 'Người Bị Khóa',
+        vai_tro: 'BIEN_TAP',
+        trang_thai: 0, // ĐÃ BỊ KHÓA
+        must_change_password: false,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    const result = deriveOfficerFields(
+      lockedOfficerRecord,
+      assignments,
+      users,
+      new Date('2026-11-04'),
+      { usersComplete: false }
+    );
+
+    expect(result.can_bo_phu_trach_id).toBeUndefined();
+    expect(result.can_bo_phu_trach_ten).toBe('Chưa phân công');
+    expect(result.can_bo_chuc_vu).toBe('');
+    expect(result.lich_su_phu_trach?.[0].den_ngay).toBe('04/11/2026');
+  });
+
+  it('13. (c) usersComplete=true, cán bộ đã xóa khỏi hệ thống: về Chưa phân công và đóng lịch sử', () => {
+    const deletedOfficerRecord: DiaBanRecord = {
+      ...baseRecord,
+      id: 'dv-del',
+      can_bo_phu_trach_id: 'u-ghost',
+      can_bo_phu_trach_ten: 'Đ/c Người Đã Xóa',
+      can_bo_chuc_vu: 'Chuyên viên',
+      can_bo_phu_trach_ids: ['u-ghost'],
+      lich_su_phu_trach: [
+        {
+          id: 'ls-ghost',
+          can_bo_id: 'u-ghost',
+          can_bo_ten: 'Đ/c Người Đã Xóa',
+          can_bo_chuc_vu: 'Chuyên viên',
+          tu_ngay: '01/01/2026',
+          den_ngay: null,
+          van_ban_phan_cong: 'QĐ 03',
+          created_at: '2026-01-01',
+        },
+      ],
+    };
+
+    // assignments có chứa u-ghost nhưng users không có u-ghost
+    const assignments: PhanCongDiaBan[] = [
+      {
+        id: 'pc-ghost',
+        user_id: 'u-ghost',
+        user_name: 'Người Đã Xóa',
+        don_vi_ids: ['dv-del'],
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    // ADMIN có usersComplete = true, trong danh sách users không có u-ghost
+    const adminUsersList: User[] = [
+      {
+        id: 'u-admin',
+        ten_dang_nhap: 'admin',
+        ho_ten: 'Quản trị viên',
+        vai_tro: 'ADMIN',
+        trang_thai: 1,
+        must_change_password: false,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    const result = deriveOfficerFields(
+      deletedOfficerRecord,
+      assignments,
+      adminUsersList,
+      new Date('2026-11-04'),
+      { usersComplete: true }
+    );
+
+    expect(result.can_bo_phu_trach_id).toBeUndefined();
+    expect(result.can_bo_phu_trach_ten).toBe('Chưa phân công');
+    expect(result.can_bo_chuc_vu).toBe('');
+    expect(result.lich_su_phu_trach?.[0].den_ngay).toBe('04/11/2026');
+  });
+
+  it('14. (d) danh sách phân công có dữ liệu nhưng đơn vị không nằm trong đó thì về Chưa phân công ở cả hai chế độ', () => {
+    const unassignedUnitRecord: DiaBanRecord = {
+      ...baseRecord,
+      id: 'dv-unassigned',
+      can_bo_phu_trach_id: 'u-previous',
+      can_bo_phu_trach_ten: 'Đ/c Cán Bộ Trước Đó',
+      can_bo_chuc_vu: 'Chuyên viên',
+      can_bo_phu_trach_ids: ['u-previous'],
+      lich_su_phu_trach: [
+        {
+          id: 'ls-prev',
+          can_bo_id: 'u-previous',
+          can_bo_ten: 'Đ/c Cán Bộ Trước Đó',
+          can_bo_chuc_vu: 'Chuyên viên',
+          tu_ngay: '01/01/2026',
+          den_ngay: null,
+          van_ban_phan_cong: 'QĐ 04',
+          created_at: '2026-01-01',
+        },
+      ],
+    };
+
+    // assignments có dữ liệu nhưng KHÔNG chứa 'dv-unassigned'
+    const assignments: PhanCongDiaBan[] = [
+      {
+        id: 'pc-1',
+        user_id: 'u-active',
+        user_name: 'Cán Bộ Đang Làm',
+        don_vi_ids: ['dv-other-1', 'dv-other-2'],
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    const users: User[] = [
+      {
+        id: 'u-active',
+        ten_dang_nhap: 'active',
+        ho_ten: 'Cán Bộ Đang Làm',
+        vai_tro: 'BIEN_TAP',
+        trang_thai: 1,
+        must_change_password: false,
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+      },
+    ];
+
+    // Chế độ 1: usersComplete = false
+    const resFalse = deriveOfficerFields(
+      unassignedUnitRecord,
+      assignments,
+      users,
+      new Date('2026-11-04'),
+      { usersComplete: false }
+    );
+    expect(resFalse.can_bo_phu_trach_id).toBeUndefined();
+    expect(resFalse.can_bo_phu_trach_ten).toBe('Chưa phân công');
+    expect(resFalse.can_bo_chuc_vu).toBe('');
+    expect(resFalse.lich_su_phu_trach?.[0].den_ngay).toBe('04/11/2026');
+
+    // Chế độ 2: usersComplete = true
+    const resTrue = deriveOfficerFields(
+      unassignedUnitRecord,
+      assignments,
+      users,
+      new Date('2026-11-04'),
+      { usersComplete: true }
+    );
+    expect(resTrue.can_bo_phu_trach_id).toBeUndefined();
+    expect(resTrue.can_bo_phu_trach_ten).toBe('Chưa phân công');
+    expect(resTrue.can_bo_chuc_vu).toBe('');
+    expect(resTrue.lich_su_phu_trach?.[0].den_ngay).toBe('04/11/2026');
   });
 });
 

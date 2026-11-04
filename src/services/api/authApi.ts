@@ -394,7 +394,9 @@ registerMockCommands({
       const records: DiaBanRecord[] = rawRecords
         ? JSON.parse(rawRecords)
         : centralDataService.getHoSoDiaBanRecords();
-      const updatedRecords = deriveAllOfficerFields(records, pcList, db.users);
+      const updatedRecords = deriveAllOfficerFields(records, pcList, db.users, {
+        usersComplete: true,
+      });
       if (updatedRecords !== records) {
         if (typeof localStorage !== 'undefined') {
           localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(updatedRecords));
@@ -447,7 +449,9 @@ registerMockCommands({
     let records: DiaBanRecord[] = rawRecords
       ? JSON.parse(rawRecords)
       : centralDataService.getHoSoDiaBanRecords();
-    const updatedRecords = deriveAllOfficerFields(records, pcList, db.users);
+    const updatedRecords = deriveAllOfficerFields(records, pcList, db.users, {
+      usersComplete: true,
+    });
     if (updatedRecords !== records) {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(updatedRecords));

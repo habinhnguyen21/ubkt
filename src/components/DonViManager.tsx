@@ -627,7 +627,9 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
       });
 
       // 2. Đồng bộ các trường cán bộ phụ trách từ danh sách phân công và người dùng
-      const updated = deriveAllOfficerFields(fullList, sanitized, usersList);
+      const updated = deriveAllOfficerFields(fullList, sanitized, usersList, {
+        usersComplete: user?.vai_tro === 'ADMIN',
+      });
 
       localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(updated));
       setDiaBanRecords(updated);

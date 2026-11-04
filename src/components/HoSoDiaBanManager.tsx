@@ -478,7 +478,9 @@ export function HoSoDiaBanManager({ user }: Props) {
     setUsersList((prev) => reconcileById(prev, safeUsrs, (u) => u.id));
     setRecords((prev) => {
       if (!Array.isArray(prev)) return [];
-      const updated = deriveAllOfficerFields(prev, asgns, safeUsrs);
+      const updated = deriveAllOfficerFields(prev, asgns, safeUsrs, {
+        usersComplete: user?.vai_tro === 'ADMIN',
+      });
       if (updated !== prev) {
         localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(updated));
         return updated;
@@ -560,7 +562,9 @@ export function HoSoDiaBanManager({ user }: Props) {
         }
 
         // 3. Suy ra cán bộ phụ trách từ nguồn dữ liệu phân công và người dùng
-        const derivedCombined = deriveAllOfficerFields(combined, assignments, usrs);
+        const derivedCombined = deriveAllOfficerFields(combined, assignments, usrs, {
+          usersComplete: user?.vai_tro === 'ADMIN',
+        });
 
         // So sánh dữ liệu mới với dữ liệu cũ theo id ổn định; giữ nguyên tham chiếu nếu không đổi
         const reconciled = reconcileById(prev, derivedCombined, (r) => r.id);
@@ -746,12 +750,28 @@ export function HoSoDiaBanManager({ user }: Props) {
 
   // Lưu dữ liệu hồ sơ vào storage và đồng bộ Cloud
   const saveRecords = (newRecords: DiaBanRecord[]) => {
+    const prevRecords = records;
     setRecords(newRecords);
     localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(newRecords));
-    api.saveDiaBanRecords(newRecords).catch(console.error);
-    newRecords.forEach((r) => {
-      centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r).catch(() => {});
-    });
+
+    if (user?.vai_tro === 'ADMIN') {
+      api.saveDiaBanRecords(newRecords).catch(console.error);
+      newRecords.forEach((r) => {
+        centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r).catch(() => {});
+      });
+    } else {
+      // Tài khoản không phải ADMIN: tuyệt đối không ghi hồ sơ suy ra của đơn vị khác lên Cloud
+      // Chỉ đồng bộ lên Firestore các hồ sơ của chính đơn vị mình phụ trách khi có thay đổi thực tế
+      const myId = user?.id;
+      newRecords.forEach((r) => {
+        const oldR = prevRecords.find((x) => x.id === r.id);
+        const hasChanged = !oldR || JSON.stringify(oldR) !== JSON.stringify(r);
+        const isMyUnit = r.can_bo_phu_trach_id === myId || r.can_bo_phu_trach_ids?.includes(myId);
+        if (hasChanged && isMyUnit) {
+          centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r).catch(() => {});
+        }
+      });
+    }
   };
 
   // Lưu tài liệu vào storage và đồng bộ Cloud

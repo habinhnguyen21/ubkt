@@ -51,8 +51,14 @@ registerMockCommands({
   save_dia_ban_records: async (_db, args) => {
     const { records } = args as { records: DiaBanRecord[] };
     localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(records || []));
+    const curUser = sessionStore.getCurrentUser();
+    const isAdmin = curUser?.vai_tro === 'ADMIN';
     for (const r of records || []) {
-      await centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r);
+      const isMyUnit =
+        curUser && (r.can_bo_phu_trach_id === curUser.id || r.can_bo_phu_trach_ids?.includes(curUser.id));
+      if (isAdmin || isMyUnit) {
+        await centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r);
+      }
     }
     return { success: true, count: (records || []).length };
   },

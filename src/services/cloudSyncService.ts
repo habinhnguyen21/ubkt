@@ -986,7 +986,13 @@ export const cloudSyncService = {
             if (cTime > lTime) {
               diaBanMap.set(c.id, c);
             } else if (lTime > cTime) {
-              itemsToPushToCloud.push({ collection: 'ho_so_dia_ban_records', id: local.id, data: local });
+              const curUser = sessionStore.getCurrentUser();
+              const canPush =
+                isAdminSync ||
+                Boolean(curUser && (local.can_bo_phu_trach_id === curUser.id || local.can_bo_phu_trach_ids?.includes(curUser.id)));
+              if (canPush) {
+                itemsToPushToCloud.push({ collection: 'ho_so_dia_ban_records', id: local.id, data: local });
+              }
             }
           }
         }
@@ -994,7 +1000,13 @@ export const cloudSyncService = {
       const cloudDbSet = new Set(cloudDiaBan.map((d) => d.id));
       currentDiaBan.forEach((r) => {
         if (!cloudDbSet.has(r.id) && !deletedDiaBanIds.has(r.id) && !cloudTombstones.has(r.id)) {
-          itemsToPushToCloud.push({ collection: 'ho_so_dia_ban_records', id: r.id, data: r });
+          const curUser = sessionStore.getCurrentUser();
+          const canPush =
+            isAdminSync ||
+            Boolean(curUser && (r.can_bo_phu_trach_id === curUser.id || r.can_bo_phu_trach_ids?.includes(curUser.id)));
+          if (canPush) {
+            itemsToPushToCloud.push({ collection: 'ho_so_dia_ban_records', id: r.id, data: r });
+          }
         }
       });
       const mergedDiaBan = Array.from(diaBanMap.values());
