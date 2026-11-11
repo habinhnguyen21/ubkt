@@ -404,7 +404,14 @@ registerMockCommands({
         for (const r of updatedRecords) {
           const oldR = records.find((x) => x.id === r.id);
           if (oldR !== r) {
-            await centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r);
+            await centralDataService.saveBackgroundDiaBanRecord(r.id, r, [
+              'can_bo_phu_trach_id',
+              'can_bo_phu_trach_ids',
+              'can_bo_phu_trach_ten',
+              'can_bo_chuc_vu',
+              'thoi_gian_phan_cong',
+              'lich_su_phu_trach',
+            ]);
           }
         }
         if (typeof window !== 'undefined') {
@@ -459,7 +466,14 @@ registerMockCommands({
       for (const r of updatedRecords) {
         const oldR = records.find((x) => x.id === r.id);
         if (oldR !== r) {
-          await centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r);
+          await centralDataService.saveBackgroundDiaBanRecord(r.id, r, [
+            'can_bo_phu_trach_id',
+            'can_bo_phu_trach_ids',
+            'can_bo_phu_trach_ten',
+            'can_bo_chuc_vu',
+            'thoi_gian_phan_cong',
+            'lich_su_phu_trach',
+          ]);
         }
       }
     }

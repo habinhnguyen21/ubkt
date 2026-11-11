@@ -13,12 +13,19 @@ const COLLECTION_LABEL: Record<string, string> = {
   bao_cao_thang: 'Báo cáo tháng',
 };
 
+import { META_KEYS } from '../services/centralDataService';
+
 const IGNORED_DIFF_KEYS = new Set([
+  ...META_KEYS,
   'updated_at',
   'created_at',
   'sync_status',
   'is_deleted',
   'thoi_diem_cap_nhat_gan_nhat',
+  'nguoi_cap_nhat_gan_nhat',
+  'version',
+  'updated_by',
+  'created_by',
 ]);
 
 function formatValue(val: any): string {

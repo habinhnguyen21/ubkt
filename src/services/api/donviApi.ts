@@ -107,7 +107,11 @@ registerMockCommands({
           if (input.trang_thai) recs[rIdx].trang_thai_to_chuc = input.trang_thai;
           recs[rIdx].thoi_diem_cap_nhat_gan_nhat = new Date().toLocaleDateString('vi-VN');
           localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(recs));
-          await centralDataService.saveDoc('ho_so_dia_ban_records', item.id, recs[rIdx]);
+          await centralDataService.saveBackgroundDiaBanRecord(item.id, recs[rIdx], [
+            'ten_dia_ban',
+            'trang_thai_to_chuc',
+            'thoi_diem_cap_nhat_gan_nhat',
+          ]);
         }
       }
     } catch {}

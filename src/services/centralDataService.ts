@@ -38,6 +38,41 @@ export const VERSIONED_COLLECTIONS = new Set([
   'bao_cao_thang',
 ]);
 
+export const META_KEYS = new Set([
+  'version',
+  'updated_at',
+  'updated_by',
+  'created_at',
+  'created_by',
+  'sync_status',
+  'is_deleted',
+  'thoi_diem_cap_nhat_gan_nhat',
+  'nguoi_cap_nhat_gan_nhat',
+]);
+
+export function getBusinessContentDiff(localData: any, cloudData: any): string[] {
+  const diffKeys: string[] = [];
+  const allKeys = new Set([
+    ...Object.keys(localData || {}),
+    ...Object.keys(cloudData || {}),
+  ]);
+
+  for (const k of allKeys) {
+    if (META_KEYS.has(k)) continue;
+    const vLocal = localData?.[k];
+    const vCloud = cloudData?.[k];
+    const isLocalEmpty = vLocal === undefined || vLocal === null || vLocal === '';
+    const isCloudEmpty = vCloud === undefined || vCloud === null || vCloud === '';
+    if (isLocalEmpty && isCloudEmpty) {
+      continue;
+    }
+    if (!isSameData(vLocal, vCloud)) {
+      diffKeys.push(k);
+    }
+  }
+  return diffKeys;
+}
+
 export interface VersionConflictPayload {
   collectionName: string;
   id: string;
@@ -47,6 +82,7 @@ export interface VersionConflictPayload {
   cloudVersion: number;
   updatedBy: string;
   updatedAt: string;
+  diffKeys?: string[];
 }
 
 export class VersionConflictError extends Error {
@@ -79,19 +115,46 @@ function getCurrentUserName(): string {
   return u?.ho_ten || u?.ten_dang_nhap || 'Cán bộ hệ thống';
 }
 
-function requestConflictResolution(conflict: VersionConflictPayload): Promise<'reload' | 'overwrite'> {
+interface ConflictQueueItem {
+  conflict: VersionConflictPayload;
+  resolve: (action: 'reload' | 'overwrite') => void;
+}
+
+let conflictQueue: ConflictQueueItem[] = [];
+let isResolvingConflict = false;
+
+function processNextConflict(): void {
+  if (isResolvingConflict || conflictQueue.length === 0) return;
   if (typeof window === 'undefined') {
-    return Promise.resolve('reload');
+    while (conflictQueue.length > 0) {
+      const item = conflictQueue.shift();
+      item?.resolve('reload');
+    }
+    return;
   }
-  return new Promise((resolve) => {
-    window.dispatchEvent(
-      new CustomEvent('ubkt_version_conflict', {
-        detail: {
-          conflict,
-          resolve,
+
+  isResolvingConflict = true;
+  const current = conflictQueue[0];
+
+  window.dispatchEvent(
+    new CustomEvent('ubkt_version_conflict', {
+      detail: {
+        conflict: current.conflict,
+        resolve: (action: 'reload' | 'overwrite') => {
+          isResolvingConflict = false;
+          conflictQueue.shift();
+          current.resolve(action);
+          setTimeout(processNextConflict, 150);
         },
-      })
-    );
+      },
+    })
+  );
+}
+
+export function requestConflictResolution(conflict: VersionConflictPayload): Promise<'reload' | 'overwrite'> {
+  return new Promise((resolve) => {
+    conflictQueue.push({ conflict, resolve });
+    processNextConflict();
   });
 }
 
@@ -140,6 +203,7 @@ function isCurrentUserAdmin(): boolean {
 
 // Tải nhanh từ localStorage khi vừa khởi động để UI hiển thị tức thì (Cache-First)
 function loadInitialFromLocalStorage() {
+  if (typeof localStorage === 'undefined') return;
   try {
     const rawMock = localStorage.getItem('ubkt_mock_db');
     if (rawMock) {
@@ -172,6 +236,7 @@ function loadInitialFromLocalStorage() {
 
 // Lưu phản chiếu ngược vào localStorage để đảm bảo tương thích ngược và xem ngoại tuyến
 function persistCacheToLocalStorage() {
+  if (typeof localStorage === 'undefined') return;
   try {
     const mockDb = {
       users: memoryCache.users,
@@ -621,24 +686,34 @@ export const centralDataService = {
               expectedVersion !== undefined &&
               expectedVersion !== cloudVersion
             ) {
-              throw new VersionConflictError({
-                collectionName,
-                id,
-                localData: cleanPayload,
-                cloudData: { ...cloudData, id },
-                localVersion: expectedVersion,
-                cloudVersion,
-                updatedBy:
-                  cloudData.updated_by ||
-                  cloudData.nguoi_cap_nhat_ten ||
-                  cloudData.nguoi_cap_nhat_gan_nhat ||
-                  cloudData.can_bo_ten ||
-                  'Cán bộ khác',
-                updatedAt:
-                  cloudData.updated_at ||
-                  cloudData.thoi_diem_cap_nhat_gan_nhat ||
-                  now,
-              });
+              const diffKeys = getBusinessContentDiff(cleanPayload, cloudData);
+
+              if (diffKeys.length === 0) {
+                // Hai bản chỉ khác nhau ở các trường meta: tự dùng version Cloud và tiếp tục ghi
+                console.info(
+                  `[saveDoc] Chỉ khác trường meta (${collectionName}/${id}), tự dùng cloudVersion v${cloudVersion} và tiếp tục lưu.`
+                );
+              } else {
+                throw new VersionConflictError({
+                  collectionName,
+                  id,
+                  localData: cleanPayload,
+                  cloudData: { ...cloudData, id },
+                  localVersion: expectedVersion,
+                  cloudVersion,
+                  diffKeys,
+                  updatedBy:
+                    cloudData.updated_by ||
+                    cloudData.nguoi_cap_nhat_ten ||
+                    cloudData.nguoi_cap_nhat_gan_nhat ||
+                    cloudData.can_bo_ten ||
+                    'Cán bộ khác',
+                  updatedAt:
+                    cloudData.updated_at ||
+                    cloudData.thoi_diem_cap_nhat_gan_nhat ||
+                    now,
+                });
+              }
             }
 
             const nextVersion = cloudVersion > 0 ? cloudVersion + 1 : 1;
@@ -695,6 +770,60 @@ export const centralDataService = {
     persistCacheToLocalStorage();
 
     return cleanPayload;
+  },
+
+  /**
+   * Ghi tự động hồ sơ địa bàn trong nền (không do người dùng trực tiếp bấm lưu).
+   * Luôn dùng skipConflictDialog: true.
+   * Khi gặp VersionConflictError: lấy bản Cloud mới nhất, áp lại CHỈ các trường tự suy ra
+   * lên bản Cloud rồi thử lại tối đa 2 lần. Nếu vẫn lỗi thì console.warn và bỏ qua.
+   * TUYỆT ĐỐI không bao giờ làm hiện hộp thoại xung đột cho người dùng.
+   */
+  async saveBackgroundDiaBanRecord(
+    id: string,
+    record: any,
+    derivedFieldKeys: string[] = [
+      'can_bo_phu_trach_id',
+      'can_bo_phu_trach_ids',
+      'can_bo_phu_trach_ten',
+      'can_bo_chuc_vu',
+      'thoi_gian_phan_cong',
+      'lich_su_phu_trach',
+    ]
+  ): Promise<any | null> {
+    if (!id) return null;
+
+    let payload = { ...record };
+    let retries = 2;
+
+    while (retries >= 0) {
+      try {
+        const saved = await this.saveDoc('ho_so_dia_ban_records', id, payload, {
+          skipConflictDialog: true,
+          expectedVersion: typeof payload.version === 'number' ? payload.version : undefined,
+        });
+        return saved;
+      } catch (err: any) {
+        if (err instanceof VersionConflictError && retries > 0) {
+          retries--;
+          const cloudData = err.conflict.cloudData || {};
+          const merged = { ...cloudData };
+          // Áp lại CHỈ các trường tự suy ra lên bản Cloud
+          derivedFieldKeys.forEach((key) => {
+            if (record[key] !== undefined) {
+              merged[key] = record[key];
+            }
+          });
+          merged.version = err.conflict.cloudVersion;
+          payload = merged;
+          continue;
+        }
+
+        console.warn(`[BackgroundSync] Bỏ qua ghi tự động hồ sơ địa bàn ${id} do xung đột hoặc lỗi:`, err?.message || err);
+        return null;
+      }
+    }
+    return null;
   },
 
   // ── 3. XOÁ BẢN GHI AN TOÀN (TOMBSTONE TRÊN CLOUD - CHỐNG HỒI SINH) ───────────

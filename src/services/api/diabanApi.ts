@@ -50,17 +50,22 @@ registerMockCommands({
 
   save_dia_ban_records: async (_db, args) => {
     const { records } = args as { records: DiaBanRecord[] };
-    localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(records || []));
     const curUser = sessionStore.getCurrentUser();
     const isAdmin = curUser?.vai_tro === 'ADMIN';
+    const updatedList: DiaBanRecord[] = [];
+
     for (const r of records || []) {
       const isMyUnit =
         curUser && (r.can_bo_phu_trach_id === curUser.id || r.can_bo_phu_trach_ids?.includes(curUser.id));
       if (isAdmin || isMyUnit) {
-        await centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r);
+        const saved = await centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r);
+        updatedList.push(saved ? { ...r, ...saved } : r);
+      } else {
+        updatedList.push(r);
       }
     }
-    return { success: true, count: (records || []).length };
+    localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(updatedList));
+    return { success: true, count: updatedList.length, records: updatedList };
   },
 
   update_dia_ban_record: async (_db, args) => {
@@ -68,12 +73,13 @@ registerMockCommands({
     try {
       const raw = localStorage.getItem('ubkt_ho_so_dia_ban_records');
       const list: DiaBanRecord[] = raw ? JSON.parse(raw) : [];
+      const saved = await centralDataService.saveDoc('ho_so_dia_ban_records', record.id, record);
+      const finalRec = saved ? { ...record, ...saved } : record;
       const idx = list.findIndex((r) => r.id === record.id);
-      if (idx >= 0) list[idx] = { ...list[idx], ...record };
-      else list.push(record);
+      if (idx >= 0) list[idx] = finalRec;
+      else list.push(finalRec);
       localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(list));
-      await centralDataService.saveDoc('ho_so_dia_ban_records', record.id, record);
-      return record;
+      return finalRec;
     } catch {
       return record;
     }

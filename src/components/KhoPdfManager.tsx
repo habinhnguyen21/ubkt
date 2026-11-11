@@ -492,7 +492,7 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
               localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(updatedRecs));
               const matchR = updatedRecs.find((r: any) => r.id === targetDonViId);
               if (matchR) {
-                await centralDataService.saveDoc('ho_so_dia_ban_records', matchR.id, matchR);
+                await centralDataService.saveBackgroundDiaBanRecord(matchR.id, matchR, ['so_luong_tai_lieu']);
               }
             }
           }

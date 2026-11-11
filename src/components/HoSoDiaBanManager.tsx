@@ -112,6 +112,10 @@ export function HoSoDiaBanManager({ user }: Props) {
     }
     return [];
   });
+  const recordsRef = useRef<DiaBanRecord[]>(records);
+  useEffect(() => {
+    recordsRef.current = records;
+  }, [records]);
 
   // Dữ liệu tài liệu hồ sơ địa bàn
   const [files, setFiles] = useState<HoSoDiaBanFile[]>(() => {
@@ -748,29 +752,66 @@ export function HoSoDiaBanManager({ user }: Props) {
     };
   }, []);
 
-  // Lưu dữ liệu hồ sơ vào storage và đồng bộ Cloud
-  const saveRecords = (newRecords: DiaBanRecord[]) => {
-    const prevRecords = records;
-    setRecords(newRecords);
-    localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(newRecords));
+  // Lưu dữ liệu hồ sơ vào storage và đồng bộ Cloud (Chỉ 1 đường ghi, chỉ ghi bản ghi thật sự đổi)
+  const saveRecords = async (newRecords: DiaBanRecord[]) => {
+    const prevRecords = recordsRef.current || records;
 
-    if (user?.vai_tro === 'ADMIN') {
-      api.saveDiaBanRecords(newRecords).catch(console.error);
-      newRecords.forEach((r) => {
-        centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r).catch(() => {});
-      });
-    } else {
-      // Tài khoản không phải ADMIN: tuyệt đối không ghi hồ sơ suy ra của đơn vị khác lên Cloud
-      // Chỉ đồng bộ lên Firestore các hồ sơ của chính đơn vị mình phụ trách khi có thay đổi thực tế
-      const myId = user?.id;
-      newRecords.forEach((r) => {
-        const oldR = prevRecords.find((x) => x.id === r.id);
-        const hasChanged = !oldR || JSON.stringify(oldR) !== JSON.stringify(r);
-        const isMyUnit = r.can_bo_phu_trach_id === myId || r.can_bo_phu_trach_ids?.includes(myId);
-        if (hasChanged && isMyUnit) {
-          centralDataService.saveDoc('ho_so_dia_ban_records', r.id, r).catch(() => {});
+    // 1. Cập nhật state và localStorage ngay lập tức để UI mượt mà
+    setRecords(newRecords);
+    recordsRef.current = newRecords;
+    try {
+      localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(newRecords));
+    } catch {}
+
+    // 2. Tìm các hồ sơ THỰC SỰ thay đổi so với bản trước (dùng isSameData)
+    const prevMap = new Map((prevRecords || []).map((r) => [r.id, r]));
+    const changedRecords: DiaBanRecord[] = [];
+
+    for (const r of newRecords || []) {
+      const oldR = prevMap.get(r.id);
+      if (!oldR || !isSameData(oldR, r)) {
+        changedRecords.push(r);
+      }
+    }
+
+    if (changedRecords.length === 0) {
+      return;
+    }
+
+    // 3. Phân quyền: ADMIN ghi mọi hồ sơ đã đổi; tài khoản khác chỉ ghi hồ sơ đơn vị mình
+    const myId = user?.id;
+    const recordsToSave =
+      user?.vai_tro === 'ADMIN'
+        ? changedRecords
+        : changedRecords.filter(
+            (r) => r.can_bo_phu_trach_id === myId || r.can_bo_phu_trach_ids?.includes(myId)
+          );
+
+    if (recordsToSave.length === 0) {
+      return;
+    }
+
+    // 4. CHỈ CÒN MỘT ĐƯỜNG GHI: gọi centralDataService.saveDoc TUẦN TỰ (await từng cái)
+    // Sau mỗi saveDoc thành công, cập nhật version, updated_at, updated_by từ bản ghi trả về
+    for (const r of recordsToSave) {
+      try {
+        const savedDoc = await centralDataService.saveDoc<DiaBanRecord>('ho_so_dia_ban_records', r.id, r);
+        if (savedDoc) {
+          setRecords((curr) => {
+            const next = curr.map((item) => (item.id === savedDoc.id ? { ...item, ...savedDoc } : item));
+            recordsRef.current = next;
+            try {
+              localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(next));
+            } catch {}
+            return next;
+          });
+
+          // Cập nhật bản ghi đang mở trong modal/view nếu trùng ID
+          setSelectedRecord((curr) => (curr && curr.id === savedDoc.id ? { ...curr, ...savedDoc } : curr));
         }
-      });
+      } catch (err) {
+        console.error(`[HoSoDiaBan] Lỗi lưu hồ sơ ${r.id}:`, err);
+      }
     }
   };
 

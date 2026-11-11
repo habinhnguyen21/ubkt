@@ -23,6 +23,7 @@ import {
 } from '../services/donViService';
 import { PhanCongManager } from './phancong/PhanCongManager';
 import { deriveAllOfficerFields } from '../utils/diaBanSync';
+import { centralDataService } from '../services/centralDataService';
 import { validatePasswordPolicy, generateSecurePassword } from '../utils/passwordCrypto';
 import {
   Building2,
@@ -633,7 +634,32 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
 
       localStorage.setItem(STORAGE_DIA_BAN_RECORDS, JSON.stringify(updated));
       setDiaBanRecords(updated);
-      api.saveDiaBanRecords(updated).catch(console.error);
+
+      // Ghi tự động trong nền chỉ các hồ sơ thực sự thay đổi (dùng saveBackgroundDiaBanRecord để tránh xung đột)
+      const fullListMap = new Map((fullList || []).map((r) => [r.id, r]));
+      const changedRecords = (updated || []).filter((r) => {
+        const oldR = fullListMap.get(r.id);
+        return !oldR || !isSameData(oldR, r);
+      });
+
+      for (const r of changedRecords) {
+        centralDataService
+          .saveBackgroundDiaBanRecord(r.id, r, [
+            'can_bo_phu_trach_id',
+            'can_bo_phu_trach_ids',
+            'can_bo_phu_trach_ten',
+            'can_bo_chuc_vu',
+            'thoi_gian_phan_cong',
+            'lich_su_phu_trach',
+          ])
+          .then((saved) => {
+            if (saved) {
+              setDiaBanRecords((curr) => curr.map((x) => (x.id === saved.id ? { ...x, ...saved } : x)));
+            }
+          })
+          .catch(() => {});
+      }
+
       window.dispatchEvent(
         new CustomEvent('ubkt_diaban_records_updated', { detail: updated }),
       );
