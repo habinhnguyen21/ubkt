@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <!-- Đổ bóng nhẹ cho khối huy hiệu -->
+    <filter id="shadow" x="-10%" y="-10%" width="125%" height="125%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+    <radialGradient id="redGrad" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#E51A2D"/>
+      <stop offset="70%" stop-color="#BD081C"/>
+      <stop offset="100%" stop-color="#8F000E"/>
+    </radialGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF2A3"/>
+      <stop offset="45%" stop-color="#FFD700"/>
+      <stop offset="100%" stop-color="#DE9F00"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Vòng tròn nền đỏ Đảng -->
+  <circle cx="32" cy="32" r="30" fill="url(#redGrad)" filter="url(#shadow)" stroke="url(#goldGrad)" stroke-width="2.2"/>
+
+  <!-- Vòng chỉ vàng kép trang trọng -->
+  <circle cx="32" cy="32" r="26.5" fill="none" stroke="url(#goldGrad)" stroke-width="0.75" stroke-dasharray="2.5 1.5"/>
+
+  <!-- Biểu tượng Búa Liềm vàng của Đảng ở chính giữa -->
+  <g transform="translate(32, 32) scale(1.15) translate(-32, -32)" fill="url(#goldGrad)">
+    <!-- Lưỡi Búa & Cán Búa (nghiêng góc 45 độ) -->
+    <g transform="rotate(-45 32 32)">
+      <!-- Cán búa -->
+      <rect x="29.8" y="16.5" width="4.4" height="31" rx="2" fill="url(#goldGrad)"/>
+      <!-- Đầu búa -->
+      <path d="M23 16.5h18c1.2 0 1.8.8 1.8 1.8v5.4c0 1-.6 1.8-1.8 1.8h-18c-1.2 0-1.8-.8-1.8-1.8v-5.4c0-1 .6-1.8 1.8-1.8z" fill="url(#goldGrad)"/>
+      <!-- Vạt cạnh đầu búa -->
+      <path d="M21.5 17.5h3v7h-3z" fill="#FFF2A3" opacity="0.6"/>
+    </g>
+
+    <!-- Lưỡi Liềm & Cán Liềm (nghiêng góc 45 độ ngược) -->
+    <g transform="rotate(45 32 32)">
+      <!-- Cán liềm -->
+      <rect x="29.8" y="32" width="4.4" height="15.5" rx="2" fill="url(#goldGrad)"/>
+      <circle cx="32" cy="47.5" r="3" fill="url(#goldGrad)"/>
+      <!-- Vành khuyên liềm -->
+      <path d="M32 13c-9.4 0-17 7.6-17 17 0 4.2 1.5 8 4 11-1.8-3.2-2.8-6.9-2.8-10.8 0-7.8 6.3-14.2 14.2-14.2 4.5 0 8.5 2.1 11.1 5.4 1-2.1 1.5-4.5 1.5-7 0-.8-.1-1.6-.2-2.4C43.8 14.5 38.2 13 32 13z" fill="url(#goldGrad)"/>
+      <!-- Mũi nhọn lưỡi liềm -->
+      <path d="M47 21.4c-2.2-4.8-6.4-8.4-11.5-9.8 6.8 1.4 12.1 6.5 13.5 13.2-.6-1.2-1.3-2.3-2-3.4z" fill="#FFF9D2"/>
+    </g>
+  </g>
+</svg>
