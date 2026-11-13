@@ -46,6 +46,8 @@ export interface ResolvedChiBo {
   isFallbackName: boolean;
 }
 
+export type ScanFilterMode = boolean | 'CHUA_SCAN' | 'DA_SCAN' | 'ALL';
+
 /**
  * Trích xuất bản đồ scanned từ Firestore document data (hỗ trợ cả nested map và flat keys)
  */
@@ -205,7 +207,7 @@ export function computeScanStats(
 
 /**
  * Lọc và sắp xếp danh sách hiển thị cho thẻ Scan hồ sơ:
- * - Nhận danh sách chương trình, bản đồ scanned, năm, công tắc hiện đã scan, từ khóa
+ * - Nhận danh sách chương trình, bản đồ scanned, năm, công tắc/chế độ hiện đã scan, từ khóa
  * - Hiển thị mọi cuộc thuộc năm (bất kể trạng thái thực hiện)
  * - Mặc định chỉ hiện cuộc chưa tích
  * - Sắp xếp theo thời gian rồi theo tên
@@ -215,7 +217,7 @@ export function filterScanPrograms(
   programs: ChuongTrinhKtGs[],
   scannedMap: ScannedMap = {},
   year: number | string,
-  showScanned: boolean = false,
+  showScanned: ScanFilterMode = false,
   searchQuery: string = '',
   donViList?: DonVi[] | null
 ): FilterScanResult {
@@ -236,10 +238,16 @@ export function filterScanPrograms(
     return Number(p.nam) === targetYear;
   });
 
-  // 3. Lọc theo công tắc hiện đã scan (mặc định chỉ hiện cuộc chưa scan)
+  // 3. Lọc theo chế độ xem / công tắc scan
   let filtered = validYearItems.filter((p) => {
     const isScanned = Boolean(scannedMap?.[p.id]);
-    if (!showScanned && isScanned) return false;
+    if (showScanned === 'DA_SCAN') {
+      return isScanned;
+    }
+    if (showScanned === 'CHUA_SCAN' || showScanned === false) {
+      return !isScanned;
+    }
+    // showScanned === 'ALL' hoặc true: hiện cả đã scan
     return true;
   });
 

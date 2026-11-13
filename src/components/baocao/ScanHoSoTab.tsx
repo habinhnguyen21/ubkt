@@ -5,11 +5,11 @@ import {
   Search,
   Check,
   Calendar,
-  AlertCircle,
   Building2,
   ClipboardList,
   X,
   Clock,
+  Filter,
 } from 'lucide-react';
 import type { User, ChuongTrinhKtGs, DonVi } from '../../types';
 import { api } from '../../services/api';
@@ -36,7 +36,7 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
   const [donViList, setDonViList] = useState<DonVi[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // 2. Dữ liệu scan
+  // 2. Dữ liệu scan theo năm
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [scannedMap, setScannedMap] = useState<ScannedMap>(() => {
     try {
@@ -47,8 +47,8 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
     }
   });
 
-  // 3. Bộ lọc & tìm kiếm
-  const [showScanned, setShowScanned] = useState<boolean>(false);
+  // 3. Chế độ xem: 'CHUA_SCAN' (chưa scan), 'DA_SCAN' (đã scan), 'ALL' (tất cả)
+  const [filterMode, setFilterMode] = useState<'CHUA_SCAN' | 'DA_SCAN' | 'ALL'>('CHUA_SCAN');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // 4. Hiệu ứng mờ dần (0.3s) khi tích chọn
@@ -60,16 +60,6 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
     scanData: ScanRecordInfo;
   } | null>(null);
   const toastTimeoutRef = useRef<any>(null);
-
-  // 6. Thông báo lỗi nếu có
-  const [errorToast, setErrorToast] = useState<string | null>(null);
-  const errorTimeoutRef = useRef<any>(null);
-
-  const showErrorToast = (msg: string) => {
-    if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-    setErrorToast(msg);
-    errorTimeoutRef.current = setTimeout(() => setErrorToast(null), 4000);
-  };
 
   // Nạp danh sách chương trình và danh mục đơn vị khi mở thẻ
   useEffect(() => {
@@ -87,17 +77,22 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
 
         // Mặc định chọn năm mới nhất có dữ liệu HANG_NAM
         const hnPrograms = validList.filter(
-          (p) => (p.loai_chuong_trinh || 'HANG_NAM') === 'HANG_NAM' && !(p as any).is_deleted && !(p as any).deleted_at
+          (p) =>
+            (p.loai_chuong_trinh || 'HANG_NAM') === 'HANG_NAM' &&
+            !(p as any).is_deleted &&
+            !(p as any).deleted_at
         );
         if (hnPrograms.length > 0) {
-          const years = Array.from(new Set(hnPrograms.map((p) => Number(p.nam)))).sort((a, b) => b - a);
+          const years = Array.from(new Set(hnPrograms.map((p) => Number(p.nam)))).sort(
+            (a, b) => b - a
+          );
           if (years[0]) {
             setSelectedYear(years[0]);
           }
         }
       })
       .catch((err) => {
-        console.error('Lỗi tải dữ liệu:', err);
+        console.error('Lỗi tải dữ liệu chương trình/đơn vị:', err);
       })
       .finally(() => {
         if (!isCancelled) setLoading(false);
@@ -111,7 +106,10 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
   // Danh sách năm có dữ liệu để chọn
   const availableYears = useMemo(() => {
     const hnPrograms = chuongTrinhList.filter(
-      (p) => (p.loai_chuong_trinh || 'HANG_NAM') === 'HANG_NAM' && !(p as any).is_deleted && !(p as any).deleted_at
+      (p) =>
+        (p.loai_chuong_trinh || 'HANG_NAM') === 'HANG_NAM' &&
+        !(p as any).is_deleted &&
+        !(p as any).deleted_at
     );
     const yearsSet = new Set(hnPrograms.map((p) => Number(p.nam)));
     if (!yearsSet.has(selectedYear)) {
@@ -120,11 +118,11 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
     return Array.from(yearsSet).sort((a, b) => b - a);
   }, [chuongTrinhList, selectedYear]);
 
-  // Đọc dữ liệu scan (Ưu tiên localStorage, sau đó đồng bộ Firestore realtime)
+  // Đọc dữ liệu scan: Ưu tiên localStorage, sau đó đồng bộ với Firestore
   useEffect(() => {
     let isCancelled = false;
 
-    // 1. Nạp ngay từ localStorage nếu có để UI không bị giật
+    // 1. Đọc ngay từ localStorage
     try {
       const local = localStorage.getItem(`ubkt_scan_${selectedYear}`);
       if (local) {
@@ -138,23 +136,29 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
 
     const docRef = doc(firestoreDb, 'system_config', `scan_${selectedYear}`);
 
+    // Hàm hợp nhất dữ liệu từ Firestore vào state và localStorage
+    const mergeFirestoreData = (snapData: any) => {
+      if (!snapData) return;
+      const parsed = extractScannedMap(snapData);
+      setScannedMap((prev) => {
+        const merged = { ...prev, ...parsed };
+        try {
+          localStorage.setItem(`ubkt_scan_${selectedYear}`, JSON.stringify(merged));
+        } catch {}
+        return merged;
+      });
+    };
+
     // 2. getDoc lần đầu
     getDoc(docRef)
       .then((snap) => {
         if (isCancelled) return;
         if (snap.exists()) {
-          const parsed = extractScannedMap(snap.data());
-          setScannedMap((prev) => {
-            const merged = { ...prev, ...parsed };
-            try {
-              localStorage.setItem(`ubkt_scan_${selectedYear}`, JSON.stringify(merged));
-            } catch {}
-            return merged;
-          });
+          mergeFirestoreData(snap.data());
         }
       })
       .catch((err) => {
-        console.warn('Lỗi getDoc scan:', err);
+        console.warn('Lỗi đọc Firestore system_config:', err);
       });
 
     // 3. onSnapshot lắng nghe thay đổi thời gian thực
@@ -163,14 +167,7 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
       (snap) => {
         if (isCancelled) return;
         if (snap.exists()) {
-          const parsed = extractScannedMap(snap.data());
-          setScannedMap((prev) => {
-            const merged = { ...prev, ...parsed };
-            try {
-              localStorage.setItem(`ubkt_scan_${selectedYear}`, JSON.stringify(merged));
-            } catch {}
-            return merged;
-          });
+          mergeFirestoreData(snap.data());
         }
       },
       (err) => {
@@ -188,7 +185,6 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
   useEffect(() => {
     return () => {
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
     };
   }, []);
 
@@ -198,16 +194,16 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
       chuongTrinhList,
       scannedMap,
       selectedYear,
-      showScanned,
+      filterMode,
       searchQuery,
       donViList
     );
-  }, [chuongTrinhList, scannedMap, selectedYear, showScanned, searchQuery, donViList]);
+  }, [chuongTrinhList, scannedMap, selectedYear, filterMode, searchQuery, donViList]);
 
-  // Giữ lại các dòng đang mờ dần 0.3s trước khi ẩn hẳn
+  // Giữ lại các dòng đang mờ dần 0.3s trước khi ẩn khỏi danh sách Chưa scan
   const displayedItems = useMemo(() => {
-    if (showScanned || fadingIds.size === 0) return items;
-    // Thêm các item đang fade vào cuối danh sách hiển thị tạm thời
+    if (filterMode !== 'CHUA_SCAN' || fadingIds.size === 0) return items;
+    // Tìm các cuộc đang trong giai đoạn mờ dần để hiển thị nốt 0.3s
     const fadingItems: ScanProgramItem[] = chuongTrinhList
       .filter((ct) => fadingIds.has(ct.id) && !items.some((i) => i.id === ct.id))
       .map((ct) => ({
@@ -215,25 +211,11 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
         isScanned: true,
         scanInfo: (scannedMap[ct.id] as ScanRecordInfo) || undefined,
         chiBoKey: '',
-        chiBoTen: ct.chu_the || '',
+        chiBoTen: ct.chu_the || ct.co_quan_ban_hanh || '',
         chiBoProgress: '',
       }));
     return [...items, ...fadingItems];
-  }, [items, showScanned, fadingIds, chuongTrinhList, scannedMap]);
-
-  // Phân chia danh sách khi bật "Hiện cả đã scan"
-  const { itemsChuaScan, itemsDaScan } = useMemo(() => {
-    const chuaScan: ScanProgramItem[] = [];
-    const daScan: ScanProgramItem[] = [];
-    for (const item of displayedItems) {
-      if (item.isScanned) {
-        daScan.push(item);
-      } else {
-        chuaScan.push(item);
-      }
-    }
-    return { itemsChuaScan: chuaScan, itemsDaScan: daScan };
-  }, [displayedItems]);
+  }, [items, filterMode, fadingIds, chuongTrinhList, scannedMap]);
 
   // Xử lý tích / bỏ tích
   const handleToggleScan = async (ctId: string, currentScanned: boolean) => {
@@ -242,24 +224,22 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
     const docRef = doc(firestoreDb, 'system_config', `scan_${selectedYear}`);
 
     if (!currentScanned) {
-      // 1. ĐÁNH DẤU SCAN
+      // 1. ĐÁNH DẤU ĐÃ SCAN
       const nowIso = new Date().toISOString();
       const userName = user?.ho_ten || user?.ten_dang_nhap || 'Quản trị viên';
       const scanData: ScanRecordInfo = { ngay: nowIso, nguoi: userName };
 
-      const updated = {
-        ...scannedMap,
-        [ctId]: scanData,
-      };
-
       // Cập nhật state + localStorage ngay lập tức
-      setScannedMap(updated);
-      try {
-        localStorage.setItem(`ubkt_scan_${selectedYear}`, JSON.stringify(updated));
-      } catch {}
+      setScannedMap((prev) => {
+        const next = { ...prev, [ctId]: scanData };
+        try {
+          localStorage.setItem(`ubkt_scan_${selectedYear}`, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
 
-      // Kích hoạt hiệu ứng mờ dần 0.3s nếu ở chế độ ẩn đã scan
-      if (!showScanned) {
+      // Kích hoạt hiệu ứng mờ dần 0.3s nếu đang ở tab Chưa scan
+      if (filterMode === 'CHUA_SCAN') {
         setFadingIds((prev) => new Set(prev).add(ctId));
         setTimeout(() => {
           setFadingIds((prev) => {
@@ -277,13 +257,14 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
         setToast(null);
       }, 6000);
 
-      // Ghi Firestore (dùng updateDoc và fallback setDoc merge)
+      // Ghi vào Firestore
       try {
         try {
           await updateDoc(docRef, {
             [`scanned.${ctId}`]: scanData,
           });
         } catch {
+          // Nếu document chưa tồn tại, setDoc với đối tượng lồng nhau { scanned: { [ctId]: scanData } }
           await setDoc(
             docRef,
             {
@@ -292,30 +273,30 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
               scanned: {
                 [ctId]: scanData,
               },
-              [`scanned.${ctId}`]: scanData,
             },
             { merge: true }
           );
         }
       } catch (err) {
-        console.error('Lỗi khi ghi scan vào Firestore:', err);
-        showErrorToast('Đã lưu cục bộ. Đang đồng bộ nền lên đám mây.');
+        console.warn('Lỗi ghi Firestore scan (đã lưu an toàn ở bộ nhớ máy):', err);
       }
     } else {
       // 2. BỎ ĐÁNH DẤU SCAN (QUAY LẠI CHƯA SCAN)
-      const updated = { ...scannedMap };
-      delete updated[ctId];
-
-      setScannedMap(updated);
-      try {
-        localStorage.setItem(`ubkt_scan_${selectedYear}`, JSON.stringify(updated));
-      } catch {}
+      setScannedMap((prev) => {
+        const next = { ...prev };
+        delete next[ctId];
+        try {
+          localStorage.setItem(`ubkt_scan_${selectedYear}`, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
 
       if (toast?.ctId === ctId) {
         if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
         setToast(null);
       }
 
+      // Ghi vào Firestore
       try {
         try {
           await updateDoc(docRef, {
@@ -331,25 +312,36 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
           );
         }
       } catch (err) {
-        console.error('Lỗi khi bỏ đánh dấu scan:', err);
+        console.warn('Lỗi bỏ đánh dấu scan trên Firestore:', err);
       }
     }
   };
 
-  // Hoàn tác ngay
+  // Hoàn tác ngay khi bấm nút Hoàn tác trên toast
   const handleUndo = async () => {
     if (!toast) return;
     const { ctId } = toast;
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     setToast(null);
 
-    const updated = { ...scannedMap };
-    delete updated[ctId];
-    setScannedMap(updated);
-    try {
-      localStorage.setItem(`ubkt_scan_${selectedYear}`, JSON.stringify(updated));
-    } catch {}
+    // Bỏ khỏi fading nếu có
+    setFadingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(ctId);
+      return next;
+    });
 
+    // Cập nhật state + localStorage
+    setScannedMap((prev) => {
+      const next = { ...prev };
+      delete next[ctId];
+      try {
+        localStorage.setItem(`ubkt_scan_${selectedYear}`, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    // Cập nhật Firestore
     const docRef = doc(firestoreDb, 'system_config', `scan_${selectedYear}`);
     try {
       try {
@@ -366,36 +358,44 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
         );
       }
     } catch (err) {
-      console.error('Lỗi khi hoàn tác scan:', err);
+      console.warn('Lỗi hoàn tác scan trên Firestore:', err);
     }
   };
 
-  const renderThoiGian = (item: ChuongTrinhKtGs) => {
+  const renderLoaiHinhBadge = (type?: string | null) => {
+    if (type === 'KIEM_TRA') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
+          Kiểm tra
+        </span>
+      );
+    }
+    if (type === 'GIAM_SAT') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 whitespace-nowrap">
+          Giám sát
+        </span>
+      );
+    }
+    return <span className="text-slate-400 text-xs">—</span>;
+  };
+
+  const renderThoiGian = (item: ScanProgramItem) => {
+    const rawThoiGian = (item as any).thoi_gian_thuc_hien || (item as any).thoi_gian;
+    if (rawThoiGian) {
+      return rawThoiGian;
+    }
     if (item.ngay_bat_dau && item.ngay_ket_thuc) {
       return `${formatDateVn(item.ngay_bat_dau)} – ${formatDateVn(item.ngay_ket_thuc)}`;
     }
     if (item.ngay_bat_dau) {
       return `Từ ${formatDateVn(item.ngay_bat_dau)}`;
     }
-    if (item.ngay_ket_thuc) {
-      return `Đến ${formatDateVn(item.ngay_ket_thuc)}`;
+    const rawThang = (item as any).thang || (item as any).thang_du_kien;
+    if (rawThang) {
+      return `Tháng ${rawThang}/${item.nam}`;
     }
     return `Năm ${item.nam}`;
-  };
-
-  const renderLoaiHinhBadge = (loaiHinh?: string | null) => {
-    if (loaiHinh === 'KIEM_TRA') {
-      return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
-          Kiểm tra
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200 whitespace-nowrap">
-        Giám sát
-      </span>
-    );
   };
 
   const renderTrangThaiBadge = (status?: string | null) => {
@@ -439,7 +439,7 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
     stats.tongChiBo > 0 &&
     stats.chiBoDaScanDu === stats.tongChiBo;
 
-  // Render một hàng bảng
+  // Render một hàng bảng (desktop)
   const renderTableRow = (item: ScanProgramItem) => {
     const isFading = fadingIds.has(item.id);
     const scanDateText = item.scanInfo?.ngay
@@ -453,41 +453,43 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
           isFading
             ? 'opacity-0 scale-95 pointer-events-none'
             : item.isScanned
-            ? 'bg-emerald-50/30 hover:bg-emerald-50/50'
+            ? 'bg-emerald-50/40 hover:bg-emerald-50/70'
             : 'hover:bg-slate-50/80'
         }`}
       >
-        {/* Ô tích */}
+        {/* Ô tích scan */}
         <td className="py-3 px-3 text-center align-middle">
           <input
             type="checkbox"
-            checked={item.isScanned}
+            checked={Boolean(item.isScanned)}
             disabled={!isAdmin}
-            onChange={() => handleToggleScan(item.id, item.isScanned)}
+            onChange={() => handleToggleScan(item.id, Boolean(item.isScanned))}
             title={
               isAdmin
                 ? item.isScanned
-                  ? 'Bỏ đánh dấu scan'
-                  : 'Đánh dấu đã scan'
+                  ? 'Bấm để bỏ đánh dấu scan (chuyển về Chưa scan)'
+                  : 'Bấm để đánh dấu đã scan (chuyển sang Đã scan)'
                 : 'Chỉ Quản trị viên (ADMIN) mới có quyền đánh dấu scan'
             }
-            className={`w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 ${
-              isAdmin ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
+            className={`w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 transition ${
+              isAdmin ? 'cursor-pointer hover:border-emerald-500' : 'cursor-not-allowed opacity-60'
             }`}
           />
         </td>
 
-        {/* Tên chi bộ / chủ thể */}
+        {/* Tên chi bộ / chủ thể & đối tượng */}
         <td className="py-3 px-4">
-          <div className="font-semibold text-slate-900">{item.chu_the || item.co_quan_ban_hanh}</div>
+          <div className="font-semibold text-slate-900 leading-snug">
+            {item.chu_the || item.co_quan_ban_hanh}
+          </div>
           {item.doi_tuong && (
             <div className="text-[11px] text-slate-500 mt-0.5">
               Đối tượng: <span className="font-medium text-slate-700">{item.doi_tuong}</span>
             </div>
           )}
           {item.isScanned && (
-            <div className="text-[10.5px] text-emerald-700 font-medium mt-0.5 flex items-center gap-1">
-              <Check className="w-3 h-3 text-emerald-600 inline" />
+            <div className="text-[10.5px] text-emerald-700 font-medium mt-1 flex items-center gap-1">
+              <Check className="w-3.5 h-3.5 text-emerald-600 inline shrink-0" />
               <span>
                 Đã scan{scanDateText ? ` ngày ${scanDateText}` : ''}
                 {item.scanInfo?.nguoi ? ` (${item.scanInfo.nguoi})` : ''}
@@ -496,16 +498,17 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
           )}
         </td>
 
-        {/* Tiến độ chi bộ */}
+        {/* Tiến độ chi bộ (ví dụ: "2/3") */}
         <td className="py-3 px-3 text-center align-middle">
           {item.chiBoProgress ? (
             <span
               className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border whitespace-nowrap ${
-                item.chiBoProgress.split('/')[0] === item.chiBoProgress.split('/')[1] && item.chiBoProgress !== '0/0'
+                item.chiBoProgress.split('/')[0] === item.chiBoProgress.split('/')[1] &&
+                item.chiBoProgress !== '0/0'
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                   : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}
-              title="Số cuộc đã scan trên tổng số cuộc của chi bộ này"
+              title="Số cuộc đã scan trên tổng số cuộc của chi bộ này trong năm"
             >
               {item.chiBoProgress}
             </span>
@@ -522,13 +525,13 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
           {renderThoiGian(item)}
         </td>
 
-        {/* Trạng thái */}
+        {/* Trạng thái thực hiện */}
         <td className="py-3 px-3 text-center align-middle">{renderTrangThaiBadge(item.trang_thai)}</td>
       </tr>
     );
   };
 
-  // Render một thẻ điện thoại
+  // Render một thẻ điện thoại (mobile)
   const renderCardItem = (item: ScanProgramItem) => {
     const isFading = fadingIds.has(item.id);
     const scanDateText = item.scanInfo?.ngay
@@ -538,11 +541,11 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
     return (
       <div
         key={item.id}
-        className={`bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs transition-all duration-300 space-y-2 ${
+        className={`bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs transition-all duration-300 space-y-2.5 ${
           isFading
             ? 'opacity-0 scale-95 pointer-events-none'
             : item.isScanned
-            ? 'bg-emerald-50/20 border-emerald-200'
+            ? 'bg-emerald-50/25 border-emerald-200'
             : ''
         }`}
       >
@@ -550,9 +553,9 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
           <div className="flex items-start space-x-2.5">
             <input
               type="checkbox"
-              checked={item.isScanned}
+              checked={Boolean(item.isScanned)}
               disabled={!isAdmin}
-              onChange={() => handleToggleScan(item.id, item.isScanned)}
+              onChange={() => handleToggleScan(item.id, Boolean(item.isScanned))}
               title={
                 isAdmin
                   ? item.isScanned
@@ -573,7 +576,7 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
               )}
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1">
+          <div className="flex flex-col items-end gap-1 shrink-0">
             {renderLoaiHinhBadge(item.loai_hinh)}
             {item.chiBoProgress && (
               <span className="text-[10.5px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
@@ -583,14 +586,14 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100 gap-2">
+        <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-500 pt-1.5 border-t border-slate-100 gap-2">
           <div>{renderThoiGian(item)}</div>
           <div>{renderTrangThaiBadge(item.trang_thai)}</div>
         </div>
 
         {item.isScanned && (
-          <div className="text-[10.5px] text-emerald-700 font-medium flex items-center gap-1">
-            <Check className="w-3 h-3 text-emerald-600" />
+          <div className="text-[10.5px] text-emerald-700 font-medium flex items-center gap-1 pt-0.5">
+            <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
             <span>
               Đã scan{scanDateText ? ` ngày ${scanDateText}` : ''}
               {item.scanInfo?.nguoi ? ` (${item.scanInfo.nguoi})` : ''}
@@ -601,6 +604,9 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
     );
   };
 
+  const chuaScanCount = Math.max(0, stats.tongCuoc - stats.daScanCuoc);
+  const daScanCount = stats.daScanCuoc;
+
   return (
     <div className="space-y-4">
       {/* ── DÒNG CHỮ NHỎ DƯỚI TIÊU ĐỀ ── */}
@@ -608,46 +614,35 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
         Bảng đánh dấu hồ sơ đã scan, chỉ để theo dõi, không tải tệp lên hệ thống.
       </p>
 
-      {/* ── 1. ĐẦU THẺ: Ô CHỌN NĂM, CÔNG TẮC & TÌM KIẾM ── */}
+      {/* ── 1. ĐẦU THẺ: Ô CHỌN NĂM & Ô TÌM KIẾM ── */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center space-x-2">
-              <Calendar className="w-4 h-4 text-slate-500" />
-              <label htmlFor="scan-year-select" className="text-xs font-semibold text-slate-700">
-                Năm:
-              </label>
-              <select
-                id="scan-year-select"
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(Number(e.target.value))}
-                className="text-xs font-bold border border-slate-300 rounded-lg px-2.5 py-1.5 bg-slate-50 text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500 cursor-pointer"
-              >
-                {availableYears.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <label className="inline-flex items-center space-x-2 text-xs font-medium text-slate-700 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={showScanned}
-                onChange={(e) => setShowScanned(e.target.checked)}
-                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer"
-              />
-              <span>Hiện cả đã scan</span>
+          {/* Ô chọn năm */}
+          <div className="flex items-center space-x-2">
+            <Calendar className="w-4 h-4 text-slate-500" />
+            <label htmlFor="scan-year-select" className="text-xs font-semibold text-slate-700">
+              Năm:
             </label>
+            <select
+              id="scan-year-select"
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
+              className="text-xs font-bold border border-slate-300 rounded-lg px-2.5 py-1.5 bg-slate-50 text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500 cursor-pointer"
+            >
+              {availableYears.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* Ô TÌM KIẾM CHUYÊN DỤNG */}
+          {/* Ô TÌM KIẾM (không phân biệt dấu tiếng Việt) */}
           <div className="relative w-full md:w-80">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              placeholder="Tìm theo chi bộ, nội dung, loại hình..."
+              placeholder="Tìm theo chi bộ, đối tượng, nội dung..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-8 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
@@ -665,7 +660,7 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
           </div>
         </div>
 
-        {/* HAI THANH TIẾN ĐỘ TỔNG HỢP (LUÔN HIỂN THỊ) */}
+        {/* HAI THANH TIẾN ĐỘ TỔNG HỢP (LUÔN HIỂN THỊ, ĐỘC LẬP TÌM KIẾM/BỘ LỌC) */}
         <div className="pt-3 border-t border-slate-100 space-y-3">
           {isCompletedAll && (
             <div className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold">
@@ -737,7 +732,85 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* ── 2. DANH SÁCH CUỘC KT-GS ── */}
+      {/* ── 2. THANH CHUYỂN ĐỔI CHẾ ĐỘ XEM: CHƯA SCAN / ĐÃ SCAN / TẤT CẢ ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+        <div className="inline-flex rounded-lg bg-slate-200/80 p-1 border border-slate-300/80 shadow-2xs">
+          <button
+            type="button"
+            onClick={() => setFilterMode('CHUA_SCAN')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+              filterMode === 'CHUA_SCAN'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5 text-amber-600" />
+            <span>Chưa scan</span>
+            <span
+              className={`ml-1 px-1.5 py-0.2 rounded-full text-[10.5px] ${
+                filterMode === 'CHUA_SCAN'
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-slate-300/60 text-slate-700'
+              }`}
+            >
+              {chuaScanCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFilterMode('DA_SCAN')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+              filterMode === 'DA_SCAN'
+                ? 'bg-white text-emerald-800 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Đã scan</span>
+            <span
+              className={`ml-1 px-1.5 py-0.2 rounded-full text-[10.5px] ${
+                filterMode === 'DA_SCAN'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-slate-300/60 text-slate-700'
+              }`}
+            >
+              {daScanCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFilterMode('ALL')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+              filterMode === 'ALL'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Filter className="w-3.5 h-3.5 text-slate-500" />
+            <span>Tất cả</span>
+            <span
+              className={`ml-1 px-1.5 py-0.2 rounded-full text-[10.5px] ${
+                filterMode === 'ALL'
+                  ? 'bg-slate-100 text-slate-800'
+                  : 'bg-slate-300/60 text-slate-700'
+              }`}
+            >
+              {stats.tongCuoc}
+            </span>
+          </button>
+        </div>
+
+        {searchQuery && (
+          <div className="text-xs text-slate-500 font-medium">
+            Tìm thấy <strong className="text-slate-800">{displayedItems.length}</strong> kết quả cho "
+            <span className="text-blue-600">{searchQuery}</span>"
+          </div>
+        )}
+      </div>
+
+      {/* ── 3. DANH SÁCH CUỘC KT-GS THEO CHẾ ĐỘ ── */}
       {loading ? (
         <div className="p-12 text-center text-slate-500 bg-white rounded-xl border border-slate-200 shadow-2xs">
           <div className="w-7 h-7 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
@@ -747,22 +820,46 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
         <div className="p-8 text-center bg-white rounded-xl border border-slate-200 shadow-2xs text-slate-500">
           <p className="text-xs">Không có cuộc kiểm tra, giám sát hằng năm trong năm {selectedYear}</p>
         </div>
-      ) : !showScanned && stats.daScanCuoc === stats.tongCuoc ? (
+      ) : filterMode === 'CHUA_SCAN' && chuaScanCount === 0 ? (
+        /* Khi xem tab Chưa scan nhưng đã scan xong tất cả */
         <div className="p-8 text-center bg-emerald-50 rounded-xl border border-emerald-200 shadow-2xs space-y-2">
-          <CheckCircle2 className="w-9 h-9 text-emerald-600 mx-auto" />
+          <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
           <h3 className="text-sm font-bold text-emerald-900">Đã scan xong năm {selectedYear}</h3>
           <p className="text-xs text-emerald-700">
-            Tất cả {stats.tongCuoc} cuộc kiểm tra, giám sát trong năm {selectedYear} đã được tích scan hồ sơ.
+            Tất cả {stats.tongCuoc} cuộc kiểm tra, giám sát trong năm {selectedYear} đã được đánh dấu scan hồ sơ.
           </p>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setFilterMode('DA_SCAN')}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-white border border-emerald-300 rounded-lg hover:bg-emerald-100 transition cursor-pointer shadow-2xs"
+            >
+              <span>Xem danh sách cuộc đã scan</span>
+            </button>
+          </div>
+        </div>
+      ) : filterMode === 'DA_SCAN' && daScanCount === 0 ? (
+        /* Khi xem tab Đã scan nhưng chưa có cuộc nào được tích */
+        <div className="p-8 text-center bg-white rounded-xl border border-slate-200 shadow-2xs text-slate-500 space-y-2">
+          <Clock className="w-9 h-9 text-slate-400 mx-auto" />
+          <p className="text-xs font-medium">Chưa có cuộc kiểm tra, giám sát nào được đánh dấu đã scan trong năm {selectedYear}.</p>
+          <button
+            type="button"
+            onClick={() => setFilterMode('CHUA_SCAN')}
+            className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+          >
+            Quay lại danh sách Chưa scan
+          </button>
         </div>
       ) : displayedItems.length === 0 ? (
+        /* Khi tìm kiếm không có kết quả */
         <div className="p-8 text-center bg-white rounded-xl border border-slate-200 shadow-2xs text-slate-500">
           <p className="text-xs">Không tìm thấy cuộc kiểm tra, giám sát nào phù hợp với từ khóa "{searchQuery}"</p>
         </div>
-      ) : !showScanned ? (
-        /* CHẾ ĐỘ MẶC ĐỊNH: CHỈ HIỆN CUỘC CHƯA SCAN */
+      ) : (
+        /* BẢNG DỮ LIỆU HIỂN THỊ */
         <>
-          {/* Máy tính */}
+          {/* Bảng trên máy tính */}
           <div className="hidden sm:block overflow-x-auto w-full border border-slate-200 rounded-xl bg-white shadow-2xs">
             <table className="w-full text-left text-xs border-collapse min-w-[750px]">
               <thead>
@@ -781,124 +878,26 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
             </table>
           </div>
 
-          {/* Điện thoại */}
+          {/* Dạng thẻ trên điện thoại */}
           <div className="sm:hidden space-y-2.5">
             {displayedItems.map(renderCardItem)}
           </div>
         </>
-      ) : (
-        /* KHI BẬT "HIỆN CẢ ĐÃ SCAN": CHIA RÕ 2 PHẦN (CHƯA SCAN VÀ ĐÃ SCAN) */
-        <div className="space-y-6">
-          {/* PHẦN 1: CÁC CUỘC CHƯA SCAN */}
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between px-1">
-              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-amber-600" />
-                <span>Danh sách cuộc chưa scan</span>
-                <span className="px-2 py-0.5 rounded-full text-[11px] bg-amber-100 text-amber-800 font-bold">
-                  {itemsChuaScan.length}
-                </span>
-              </h4>
-            </div>
-
-            {itemsChuaScan.length === 0 ? (
-              <div className="p-4 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-200 text-xs font-semibold text-center">
-                Tất cả các cuộc trong năm đã được scan đầy đủ!
-              </div>
-            ) : (
-              <>
-                <div className="hidden sm:block overflow-x-auto w-full border border-slate-200 rounded-xl bg-white shadow-2xs">
-                  <table className="w-full text-left text-xs border-collapse min-w-[750px]">
-                    <thead>
-                      <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-700 font-bold uppercase tracking-wider text-[11px]">
-                        <th className="py-3 px-3 w-12 text-center">Scan</th>
-                        <th className="py-3 px-4">Tên chi bộ / Chủ thể</th>
-                        <th className="py-3 px-3 w-28 text-center">Tiến độ chi bộ</th>
-                        <th className="py-3 px-3 w-28 text-center">Loại hình</th>
-                        <th className="py-3 px-3 w-40">Thời gian</th>
-                        <th className="py-3 px-3 w-32 text-center">Trạng thái</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {itemsChuaScan.map(renderTableRow)}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="sm:hidden space-y-2.5">
-                  {itemsChuaScan.map(renderCardItem)}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* PHẦN 2: CÁC CUỘC ĐÃ SCAN XONG */}
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between px-1">
-              <h4 className="text-xs font-bold text-emerald-900 uppercase tracking-wide flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Danh sách cuộc đã scan xong</span>
-                <span className="px-2 py-0.5 rounded-full text-[11px] bg-emerald-100 text-emerald-800 font-bold">
-                  {itemsDaScan.length}
-                </span>
-              </h4>
-            </div>
-
-            {itemsDaScan.length === 0 ? (
-              <div className="p-4 bg-slate-50 text-slate-500 rounded-xl border border-slate-200 text-xs text-center">
-                Chưa có cuộc nào được đánh dấu scan.
-              </div>
-            ) : (
-              <>
-                <div className="hidden sm:block overflow-x-auto w-full border border-emerald-200 rounded-xl bg-white shadow-2xs">
-                  <table className="w-full text-left text-xs border-collapse min-w-[750px]">
-                    <thead>
-                      <tr className="bg-emerald-50/80 border-b border-emerald-200 text-emerald-900 font-bold uppercase tracking-wider text-[11px]">
-                        <th className="py-3 px-3 w-12 text-center">Scan</th>
-                        <th className="py-3 px-4">Tên chi bộ / Chủ thể</th>
-                        <th className="py-3 px-3 w-28 text-center">Tiến độ chi bộ</th>
-                        <th className="py-3 px-3 w-28 text-center">Loại hình</th>
-                        <th className="py-3 px-3 w-40">Thời gian</th>
-                        <th className="py-3 px-3 w-32 text-center">Trạng thái</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-emerald-100">
-                      {itemsDaScan.map(renderTableRow)}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="sm:hidden space-y-2.5">
-                  {itemsDaScan.map(renderCardItem)}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
       )}
 
-      {/* ── 5. THÔNG BÁO HOÀN TÁC (TOAST 6 GIÂY) ── */}
+      {/* ── 4. TOAST THÔNG BÁO HOÀN TÁC (6 GIÂY) ── */}
       {toast && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center space-x-3 px-4 py-3 bg-slate-900 text-white text-xs rounded-xl shadow-xl border border-slate-700">
-          <Check className="w-4 h-4 text-emerald-400" />
-          <span>Đã đánh dấu đã scan</span>
-          <span className="text-slate-500">·</span>
+        <div className="fixed bottom-6 right-6 z-50 flex items-center space-x-3 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in slide-in-from-bottom-3 duration-200 text-xs">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span className="font-medium">Đã đánh dấu đã scan</span>
           <button
             type="button"
             onClick={handleUndo}
-            className="inline-flex items-center space-x-1 font-bold text-amber-400 hover:text-amber-300 underline cursor-pointer"
+            className="flex items-center space-x-1 text-amber-400 hover:text-amber-300 font-bold pl-2 border-l border-slate-700 cursor-pointer transition hover:underline"
           >
             <Undo2 className="w-3.5 h-3.5" />
             <span>Hoàn tác</span>
           </button>
-        </div>
-      )}
-
-      {/* ── 6. THÔNG BÁO LỖI (NẾU CÓ) ── */}
-      {errorToast && (
-        <div className="fixed bottom-5 left-5 z-50 flex items-center space-x-2 px-4 py-3 bg-rose-900 text-white text-xs rounded-xl shadow-xl border border-rose-700">
-          <AlertCircle className="w-4 h-4 text-rose-300" />
-          <span>{errorToast}</span>
         </div>
       )}
     </div>
