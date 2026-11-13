@@ -25,6 +25,7 @@ import { isSameData } from './utils/syncUtils';
 import { sessionStore, SESSION_IDLE_TIMEOUT_MS } from './utils/sessionStore';
 
 const ThongKeManager = lazy(() => import('./components/ThongKeManager'));
+const BaoCaoManager = lazy(() => import('./components/BaoCaoManager'));
 
 type TabKey = 'tong_quan' | 'don_vi' | 'phan_cong' | 'chuong_trinh' | 'ho_so_dia_ban' | 'don_thu' | 'lich_thang' | 'kho_pdf' | 'thong_ke' | 'bao_cao';
 
@@ -436,7 +437,18 @@ export function App() {
           </Suspense>
         );
       case 'bao_cao':
-        return <PlaceholderPage icon="📄" title="Báo cáo" desc="Xuất báo cáo tổng hợp, in ấn và xuất PDF" />;
+        return (
+          <Suspense
+            fallback={
+              <div className="flex flex-col items-center justify-center p-12 text-slate-500 space-y-3">
+                <div className="w-9 h-9 border-3 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                <p className="text-xs font-semibold">Đang nạp phân hệ Báo cáo...</p>
+              </div>
+            }
+          >
+            <BaoCaoManager user={currentUser} />
+          </Suspense>
+        );
       default:
         return <Dashboard currentUser={currentUser} appInfo={appInfo} />;
     }
@@ -576,29 +588,6 @@ export function App() {
       {/* Modal xử lý xung đột phiên bản khi ghi (Optimistic Concurrency Control) */}
       <VersionConflictModal />
     </>
-  );
-}
-
-// Placeholder cho các tab chưa implement
-function PlaceholderPage({ icon, title, desc }: { icon: string; title: string; desc: string }) {
-  return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      justifyContent: 'center', minHeight: 400, textAlign: 'center',
-      background: '#fff', borderRadius: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
-      padding: 40,
-    }}>
-      <div style={{ fontSize: 64, marginBottom: 16 }}>{icon}</div>
-      <h2 style={{ fontSize: 22, fontWeight: 700, color: '#2d3748', margin: '0 0 8px' }}>{title}</h2>
-      <p style={{ fontSize: 14, color: '#718096', maxWidth: 400 }}>{desc}</p>
-      <div style={{
-        marginTop: 24, padding: '10px 24px',
-        background: '#eff6ff', border: '1px solid #bfdbfe',
-        borderRadius: 8, color: '#3b82f6', fontSize: 13, fontWeight: 600,
-      }}>
-        🚧 Đang phát triển — sẽ có trong phiên bản tiếp theo
-      </div>
-    </div>
   );
 }
 

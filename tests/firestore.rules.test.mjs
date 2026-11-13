@@ -372,5 +372,58 @@ describe('Firestore Security Rules (firestore.rules)', () => {
       })
     );
   });
+
+  // ── TRƯỜNG HỢP 9: PHÂN QUYỀN SYSTEM_CONFIG (SCAN HỒ SƠ) ───────────────────
+  it('9. system_config: Chỉ ADMIN được ghi; mọi người dùng đã đăng nhập hợp lệ được đọc', async () => {
+    const adminDb = testEnv.authenticatedContext(ADMIN_UID).firestore();
+    const bienTapDb = testEnv.authenticatedContext(BIEN_TAP_UID).firestore();
+    const unauthDb = testEnv.unauthenticatedContext().firestore();
+
+    const scanConfigRef = doc(adminDb, 'system_config', 'scan_2026');
+    const bienTapScanRef = doc(bienTapDb, 'system_config', 'scan_2026');
+    const unauthScanRef = doc(unauthDb, 'system_config', 'scan_2026');
+
+    // 1. ADMIN ghi dữ liệu scan thành công
+    await assertSucceeds(
+      setDoc(scanConfigRef, {
+        id: 'scan_2026',
+        nam: 2026,
+        scanned: {
+          'ct-001': {
+            ngay: new Date().toISOString(),
+            nguoi: 'Quản trị viên',
+          },
+        },
+      })
+    );
+
+    // 2. BIEN_TAP được quyền đọc tài liệu system_config/scan_2026
+    await assertSucceeds(getDoc(bienTapScanRef));
+
+    // 3. BIEN_TAP không được quyền ghi hoặc sửa đổi system_config
+    await assertFails(
+      setDoc(
+        bienTapScanRef,
+        {
+          id: 'scan_2026',
+          nam: 2026,
+          'scanned.ct-002': {
+            ngay: new Date().toISOString(),
+            nguoi: 'Cán bộ Biên tập',
+          },
+        },
+        { merge: true }
+      )
+    );
+
+    // 4. Chưa đăng nhập không được đọc hoặc ghi system_config
+    await assertFails(getDoc(unauthScanRef));
+    await assertFails(
+      setDoc(unauthScanRef, {
+        id: 'scan_2026',
+        nam: 2026,
+      })
+    );
+  });
 });
 
