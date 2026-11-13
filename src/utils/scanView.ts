@@ -47,6 +47,26 @@ export interface ResolvedChiBo {
 }
 
 /**
+ * Trích xuất bản đồ scanned từ Firestore document data (hỗ trợ cả nested map và flat keys)
+ */
+export function extractScannedMap(data: any): ScannedMap {
+  if (!data || typeof data !== 'object') return {};
+  const map: ScannedMap = {};
+  if (data.scanned && typeof data.scanned === 'object') {
+    Object.assign(map, data.scanned);
+  }
+  for (const k of Object.keys(data)) {
+    if (k.startsWith('scanned.')) {
+      const subId = k.slice('scanned.'.length);
+      if (subId && data[k]) {
+        map[subId] = data[k];
+      }
+    }
+  }
+  return map;
+}
+
+/**
  * Nhận diện "chi bộ" để gom cuộc kiểm tra, giám sát:
  * 1. Ưu tiên don_vi_id (hoặc chu_the_don_vi_id / chi_dang_bo_id) của chương trình
  * 2. Nếu không có thì dùng findBestMatchingDonVi để suy ra từ chu_the / co_quan_ban_hanh
@@ -223,7 +243,7 @@ export function filterScanPrograms(
     return true;
   });
 
-  // 4. Lọc theo từ khóa tìm kiếm (không phân biệt dấu tiếng Việt)
+  // 4. Lọc theo từ khóa tìm kiếm phong phú (không phân biệt dấu tiếng Việt)
   const normalizedQuery = normalizeSearch(searchQuery);
   if (normalizedQuery) {
     filtered = filtered.filter((p) => {
@@ -236,16 +256,39 @@ export function filterScanPrograms(
           ? 'hoan thanh da hoan thanh'
           : 'chua thuc hien';
 
+      const loaiHinhText =
+        p.loai_hinh === 'KIEM_TRA' ? 'kiem tra kt' : p.loai_hinh === 'GIAM_SAT' ? 'giam sat gs' : '';
+
+      // Hỗ trợ tìm kiếm theo tháng ("thang 3", "thang 03", "t3",...)
+      const dateParts: string[] = [];
+      if (p.ngay_bat_dau) {
+        dateParts.push(p.ngay_bat_dau);
+        const m = p.ngay_bat_dau.slice(5, 7);
+        if (m) {
+          dateParts.push(`thang ${m}`, `thang ${parseInt(m, 10)}`, `t${parseInt(m, 10)}`);
+        }
+      }
+      if (p.ngay_ket_thuc) {
+        dateParts.push(p.ngay_ket_thuc);
+        const m = p.ngay_ket_thuc.slice(5, 7);
+        if (m) {
+          dateParts.push(`thang ${m}`, `thang ${parseInt(m, 10)}`, `t${parseInt(m, 10)}`);
+        }
+      }
+
       const searchTarget = [
         p.chu_the,
         p.co_quan_ban_hanh,
         p.doi_tuong,
+        p.ten_don_vi,
+        (p as any).ten_chi_dang_bo,
         p.noi_dung,
-        p.loai_hinh === 'KIEM_TRA' ? 'kiem tra' : p.loai_hinh === 'GIAM_SAT' ? 'giam sat' : '',
+        p.linh_vuc,
+        p.so_van_ban,
+        loaiHinhText,
         trangThaiText,
         p.trang_thai,
-        p.ngay_bat_dau,
-        p.ngay_ket_thuc,
+        ...dateParts,
       ]
         .filter(Boolean)
         .join(' ')
