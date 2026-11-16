@@ -365,6 +365,10 @@ export function App() {
     setCurrentUser(user);
     setIsSessionLocked(false);
     fetchAppInfo();
+    const currentHash = typeof window !== 'undefined' ? window.location.hash.toLowerCase() : '';
+    if (!HASH_TO_TAB[currentHash]) {
+      handleTabChange('tong_quan');
+    }
     checkUrlRouting(user);
   };
 
@@ -374,6 +378,10 @@ export function App() {
     signOut(auth).catch(() => {});
     api.logout().catch(() => {});
     sessionStore.clearSession();
+    setActiveTab('tong_quan');
+    try {
+      localStorage.removeItem('ubkt_active_tab');
+    } catch {}
     setCurrentUser(null);
     setIsSessionLocked(false);
     if (typeof window !== 'undefined' && window.location.hash) {
