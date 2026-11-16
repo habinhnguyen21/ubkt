@@ -149,7 +149,6 @@ export const OrgProgressTable: React.FC<OrgProgressTableProps> = ({
               >
                 Đơn vị / Tổ chức {getSortIcon('ten')}
               </th>
-              <th className="p-3 text-left text-slate-500">Khối</th>
               <th
                 onClick={() => handleSort('soKiemTra')}
                 className="p-3 text-center text-blue-600 cursor-pointer hover:underline"
@@ -191,7 +190,7 @@ export const OrgProgressTable: React.FC<OrgProgressTableProps> = ({
           <tbody className="divide-y divide-slate-100 text-slate-700">
             {paginatedData.length === 0 ? (
               <tr>
-                <td colSpan={onNavigateToUnit ? 10 : 9} className="p-8 text-center text-slate-400">
+                <td colSpan={onNavigateToUnit ? 9 : 8} className="p-8 text-center text-slate-400">
                   Không tìm thấy đơn vị nào phù hợp với điều kiện lọc.
                 </td>
               </tr>
@@ -213,7 +212,6 @@ export const OrgProgressTable: React.FC<OrgProgressTableProps> = ({
                         )}
                       </div>
                     </td>
-                    <td className="p-3 text-slate-500 text-[11px]">{row.loai}</td>
                     <td className="p-3 text-center font-bold text-blue-600">{row.soKiemTra}</td>
                     <td className="p-3 text-center font-bold text-purple-600">{row.soGiamSat}</td>
                     <td className="p-3 text-center font-bold text-emerald-600">
