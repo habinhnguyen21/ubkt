@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { api } from '../services/api';
 import type { User } from '../types';
 import logoUbkt from '../assets/logo-ubkt.jpg';
+import loginBg from '../assets/login-bg.webp';
 
 // Font chuyên nghiệp từ Google Fonts
 if (typeof document !== 'undefined' && !document.getElementById('gfont-bevietnam')) {
@@ -49,7 +50,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
         inset: 0,
         zIndex: 9999,
         fontFamily: "'Be Vietnam Pro', 'Segoe UI', 'Inter', sans-serif",
-        background: '#f5eded',
+        background: '#FEF1DE', // trùng màu nền ảnh trống đồng để không lộ viền
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -57,14 +58,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
         overflow: 'hidden',
       }}
     >
-      {/* ── NỀN HOA VĂN MỜ ─────────────────────────────────────────── */}
+      {/* ── NỀN TRỐNG ĐỒNG ĐÔNG SƠN (ảnh đặt giữa, nằm sau khung đăng nhập) ───── */}
       <div
+        aria-hidden="true"
         style={{
           position: 'absolute',
           inset: 0,
-          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Ccircle cx='130' cy='130' r='120' fill='none' stroke='%23c8282c' stroke-width='0.7' opacity='0.13'/%3E%3Ccircle cx='130' cy='130' r='95' fill='none' stroke='%23c8282c' stroke-width='0.6' opacity='0.10'/%3E%3Ccircle cx='130' cy='130' r='70' fill='none' stroke='%23c8282c' stroke-width='0.5' opacity='0.08'/%3E%3Ccircle cx='130' cy='130' r='45' fill='none' stroke='%23c8282c' stroke-width='0.5' opacity='0.07'/%3E%3C/svg%3E")`,
-          backgroundRepeat: 'repeat',
-          backgroundSize: '260px 260px',
+          backgroundImage: `url(${loginBg})`,
+          backgroundRepeat: 'no-repeat',
+          backgroundPosition: 'center',
+          // Chiều cao ảnh ~ đường kính trống đồng: hiện trọn vòng tròn trên máy tính (92% cạnh ngắn),
+          // tối thiểu 560px (trên điện thoại họa tiết lớn hơn màn hình, bị cắt hai bên) và tối đa 920px (tránh bị nhòe)
+          backgroundSize: 'auto min(max(92vmin, 560px), 920px)',
           pointerEvents: 'none',
         }}
       />
