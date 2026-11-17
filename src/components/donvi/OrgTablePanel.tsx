@@ -14,6 +14,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { DonVi, DonViTreeItem } from '../../types';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import { OrgMobileList } from './OrgMobileList';
 
 interface OrgTablePanelProps {
   units: DonVi[];
@@ -49,6 +51,7 @@ export const OrgTablePanel: React.FC<OrgTablePanelProps> = ({
   onBatchDeleteUnits,
   filterPreset,
 }) => {
+  const isMobile = useIsMobile();
   // Mode: 'ALL' (toàn bộ) | 'CHILDREN' (chỉ con của selectedUnit)
   const [viewMode, setViewMode] = useState<'ALL' | 'CHILDREN'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -327,6 +330,21 @@ export const OrgTablePanel: React.FC<OrgTablePanelProps> = ({
       )}
 
       {/* ── BẢNG DỮ LIỆU ĐÃ LƯỢC BỎ MÃ, LOẠI HÌNH, CẤP, NGÀY HIỆU LỰC ── */}
+      {isMobile ? (
+        <OrgMobileList
+          units={paginatedData}
+          allUnits={units}
+          canEdit={canEdit}
+          selectedIds={selectedIds}
+          onToggleSelect={handleToggleSelectOne}
+          onViewUnit={onViewUnit}
+          onEditUnit={onEditUnit}
+          onAddChild={onAddChild}
+          onChangeParent={onChangeParent}
+          onToggleStatus={onToggleStatus}
+          onDeleteUnit={onDeleteUnit}
+        />
+      ) : (
       <div className="flex-1 overflow-x-auto min-h-[320px]">
         <table className="w-full text-left text-xs border-collapse">
           <thead>
@@ -515,6 +533,7 @@ export const OrgTablePanel: React.FC<OrgTablePanelProps> = ({
           </tbody>
         </table>
       </div>
+      )}
 
       {/* ── FOOTER: PHÂN TRANG ── */}
       <div className="p-3 border-t border-slate-100 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500">

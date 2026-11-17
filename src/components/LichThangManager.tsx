@@ -8,6 +8,8 @@ import {
   Info,
   ChevronRight,
 } from 'lucide-react';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { LichThangMobileList } from './lichthang/LichThangMobileList';
 
 interface LichThangManagerProps {
   user: User;
@@ -15,6 +17,7 @@ interface LichThangManagerProps {
 }
 
 export const LichThangManager: React.FC<LichThangManagerProps> = ({ user: _user }) => {
+  const isMobile = useIsMobile();
   const [list, setList] = useState<ChuongTrinhKtGs[]>([]);
   const [_loading, setLoading] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number>(2026);
@@ -266,6 +269,12 @@ export const LichThangManager: React.FC<LichThangManagerProps> = ({ user: _user 
               <Info className="w-8 h-8 text-slate-300" />
               <p>Chưa có cuộc kiểm tra hoặc giám sát nào có lịch trong Tháng {selectedMonth} / {selectedYear}.</p>
             </div>
+          ) : isMobile ? (
+            <LichThangMobileList
+              events={activeMonthData.events}
+              renderLoaiHinhBadge={renderLoaiHinhBadge}
+              renderTrangThaiBadge={renderTrangThaiBadge}
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-slate-700 border-collapse">

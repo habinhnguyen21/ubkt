@@ -28,6 +28,8 @@ import {
   Zap,
 } from 'lucide-react';
 import { GoogleDriveConfigModal } from './GoogleDriveConfigModal';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { KhoPdfMobileList } from './khopdf/KhoPdfMobileList';
 import {
   getGoogleDriveConfig,
   uploadFileToGoogleDrive,
@@ -69,6 +71,7 @@ interface KhoPdfManagerProps {
 }
 
 export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChanged }) => {
+  const isMobile = useIsMobile();
   const [dataList, setDataList] = useState<PdfKhoItem[]>([]);
   const [allPrograms, setAllPrograms] = useState<ChuongTrinhKtGs[]>([]);
   const [allDonVi, setAllDonVi] = useState<DonVi[]>([]);
@@ -1170,6 +1173,100 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
           </span>
         </div>
 
+        {isMobile ? (
+          <KhoPdfMobileList
+            items={filteredData}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            onAddNew={() => setIsAddModalOpen(true)}
+            onViewDetail={(item) => handleViewPdf(item)}
+            onDownload={(item) => handleDownload(item)}
+            onDelete={(item) => setDeleteTarget(item)}
+            canEdit={canEdit}
+            allDonVi={allDonVi}
+            activeFilterCount={
+              (filterDonVi !== 'ALL' ? 1 : 0) +
+              (filterTheLoai !== 'ALL' ? 1 : 0) +
+              (filterLoaiFile !== 'ALL' ? 1 : 0) +
+              (filterNguonGoc !== 'ALL' ? 1 : 0)
+            }
+            onClearFilter={() => {
+              setFilterDonVi('ALL');
+              setFilterTheLoai('ALL');
+              setFilterLoaiFile('ALL');
+              setFilterNguonGoc('ALL');
+              setSearchQuery('');
+            }}
+            filterDrawerContent={
+              <div className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Địa bàn / Đơn vị</label>
+                  <select
+                    value={filterDonVi}
+                    onChange={(e) => setFilterDonVi(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                  >
+                    <option value="ALL">-- Tất cả địa bàn / Đơn vị --</option>
+                    {allDonVi.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.ten}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Thể loại văn bản</label>
+                  <select
+                    value={filterTheLoai}
+                    onChange={(e) => setFilterTheLoai(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                  >
+                    <option value="ALL">-- Tất cả thể loại văn bản --</option>
+                    <option value="Quyết định">Quyết định</option>
+                    <option value="Báo cáo">Báo cáo</option>
+                    <option value="Kế hoạch">Kế hoạch</option>
+                    <option value="Quy chế">Quy chế</option>
+                    <option value="Kết luận">Kết luận</option>
+                    <option value="Nghị quyết">Nghị quyết</option>
+                    <option value="Thông báo">Thông báo</option>
+                    <option value="Công văn">Công văn</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Định dạng tệp</label>
+                  <select
+                    value={filterLoaiFile}
+                    onChange={(e) => setFilterLoaiFile(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                  >
+                    <option value="ALL">Tất cả định dạng</option>
+                    <option value="pdf">Tệp PDF (.pdf)</option>
+                    <option value="docx">Tài liệu Word (.docx, .doc)</option>
+                    <option value="xlsx">Bảng tính Excel (.xlsx, .xls)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Nguồn gốc dữ liệu</label>
+                  <select
+                    value={filterNguonGoc}
+                    onChange={(e) => setFilterNguonGoc(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                  >
+                    <option value="ALL">Tất cả nguồn dữ liệu</option>
+                    <option value="HO_SO_DIA_BAN">Hồ sơ địa bàn</option>
+                    <option value="BAO_CAO_THANG">Báo cáo định kỳ tháng</option>
+                    <option value="CHUONG_TRINH">Chương trình KT-GS</option>
+                    <option value="KHO_PDF">Kho dữ liệu chung</option>
+                  </select>
+                </div>
+              </div>
+            }
+          />
+        ) : (
+          <>
         {/* ── BỘ LỌC TÌM KIẾM ĐA TIÊU CHÍ ───────────────────────────────── */}
         <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200 space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5">
@@ -1443,6 +1540,8 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
               </tbody>
             </table>
           </div>
+        )}
+          </>
         )}
       </div>
 

@@ -34,6 +34,8 @@ import {
   Check,
   Building,
 } from 'lucide-react';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { DonThuMobileList } from './donthu/DonThuMobileList';
 
 interface DonThuManagerProps {
   user: User;
@@ -111,6 +113,7 @@ const HUONG_XU_LY_COLORS: Record<string, string> = {
 };
 
 export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChanged }) => {
+  const isMobile = useIsMobile();
   const [dataList, setDataList] = useState<DonThu[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -1108,6 +1111,119 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
       </div>
 
       {/* ── BẢNG THEO DÕI VÀ BỘ LỌC ĐA CHIỀU ──────────────────────────────── */}
+      {isMobile ? (
+        <DonThuMobileList
+          items={filteredData}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          onAddNew={handleOpenAddModal}
+          onViewDetail={setViewingItem}
+          onEdit={handleOpenEditModal}
+          onDelete={setDeletingItem}
+          canEdit={true}
+          getDeadlineInfo={getDeadlineInfo}
+          activeFilterCount={
+            (filterLoaiDon !== 'ALL' ? 1 : 0) +
+            (filterLinhVuc !== 'ALL' ? 1 : 0) +
+            (filterTrangThai !== 'ALL' ? 1 : 0) +
+            (filterCanBo !== 'ALL' ? 1 : 0) +
+            (filterHuongXuLy !== 'ALL' ? 1 : 0) +
+            (kpiFilter !== 'ALL' ? 1 : 0)
+          }
+          onClearFilter={() => {
+            setFilterLoaiDon('ALL');
+            setFilterLinhVuc('ALL');
+            setFilterTrangThai('ALL');
+            setFilterCanBo('ALL');
+            setFilterHuongXuLy('ALL');
+            setKpiFilter('ALL');
+            setSearchQuery('');
+          }}
+          filterDrawerContent={
+            <div className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Loại đơn</label>
+                <select
+                  value={filterLoaiDon}
+                  onChange={(e) => setFilterLoaiDon(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                >
+                  <option value="ALL">Tất cả loại đơn</option>
+                  {DEFAULT_LOAI_DON.map((l) => (
+                    <option key={l} value={l}>
+                      {l} ({theoLoaiDon[l] || 0})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Lĩnh vực</label>
+                <select
+                  value={filterLinhVuc}
+                  onChange={(e) => setFilterLinhVuc(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                >
+                  <option value="ALL">Tất cả lĩnh vực</option>
+                  {DEFAULT_LINH_VUC.map((lv) => (
+                    <option key={lv} value={lv}>
+                      {lv} ({theoLinhVuc[lv] || 0})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Hướng xử lý</label>
+                <select
+                  value={filterHuongXuLy}
+                  onChange={(e) => setFilterHuongXuLy(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                >
+                  <option value="ALL">Tất cả hướng xử lý</option>
+                  {DEFAULT_HUONG_XU_LY.map((hx) => (
+                    <option key={hx} value={hx}>
+                      {hx}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Cán bộ phụ trách</label>
+                <select
+                  value={filterCanBo}
+                  onChange={(e) => setFilterCanBo(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                >
+                  <option value="ALL">Tất cả cán bộ</option>
+                  {customCanBoList.map((cb) => (
+                    <option key={cb} value={cb}>
+                      {cb} ({theoCanBo[cb]?.total || 0})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Trạng thái xử lý</label>
+                <select
+                  value={filterTrangThai}
+                  onChange={(e) => setFilterTrangThai(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                >
+                  <option value="ALL">Tất cả trạng thái</option>
+                  {DEFAULT_TRANG_THAI.map((st) => (
+                    <option key={st} value={st}>
+                      {st}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          }
+        />
+      ) : (
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
         {/* Thanh công cụ tìm kiếm và bộ lọc */}
         <div className="p-4 border-b border-slate-100 space-y-3">
@@ -1468,6 +1584,7 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
           </table>
         </div>
       </div>
+      )}
 
       {/* ── MODAL DATA ENTRY FORM (THÊM / CẬP NHẬT ĐƠN THƯ) ────────────────── */}
       {isFormModalOpen && (

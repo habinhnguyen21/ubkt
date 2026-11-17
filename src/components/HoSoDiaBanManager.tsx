@@ -22,6 +22,8 @@ import {
   deleteFileFromGoogleDrive,
 } from '../services/googleDriveService';
 import { centralDataService } from '../services/centralDataService';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { HoSoDiaBanMobileList } from './hosodiaban/HoSoDiaBanMobileList';
 import { reconcileById, isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import { deriveAllOfficerFields } from '../utils/diaBanSync';
 import {
@@ -90,6 +92,7 @@ export const NHOM_HO_SO = [
 ];
 
 export function HoSoDiaBanManager({ user }: Props) {
+  const isMobile = useIsMobile();
   // Tab con: 'tong_quan' | 'danh_sach' | 'kho_tai_lieu' (Đã bỏ tab báo cáo tháng độc lập)
   const [subTab, setSubTab] = useState<'tong_quan' | 'danh_sach' | 'kho_tai_lieu'>('danh_sach');
 
@@ -2786,6 +2789,29 @@ export function HoSoDiaBanManager({ user }: Props) {
                       </div>
 
                       {/* Danh sách địa bàn thuộc cán bộ phụ trách */}
+                      {isMobile ? (
+                        <HoSoDiaBanMobileList
+                          records={group.records}
+                          selectedIds={selectedRecordIds}
+                          onToggleSelect={handleToggleSelectRecord}
+                          onViewRecord={(item) => {
+                            setSelectedRecord(item);
+                            setModalTab('thong_tin');
+                          }}
+                          onDeleteRecord={setDeleteTargetRecord}
+                          canEdit={canEdit}
+                          renderTrangThaiBadge={renderTrangThaiHoSoBadge}
+                          onOpenVanDeModal={(item) => {
+                            setSelectedRecord(item);
+                            setModalTab('van_de');
+                          }}
+                          onOpenChiDaoModal={(item) => {
+                            setSelectedRecord(item);
+                            setModalTab('chi_dao');
+                          }}
+                          showCanBo={false}
+                        />
+                      ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse text-xs">
                           <thead>
@@ -2942,6 +2968,7 @@ export function HoSoDiaBanManager({ user }: Props) {
                           </tbody>
                         </table>
                       </div>
+                      )}
                     </div>
                   );
                 })
@@ -2951,6 +2978,29 @@ export function HoSoDiaBanManager({ user }: Props) {
 
           {/* VIEW 2: BẢNG TỔNG HỢP CHI TIẾT (ĐẦY ĐỦ 7 TRƯỜNG THÔNG TIN) */}
           {viewModePhanCong === 'BANG_PHANG' && (
+            isMobile ? (
+              <HoSoDiaBanMobileList
+                records={filteredRecords}
+                selectedIds={selectedRecordIds}
+                onToggleSelect={handleToggleSelectRecord}
+                onViewRecord={(item) => {
+                  setSelectedRecord(item);
+                  setModalTab('thong_tin');
+                }}
+                onDeleteRecord={setDeleteTargetRecord}
+                canEdit={canEdit}
+                renderTrangThaiBadge={renderTrangThaiHoSoBadge}
+                onOpenVanDeModal={(item) => {
+                  setSelectedRecord(item);
+                  setModalTab('van_de');
+                }}
+                onOpenChiDaoModal={(item) => {
+                  setSelectedRecord(item);
+                  setModalTab('chi_dao');
+                }}
+                showCanBo={true}
+              />
+            ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
@@ -3159,6 +3209,7 @@ export function HoSoDiaBanManager({ user }: Props) {
                 </tbody>
               </table>
             </div>
+            )
           )}
         </div>
       )}

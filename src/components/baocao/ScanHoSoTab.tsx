@@ -550,23 +550,25 @@ export const ScanHoSoTab: React.FC<ScanHoSoTabProps> = ({ user }) => {
         }`}
       >
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start space-x-2.5">
-            <input
-              type="checkbox"
-              checked={Boolean(item.isScanned)}
-              disabled={!isAdmin}
-              onChange={() => handleToggleScan(item.id, Boolean(item.isScanned))}
-              title={
-                isAdmin
-                  ? item.isScanned
-                    ? 'Bỏ đánh dấu scan'
-                    : 'Đánh dấu đã scan'
-                  : 'Chỉ Quản trị viên (ADMIN) mới có quyền đánh dấu scan'
-              }
-              className={`w-4 h-4 mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 ${
-                isAdmin ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
-              }`}
-            />
+          <div className="flex items-start space-x-1.5">
+            <label className="min-w-[44px] min-h-[44px] -ml-2 -mt-2 flex items-center justify-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(item.isScanned)}
+                disabled={!isAdmin}
+                onChange={() => handleToggleScan(item.id, Boolean(item.isScanned))}
+                title={
+                  isAdmin
+                    ? item.isScanned
+                      ? 'Bỏ đánh dấu scan'
+                      : 'Đánh dấu đã scan'
+                    : 'Chỉ Quản trị viên (ADMIN) mới có quyền đánh dấu scan'
+                }
+                className={`w-5 h-5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 ${
+                  isAdmin ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
+                }`}
+              />
+            </label>
             <div>
               <div className="text-xs font-bold text-slate-900 leading-snug">
                 {item.chu_the || item.co_quan_ban_hanh}

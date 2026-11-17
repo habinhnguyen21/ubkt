@@ -4,6 +4,8 @@ import { IS_CLOUD_FUNCTIONS_ENABLED, usernameToAuthEmail } from '../services/fir
 import { validatePasswordPolicy, generateSecurePassword } from '../utils/passwordCrypto';
 import { getUserAssignmentImpact } from '../utils/diaBanSync';
 import type { User, DonVi } from '../types';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { UserMobileList } from './user/UserMobileList';
 
 interface Props {
   currentUser: User;
@@ -33,6 +35,7 @@ export const CHUC_DANH_UBKT_OPTIONS = [
 ] as const;
 
 export default function UserManager({ currentUser, onClose }: Props) {
+  const isMobile = useIsMobile();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -318,11 +321,22 @@ export default function UserManager({ currentUser, onClose }: Props) {
           )}
         </div>
 
-        {/* Table */}
-        <div style={styles.tableWrap}>
-          {loading && !modalMode ? (
-            <div style={styles.loadingMsg}>Đang tải...</div>
-          ) : (
+        {/* Table / Mobile Cards */}
+        {loading && !modalMode ? (
+          <div style={styles.loadingMsg}>Đang tải...</div>
+        ) : isMobile ? (
+          <UserMobileList
+            users={filtered}
+            currentUser={currentUser}
+            isAdmin={isAdmin}
+            onEdit={openEdit}
+            onResetPassword={openReset}
+            onDelete={openDelete}
+            roleLabels={ROLE_LABELS}
+            roleColors={ROLE_COLORS}
+          />
+        ) : (
+          <div style={styles.tableWrap}>
             <table style={styles.table}>
               <thead>
                 <tr>
@@ -435,8 +449,8 @@ export default function UserManager({ currentUser, onClose }: Props) {
                 )}
               </tbody>
             </table>
-          )}
-        </div>
+          </div>
+        )}
 
         <div style={styles.footer}>
           Tổng cộng: <strong style={{ color: '#e2e8f0' }}>{filtered.length}</strong> tài khoản
