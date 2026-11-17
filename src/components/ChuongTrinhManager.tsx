@@ -69,6 +69,8 @@ import {
 } from 'lucide-react';
 import { ChuongTrinhImportExcelModal } from './chuongtrinh/ChuongTrinhImportExcelModal';
 import { ChinhTienDoNamModal } from './chuongtrinh/ChinhTienDoNamModal';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { ChuongTrinhMobileList } from './chuongtrinh/ChuongTrinhMobileList';
 import {
   exportChuongTrinhToExcel,
   normalizeLinhVuc,
@@ -135,6 +137,7 @@ interface ChuongTrinhManagerProps {
 
 export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, onDataChanged }) => {
   const isAdmin = user.vai_tro === 'ADMIN';
+  const isMobile = useIsMobile();
 
   const [list, setList] = useState<ChuongTrinhKtGs[]>([]);
   const [allDonVi, setAllDonVi] = useState<DonVi[]>([]);
@@ -2711,6 +2714,107 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
       {activeTab === 'NHIEM_KY' && (
         <>
+          {isMobile ? (
+            <ChuongTrinhMobileList
+              items={filteredList}
+              loading={loading}
+              isAdmin={isAdmin}
+              canEdit={canEdit}
+              searchQuery={searchQuery}
+              onSearchChange={(q) => {
+                setSearchQuery(q);
+                setCurrentPage(1);
+              }}
+              currentPage={currentPage}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onAddNew={handleAddNew}
+              onViewDetail={(item) => {
+                setSelectedProgram(item);
+                setNhiemKyModalTab('DETAIL');
+                setIsNhiemKyEditorOpen(true);
+              }}
+              onEdit={handleSelectForEdit}
+              onDuplicate={handleDuplicate}
+              onDelete={setDeleteTarget}
+              allDonVi={allDonVi}
+              isNhiemKy={true}
+              activeFilterCount={
+                (filterNhiemKy !== 'ALL' ? 1 : 0) +
+                (filterThoiGian !== 'ALL' ? 1 : 0) +
+                (filterLoaiChuongTrinh !== 'ALL' ? 1 : 0)
+              }
+              onClearFilter={() => {
+                setFilterNhiemKy('ALL');
+                setFilterThoiGian('ALL');
+                setFilterLoaiChuongTrinh('ALL');
+                setSearchQuery('');
+                setCurrentPage(1);
+              }}
+              filterDrawerContent={
+                <div className="space-y-3.5">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Nhiệm kỳ</label>
+                    <select
+                      value={filterNhiemKy}
+                      onChange={(e) => {
+                        setFilterNhiemKy(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                    >
+                      <option value="ALL">Tất cả nhiệm kỳ</option>
+                      {availableNhiemKyList.map((nk) => (
+                        <option key={nk} value={nk}>
+                          Nhiệm kỳ {nk}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Thời gian thực hiện</label>
+                    <select
+                      value={filterThoiGian}
+                      onChange={(e) => {
+                        setFilterThoiGian(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                    >
+                      <option value="ALL">Tất cả</option>
+                      <option value="CA_NHIEM_KY">Cả nhiệm kỳ</option>
+                      <option value="DANG_THUC_HIEN">Đang thực hiện</option>
+                      <option value="HOAN_THANH">Hoàn thành</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Loại chương trình</label>
+                    <select
+                      value={filterLoaiChuongTrinh}
+                      onChange={(e) => {
+                        const val = e.target.value as 'ALL' | 'NHIEM_KY' | 'HANG_NAM';
+                        setFilterLoaiChuongTrinh(val);
+                        if (val === 'HANG_NAM') {
+                          setActiveTab('HANG_NAM');
+                        } else if (val === 'NHIEM_KY') {
+                          setActiveTab('NHIEM_KY');
+                        }
+                        setCurrentPage(1);
+                      }}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                    >
+                      <option value="ALL">Tất cả</option>
+                      <option value="NHIEM_KY">Toàn khóa (Nhiệm kỳ)</option>
+                      <option value="HANG_NAM">Chương trình kiểm tra, giám sát năm</option>
+                    </select>
+                  </div>
+                </div>
+              }
+            />
+          ) : (
+            <>
           {/* ── HEADER VÀ BỘ LỌC NHIỆM KỲ ────────────────────────────────────────── */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
@@ -3195,6 +3299,8 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
           </div>
         </div>
       </div>
+            </>
+          )}
 
       {/* ── CỬA SỔ CHI TIẾT & CHỈNH SỬA / THÊM MỚI (CHỈ HIỂN THỊ KHI BẤM SỬA HOẶC THÊM MỚI) ── */}
       {isNhiemKyEditorOpen && (
@@ -4480,6 +4586,190 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
             {/* ── CỘT TRÁI: PHẦN D (BỘ LỌC & TÌM KIẾM) + PHẦN C (DANH SÁCH BẢNG) ── */}
             <div className="lg:col-span-8 xl:col-span-9 space-y-3.5">
+              {isMobile ? (
+                <ChuongTrinhMobileList
+                  items={filteredHangNamList}
+                  loading={loading}
+                  isAdmin={isAdmin}
+                  canEdit={canEdit}
+                  searchQuery={searchQuery}
+                  onSearchChange={(q) => {
+                    setSearchQuery(q);
+                    setCurrentPageHn(1);
+                  }}
+                  currentPage={currentPageHn}
+                  pageSize={pageSizeHn}
+                  onPageChange={setCurrentPageHn}
+                  onAddNew={handleOpenAddHn}
+                  onViewDetail={setViewingDocItem}
+                  onEdit={handleOpenEditHn}
+                  onDuplicate={handleDuplicateHn}
+                  onDelete={setDeleteTarget}
+                  onQuickDangThucHien={handleQuickSetDangThucHien}
+                  onQuickHoanThanh={handleQuickSetHoanThanh}
+                  onLinkToDiaBan={handleLinkToDiaBan}
+                  renderAssignedOfficers={renderAssignedOfficers}
+                  allDonVi={allDonVi}
+                  isNhiemKy={false}
+                  activeFilterCount={
+                    (filterNam !== 'ALL' ? 1 : 0) +
+                    (filterHnChuThe !== 'ALL' ? 1 : 0) +
+                    (filterHnLoaiHinh !== 'ALL' ? 1 : 0) +
+                    (filterHnLinhVuc !== 'ALL' ? 1 : 0) +
+                    (filterHnDonVi !== 'ALL' ? 1 : 0) +
+                    (filterHnTrangThai !== 'ALL' ? 1 : 0) +
+                    (hnProgressFilter !== 'ALL' ? 1 : 0)
+                  }
+                  onClearFilter={handleClearHnFilter}
+                  filterDrawerContent={
+                    <div className="space-y-3.5">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Năm thực hiện</label>
+                        <select
+                          value={filterNam}
+                          onChange={(e) => {
+                            setFilterNam(e.target.value);
+                            setCurrentPageHn(1);
+                          }}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                        >
+                          <option value="ALL">Tất cả năm</option>
+                          {availableYears.map((y) => (
+                            <option key={y} value={y}>
+                              Năm {y}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Cơ quan ban hành</label>
+                        <select
+                          value={filterHnChuThe}
+                          onChange={(e) => {
+                            setFilterHnChuThe(e.target.value);
+                            setCurrentPageHn(1);
+                          }}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                        >
+                          <option value="ALL">Tất cả cơ quan</option>
+                          <optgroup label="Cơ quan ban hành tùy chỉnh">
+                            {customCoQuanList.map((cq) => (
+                              <option key={cq} value={cq}>
+                                {cq}
+                              </option>
+                            ))}
+                          </optgroup>
+                          {allDonVi.length > 0 && (
+                            <optgroup label="Đơn vị từ Cơ cấu tổ chức">
+                              {allDonVi
+                                .filter((d) => !customCoQuanList.includes(d.ten))
+                                .map((d) => (
+                                  <option key={d.id} value={d.ten}>
+                                    {d.ten}
+                                  </option>
+                                ))}
+                            </optgroup>
+                          )}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Loại hình</label>
+                        <select
+                          value={filterHnLoaiHinh}
+                          onChange={(e) => {
+                            setFilterHnLoaiHinh(e.target.value as 'ALL' | LoaiHinhKtGs);
+                            setCurrentPageHn(1);
+                          }}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                        >
+                          <option value="ALL">Tất cả loại hình</option>
+                          <option value="KIEM_TRA">Kiểm tra</option>
+                          <option value="GIAM_SAT">Giám sát</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Lĩnh vực</label>
+                        <select
+                          value={filterHnLinhVuc}
+                          onChange={(e) => {
+                            setFilterHnLinhVuc(e.target.value);
+                            setCurrentPageHn(1);
+                          }}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                        >
+                          <option value="ALL">Tất cả lĩnh vực</option>
+                          {DANH_MUC_LINH_VUC.map((lv) => (
+                            <option key={lv} value={lv}>
+                              {lv}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Đơn vị KT-GS</label>
+                        <select
+                          value={filterHnDonVi}
+                          onChange={(e) => {
+                            setFilterHnDonVi(e.target.value);
+                            setCurrentPageHn(1);
+                          }}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                        >
+                          <option value="ALL">Tất cả đơn vị</option>
+                          {statsHangNam.theoDonVi.map((d) => (
+                            <option key={d.ten} value={d.ten}>
+                              {d.ten} ({d.count})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Trạng thái</label>
+                        <select
+                          value={filterHnTrangThai}
+                          onChange={(e) => {
+                            setFilterHnTrangThai(e.target.value as 'ALL' | TrangThaiKtGs);
+                            setCurrentPageHn(1);
+                          }}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-medium text-slate-800"
+                        >
+                          <option value="ALL">Tất cả trạng thái</option>
+                          <option value="DANG_THUC_HIEN">Đang thực hiện</option>
+                          <option value="CHUA_THUC_HIEN">Chưa thực hiện</option>
+                          <option value="DA_HOAN_THANH">Đã hoàn thành</option>
+                          <option value="QUA_HAN">Quá hạn</option>
+                        </select>
+                      </div>
+
+                      {/* Tiện ích xuất dữ liệu */}
+                      <div className="pt-2 border-t border-slate-200 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleExportHn('xlsx')}
+                          className="flex-1 min-h-[44px] px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold flex items-center justify-center space-x-1 cursor-pointer"
+                        >
+                          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>Xuất Excel</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handlePrintDoc}
+                          className="flex-1 min-h-[44px] px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold flex items-center justify-center space-x-1 cursor-pointer"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-slate-600" />
+                          <span>In sổ</span>
+                        </button>
+                      </div>
+                    </div>
+                  }
+                />
+              ) : (
+                <>
               {/* ══════════════════════════════════════════════════════════════════════════════
                   PHẦN D. BỘ LỌC VÀ TÌM KIẾM + PHẦN F. THAO TÁC DỮ LIỆU
               ══════════════════════════════════════════════════════════════════════════════ */}
@@ -5138,6 +5428,8 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                   </div>
                 </div>
               </div>
+                </>
+              )}
             </div>
 
             {/* ══════════════════════════════════════════════════════════════════════════════
