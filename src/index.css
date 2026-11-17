@@ -76,3 +76,13 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* Ngăn iOS Safari tự động phóng to trang khi người dùng chạm vào ô nhập liệu */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
