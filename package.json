@@ -12,7 +12,7 @@
     "lint": "oxlint",
     "test": "vitest run",
     "preview": "vite preview",
-    "deploy": "gh-pages -d dist",
+    "deploy": "npx gh-pages -d dist",
     "test:rules": "firebase emulators:exec --only firestore \"node --test tests/firestore.rules.test.mjs\"",
     "migrate:auth": "node scripts/migrate-users-to-firebase-auth.mjs"
   },
