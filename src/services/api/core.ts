@@ -12,6 +12,7 @@ import type {
 import { cloudSyncService } from '../cloudSyncService';
 import { INITIAL_SEED_ADMIN_HASH } from '../../utils/passwordCrypto';
 import { sessionStore } from '../../utils/sessionStore';
+import { isMigrationPlaceholder, normalizeMockDb } from '../../utils/mockDbNormalize';
 
 export const STORAGE_DELETED_DON_VI_IDS = 'ubkt_deleted_don_vi_ids';
 export const STORAGE_DELETED_CHUONG_TRINH_IDS = 'ubkt_deleted_chuong_trinh_ids';
@@ -187,19 +188,17 @@ export function getMockDb(): MockDb {
 
   if (raw) {
     try {
-      const parsed: MockDb = JSON.parse(raw);
-      if (!parsed.users || parsed.users.length === 0) {
-        parsed.users = getInitialProductionDb().users;
-      }
-      if (parsed.donViList) {
+      const rawParsed: unknown = JSON.parse(raw);
+      // Bản đánh dấu {"_migrated_to_idb": true} (không có dữ liệu thật) thì bỏ qua, dùng dữ liệu khởi tạo bên dưới
+      if (!isMigrationPlaceholder(rawParsed)) {
+        // Luôn có đủ các mảng bắt buộc để tránh lỗi "undefined is not an object (evaluating 'e.donViList.filter')"
+        const parsed = normalizeMockDb<MockDb>(rawParsed, () => getInitialProductionDb().users);
         parsed.donViList = parsed.donViList.filter(
           (d) => !deletedDvIds.has(d.id) && !d.deleted_at
         );
-      }
-      if (parsed.chuongTrinhList) {
         parsed.chuongTrinhList = parsed.chuongTrinhList.filter((c) => !deletedCtIds.has(c.id));
+        return parsed;
       }
-      return parsed;
     } catch {
       // fallback
     }
