@@ -271,7 +271,9 @@ export function App() {
           console.warn('[App] Lỗi kiểm tra seed dữ liệu gốc:', err);
         });
         cloudSyncService.startAutoSync();
-        cloudSyncService.performTwoWaySync(true).catch((err) => {
+        cloudSyncService.performTwoWaySync(true).then(() => {
+          window.dispatchEvent(new CustomEvent('ubkt_reminders_sync'));
+        }).catch((err) => {
           console.warn('[App] Lỗi đồng bộ đám mây ban đầu:', err);
         });
       } else {
@@ -462,6 +464,10 @@ export function App() {
       handleTabChange('tong_quan');
     }
     checkUrlRouting(user);
+    // Kích hoạt đồng bộ đám mây và tính toán lại thông báo nhắc việc ngay sau khi đăng nhập thành công
+    cloudSyncService.performTwoWaySync(true).then(() => {
+      window.dispatchEvent(new CustomEvent('ubkt_reminders_sync'));
+    }).catch(() => {});
   };
 
   const handleLogout = useCallback(() => {
@@ -487,6 +493,7 @@ export function App() {
     try {
       await cloudSyncService.performTwoWaySync(false);
       await fetchAppInfo();
+      window.dispatchEvent(new CustomEvent('ubkt_reminders_sync'));
     } finally {
       setIsSyncing(false);
     }

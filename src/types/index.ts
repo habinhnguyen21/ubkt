@@ -21,6 +21,8 @@ export interface User {
   activeSessionId?: string | null;
   lastLoginDevice?: string | null;
   lastActiveAt?: any;
+  readNotificationIds?: string[];
+  dismissed_reminders?: string[];
   created_at: string;
   updated_at: string;
 }

@@ -261,7 +261,22 @@ function persistCacheToLocalStorage() {
 // Khởi tạo cache ban đầu
 loadInitialFromLocalStorage();
 
+// Tự động tải lại cache khi có sự kiện đồng bộ từ CloudSync
+if (typeof window !== 'undefined') {
+  window.addEventListener('ubkt_data_synced', () => {
+    loadInitialFromLocalStorage();
+  });
+  window.addEventListener('ubkt_reminders_sync', () => {
+    loadInitialFromLocalStorage();
+  });
+}
+
 export const centralDataService = {
+  // Nạp lại toàn bộ cache từ localStorage sau khi Auto-Pull hoặc CloudSync hoàn tất
+  reloadFromLocalStorage(): void {
+    loadInitialFromLocalStorage();
+  },
+
   // Lấy dữ liệu từ cache thời gian thực
   getDonViList(): DonVi[] {
     return memoryCache.donViList.filter((d) => !d.deleted_at && !memoryCache.tombstones.has(d.id));

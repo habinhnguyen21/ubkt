@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { doc, setDoc } from 'firebase/firestore';
+import { db as firestoreDb } from '../services/firebase';
 import type { User } from '../types';
 import { api } from '../services/api';
+import { centralDataService } from '../services/centralDataService';
+import { sessionStore } from '../utils/sessionStore';
 import { isSameData } from '../utils/syncUtils';
 import { computeReminders, describeDays, REMINDER_SOON_DAYS } from '../utils/reminders';
 import type { ReminderItem } from '../utils/reminders';
@@ -12,46 +16,99 @@ interface NotificationBellProps {
   onNavigate: (tab: 'chuong_trinh' | 'don_thu') => void;
 }
 
-const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // làm mới mỗi giờ (tính trên dữ liệu có sẵn, không đọc thêm Firestore)
+const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // làm mới mỗi giờ
 
 function dismissedStorageKey(userId: string): string {
   return `ubkt_dismissed_reminders_${userId}`;
 }
 
-function loadDismissed(userId: string): Set<string> {
-  try {
-    const raw = localStorage.getItem(dismissedStorageKey(userId));
-    const parsed = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : []);
-  } catch {
-    return new Set();
+function loadDismissed(user: User): Set<string> {
+  const result = new Set<string>();
+  // 1. Đọc từ đối tượng user (Firestore/Session)
+  const cloudList = (user as any)?.readNotificationIds || (user as any)?.dismissed_reminders;
+  if (Array.isArray(cloudList)) {
+    cloudList.forEach((x) => {
+      if (typeof x === 'string') result.add(x);
+    });
   }
+  // 2. Đọc bổ sung từ localStorage nếu có
+  try {
+    const raw = localStorage.getItem(dismissedStorageKey(user.id));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((x) => {
+          if (typeof x === 'string') result.add(x);
+        });
+      }
+    }
+  } catch {}
+  return result;
 }
 
-function saveDismissed(userId: string, set: Set<string>): void {
+async function saveDismissed(user: User, set: Set<string>): Promise<void> {
+  const arr = Array.from(set).slice(-500);
+  // 1. Lưu ngay vào localStorage
   try {
-    localStorage.setItem(dismissedStorageKey(userId), JSON.stringify(Array.from(set).slice(-500)));
-  } catch {
-    // bộ nhớ đầy hoặc bị chặn: bỏ qua, nhắc việc vẫn hoạt động
+    localStorage.setItem(dismissedStorageKey(user.id), JSON.stringify(arr));
+  } catch {}
+
+  // 2. Cập nhật sessionStore
+  const cur = sessionStore.getCurrentUser();
+  if (cur && cur.id === user.id) {
+    cur.readNotificationIds = arr;
+    cur.dismissed_reminders = arr;
+    sessionStore.setCurrentUser(cur);
+  }
+
+  // 3. Đẩy lên Firestore users/{uid}
+  try {
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      await setDoc(
+        doc(firestoreDb, 'users', user.id),
+        {
+          readNotificationIds: arr,
+          dismissed_reminders: arr,
+          updated_at: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    }
+  } catch (err) {
+    console.warn('[NotificationBell] Không lưu được readNotificationIds lên Cloud:', err);
   }
 }
 
 export function NotificationBell({ currentUser, onNavigate }: NotificationBellProps) {
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
-  const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed(currentUser.id));
+  const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed(currentUser));
   const [open, setOpen] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const aliveRef = useRef(true);
 
+  // Cập nhật lại danh sách đã ẩn khi thông tin currentUser thay đổi
+  useEffect(() => {
+    setDismissed(loadDismissed(currentUser));
+  }, [currentUser]);
+
   const refresh = useCallback(async () => {
     try {
+      // Ưu tiên đọc từ centralDataService (nơi chứa dữ liệu thời gian thực đã đồng bộ)
       const [chuongTrinh, donThu, donVi, phanCong] = await Promise.all([
-        api.getAllChuongTrinh().catch(() => []),
-        api.getAllDonThu().catch(() => []),
-        api.getAllDonVi().catch(() => []),
-        api.getPhanCongDiaBan().catch(() => []),
+        centralDataService.getChuongTrinhList().length > 0
+          ? centralDataService.getChuongTrinhList()
+          : api.getAllChuongTrinh().catch(() => []),
+        centralDataService.getDonThuList().length > 0
+          ? centralDataService.getDonThuList()
+          : api.getAllDonThu().catch(() => []),
+        centralDataService.getDonViList().length > 0
+          ? centralDataService.getDonViList()
+          : api.getAllDonVi().catch(() => []),
+        centralDataService.getPhanCongList().length > 0
+          ? centralDataService.getPhanCongList()
+          : api.getPhanCongDiaBan().catch(() => []),
       ]);
       if (!aliveRef.current) return;
       const next = computeReminders({
@@ -77,6 +134,21 @@ export function NotificationBell({ currentUser, onNavigate }: NotificationBellPr
     }, 500);
   }, [refresh]);
 
+  // Lắng nghe sự kiện đồng bộ danh sách đã xem từ CloudSync
+  useEffect(() => {
+    const handleSyncDismissed = () => {
+      const latestUser = sessionStore.getCurrentUser() || currentUser;
+      setDismissed(loadDismissed(latestUser));
+      scheduleRefresh();
+    };
+    window.addEventListener('ubkt_reminders_sync', handleSyncDismissed);
+    window.addEventListener('ubkt_users_updated', handleSyncDismissed);
+    return () => {
+      window.removeEventListener('ubkt_reminders_sync', handleSyncDismissed);
+      window.removeEventListener('ubkt_users_updated', handleSyncDismissed);
+    };
+  }, [currentUser, scheduleRefresh]);
+
   useEffect(() => {
     aliveRef.current = true;
     void refresh();
@@ -84,8 +156,12 @@ export function NotificationBell({ currentUser, onNavigate }: NotificationBellPr
     const events = [
       'ubkt_data_synced',
       'ubkt_chuong_trinh_updated',
+      'ubkt_don_thu_updated',
       'ubkt_assignments_updated',
       'ubkt_diaban_records_updated',
+      'ubkt_don_vi_updated',
+      'ubkt_reminders_sync',
+      'ubkt_users_updated',
     ];
     events.forEach((e) => window.addEventListener(e, scheduleRefresh));
 
@@ -133,7 +209,7 @@ export function NotificationBell({ currentUser, onNavigate }: NotificationBellPr
     setDismissed((prev) => {
       const next = new Set(prev);
       next.add(key);
-      saveDismissed(currentUser.id, next);
+      void saveDismissed(currentUser, next);
       return next;
     });
   };
@@ -141,7 +217,7 @@ export function NotificationBell({ currentUser, onNavigate }: NotificationBellPr
   const restoreAll = () => {
     const next = new Set<string>();
     setDismissed(next);
-    saveDismissed(currentUser.id, next);
+    void saveDismissed(currentUser, next);
     setShowDismissed(false);
   };
 

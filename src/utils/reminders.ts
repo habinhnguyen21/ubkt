@@ -45,41 +45,86 @@ export interface ReminderInput {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function startOfDay(d: Date): Date {
-  const x = new Date(d.getTime());
-  x.setHours(0, 0, 0, 0);
-  return x;
+export interface CalendarDateParts {
+  year: number;
+  month: number;
+  day: number;
 }
 
-/** Hỗ trợ YYYY-MM-DD (kể cả có giờ phía sau) và DD/MM/YYYY hoặc DD-MM-YYYY */
-export function parseDateLoose(raw?: string | null): Date | null {
+/**
+ * Trích xuất ngày theo múi giờ Việt Nam (UTC+7).
+ * Đảm bảo mọi máy tính (kể cả máy cài múi giờ UTC, US, v.v.) đều tính toán ngày hiện tại đồng nhất.
+ */
+export function getVietnamDateParts(d: Date): CalendarDateParts {
+  // Bù chênh lệch timezone của máy để về UTC, rồi +7 giờ để ra giờ Việt Nam
+  const vnTime = new Date(d.getTime() + d.getTimezoneOffset() * 60000 + 7 * 3600000);
+  return {
+    year: vnTime.getFullYear(),
+    month: vnTime.getMonth() + 1,
+    day: vnTime.getDate(),
+  };
+}
+
+/** Hỗ trợ YYYY-MM-DD (kể cả có giờ phía sau), DD/MM/YYYY hoặc DD-MM-YYYY, hoặc chuỗi ISO */
+export function parseCalendarDate(raw?: string | null): CalendarDateParts | null {
   if (!raw) return null;
   const s = String(raw).trim();
-  let d: Date | null = null;
+  // 1. Dạng YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
     const [y, m, day] = s.slice(0, 10).split('-').map((n) => parseInt(n, 10));
-    d = new Date(y, m - 1, day);
-  } else if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}/.test(s)) {
-    const [day, m, y] = s.split(/[-/]/).map((n) => parseInt(n, 10));
-    d = new Date(y, m - 1, day);
+    if (y >= 1900 && m >= 1 && m <= 12 && day >= 1 && day <= 31) {
+      return { year: y, month: m, day };
+    }
   }
-  return d && !isNaN(d.getTime()) ? d : null;
+  // 2. Dạng DD/MM/YYYY hoặc DD-MM-YYYY
+  if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}/.test(s)) {
+    const [day, m, y] = s.split(/[-/]/).map((n) => parseInt(n, 10));
+    if (y >= 1900 && m >= 1 && m <= 12 && day >= 1 && day <= 31) {
+      return { year: y, month: m, day };
+    }
+  }
+  // 3. Chuỗi thời gian ISO đầy đủ
+  const parsed = new Date(s);
+  if (!isNaN(parsed.getTime())) {
+    return getVietnamDateParts(parsed);
+  }
+  return null;
 }
 
-function toYmd(d: Date): string {
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${mm}-${dd}`;
+/** Hỗ trợ YYYY-MM-DD (kể cả có giờ phía sau) và DD/MM/YYYY hoặc DD-MM-YYYY (trả về Date an toàn) */
+export function parseDateLoose(raw?: string | null): Date | null {
+  const p = parseCalendarDate(raw);
+  if (!p) return null;
+  return new Date(p.year, p.month - 1, p.day);
+}
+
+export function partsToYmd(p: CalendarDateParts): string {
+  const mm = String(p.month).padStart(2, '0');
+  const dd = String(p.day).padStart(2, '0');
+  return `${p.year}-${mm}-${dd}`;
+}
+
+export function formatDateViParts(p: CalendarDateParts): string {
+  const dd = String(p.day).padStart(2, '0');
+  const mm = String(p.month).padStart(2, '0');
+  return `${dd}/${mm}/${p.year}`;
 }
 
 export function formatDateVi(ymd: string | null): string {
   if (!ymd) return '';
-  const [y, m, d] = ymd.split('-');
-  return `${d}/${m}/${y}`;
+  const p = parseCalendarDate(ymd);
+  if (!p) return ymd;
+  return formatDateViParts(p);
 }
 
-function daysBetween(target: Date, today: Date): number {
-  return Math.round((startOfDay(target).getTime() - startOfDay(today).getTime()) / DAY_MS);
+/**
+ * Tính số ngày cách biệt chính xác dựa trên ngày lịch thuần túy (dùng UTC timestamps)
+ * Không bị ảnh hưởng bởi múi giờ máy khách hay giờ mùa hè (DST).
+ */
+export function daysBetweenCalendar(target: CalendarDateParts, today: CalendarDateParts): number {
+  const targetUtc = Date.UTC(target.year, target.month - 1, target.day);
+  const todayUtc = Date.UTC(today.year, today.month - 1, today.day);
+  return Math.round((targetUtc - todayUtc) / DAY_MS);
 }
 
 /** Bỏ dấu, chữ thường, bỏ "Đ/c", "Đồng chí" để so tên cán bộ */
@@ -173,6 +218,7 @@ export function describeDays(daysLeft: number): string {
 
 export function computeReminders(input: ReminderInput): ReminderItem[] {
   const now = input.now || new Date();
+  const todayVn = getVietnamDateParts(now);
   const user = input.user;
   const seeAll = user.vai_tro === 'ADMIN' || user.vai_tro === 'XEM';
   const myUnitIds = seeAll ? new Set<string>() : getUserUnitIds(user, input.phanCong);
@@ -186,11 +232,11 @@ export function computeReminders(input: ReminderInput): ReminderItem[] {
 
     if (!seeAll && !programBelongsToUnits(ct, myUnitIds, input.donVi)) continue;
 
-    const end = parseDateLoose(ct.ngay_ket_thuc);
+    const endParts = parseCalendarDate(ct.ngay_ket_thuc);
     let daysLeft: number;
     let severity: ReminderSeverity | null;
-    if (end) {
-      daysLeft = daysBetween(end, now);
+    if (endParts) {
+      daysLeft = daysBetweenCalendar(endParts, todayVn);
       severity = severityOf(daysLeft);
       // Trạng thái đã đánh dấu QUA_HAN nhưng chưa có hạn rõ ràng vẫn phải nhắc
       if (!severity && ct.trang_thai === 'QUA_HAN') severity = 'OVERDUE';
@@ -204,15 +250,16 @@ export function computeReminders(input: ReminderInput): ReminderItem[] {
 
     const agency = (ct.chu_the || ct.co_quan_ban_hanh || ct.ten_don_vi || ct.doi_tuong || '').trim();
     const title = (ct.ten_chuong_trinh || ct.noi_dung || 'Chương trình KT-GS').toString().trim();
+    const dueDateStr = endParts ? partsToYmd(endParts) : null;
     items.push({
       key: `CHUONG_TRINH:${ct.id}:${severity}`,
       type: 'CHUONG_TRINH',
       id: ct.id,
       severity,
       title: title.length > 90 ? title.slice(0, 87) + '…' : title,
-      subtitle: [agency, end ? `Hạn ${formatDateVi(toYmd(end))}` : ''].filter(Boolean).join(' • '),
+      subtitle: [agency, endParts ? `Hạn ${formatDateViParts(endParts)}` : ''].filter(Boolean).join(' • '),
       daysLeft,
-      dueDate: end ? toYmd(end) : null,
+      dueDate: dueDateStr,
     });
   }
 
@@ -221,16 +268,22 @@ export function computeReminders(input: ReminderInput): ReminderItem[] {
     if (!dt || dt.trang_thai === 'Đã hoàn thành') continue;
     if (!seeAll && !isPersonMatch(dt.can_bo_phu_trach, user.ho_ten)) continue;
 
-    const received = parseDateLoose(dt.ngay_tiep_nhan);
-    if (!received) continue;
-    const due = new Date(received.getTime());
-    due.setDate(due.getDate() + (dt.thoi_han_quy_dinh || 30));
+    const receivedParts = parseCalendarDate(dt.ngay_tiep_nhan);
+    if (!receivedParts) continue;
+    const receivedUtc = Date.UTC(receivedParts.year, receivedParts.month - 1, receivedParts.day);
+    const dueUtc = new Date(receivedUtc + (dt.thoi_han_quy_dinh || 30) * DAY_MS);
+    const dueParts: CalendarDateParts = {
+      year: dueUtc.getUTCFullYear(),
+      month: dueUtc.getUTCMonth() + 1,
+      day: dueUtc.getUTCDate(),
+    };
 
-    const daysLeft = daysBetween(due, now);
+    const daysLeft = daysBetweenCalendar(dueParts, todayVn);
     let severity = severityOf(daysLeft);
     if (!severity && dt.trang_thai === 'Quá hạn') severity = 'OVERDUE';
     if (!severity) continue;
 
+    const dueDateStr = partsToYmd(dueParts);
     items.push({
       key: `DON_THU:${dt.id}:${severity}`,
       type: 'DON_THU',
@@ -239,12 +292,12 @@ export function computeReminders(input: ReminderInput): ReminderItem[] {
       title: `Đơn thư ${dt.ma_don || ''}`.trim(),
       subtitle: [
         dt.can_bo_phu_trach ? `Phụ trách: ${dt.can_bo_phu_trach}` : '',
-        `Hạn ${formatDateVi(toYmd(due))}`,
+        `Hạn ${formatDateViParts(dueParts)}`,
       ]
         .filter(Boolean)
         .join(' • '),
       daysLeft,
-      dueDate: toYmd(due),
+      dueDate: dueDateStr,
     });
   }
 

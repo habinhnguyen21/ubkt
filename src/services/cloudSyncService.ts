@@ -568,6 +568,30 @@ export const cloudSyncService = {
       if (usersDocs.length > 0) {
         const cloudUsers = usersDocs.map((d) => sanitizeUserForCloud(d.data() as User));
         currentMockDb.users = cloudUsers;
+
+        // Đồng bộ readNotificationIds / dismissed_reminders của người dùng hiện tại về thiết bị này
+        const currentUid = auth.currentUser?.uid;
+        if (currentUid) {
+          const myUserDoc = cloudUsers.find((u) => u.id === currentUid);
+          if (myUserDoc) {
+            const cloudReadIds = (myUserDoc as any).readNotificationIds || (myUserDoc as any).dismissed_reminders;
+            if (Array.isArray(cloudReadIds)) {
+              try {
+                const localKey = `ubkt_dismissed_reminders_${currentUid}`;
+                const localRaw = localStorage.getItem(localKey);
+                const localList = localRaw ? JSON.parse(localRaw) : [];
+                const merged = Array.from(new Set([...cloudReadIds, ...localList])).slice(-500);
+                localStorage.setItem(localKey, JSON.stringify(merged));
+                const curUser = sessionStore.getCurrentUser();
+                if (curUser && curUser.id === currentUid) {
+                  curUser.readNotificationIds = merged;
+                  curUser.dismissed_reminders = merged;
+                  sessionStore.setCurrentUser(curUser);
+                }
+              } catch {}
+            }
+          }
+        }
       }
 
       const donViChanged = !isSameData(prevDonVi, currentMockDb.donViList || []);
@@ -660,6 +684,10 @@ export const cloudSyncService = {
       if (anyDataChanged) {
         window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
       }
+      // Luôn phát ubkt_reminders_sync để NotificationBell tính toán lại nhắc việc từ dữ liệu chuẩn
+      window.dispatchEvent(new CustomEvent('ubkt_reminders_sync'));
+      // Luôn phát ubkt_reminders_sync để NotificationBell tính toán lại nhắc việc từ dữ liệu chuẩn
+      window.dispatchEvent(new CustomEvent('ubkt_reminders_sync'));
       if (ctChanged) {
         window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
       }
@@ -1270,6 +1298,30 @@ export const cloudSyncService = {
       }
       currentMockDb.users = Array.from(userMap.values());
 
+      // Đồng bộ readNotificationIds / dismissed_reminders của người dùng hiện tại về thiết bị này
+      const currentUidInSync = auth.currentUser?.uid;
+      if (currentUidInSync) {
+        const myUserDoc = cloudUsers.find((u) => u.id === currentUidInSync);
+        if (myUserDoc) {
+          const cloudReadIds = (myUserDoc as any).readNotificationIds || (myUserDoc as any).dismissed_reminders;
+          if (Array.isArray(cloudReadIds)) {
+            try {
+              const localKey = `ubkt_dismissed_reminders_${currentUidInSync}`;
+              const localRaw = localStorage.getItem(localKey);
+              const localList = localRaw ? JSON.parse(localRaw) : [];
+              const merged = Array.from(new Set([...cloudReadIds, ...localList])).slice(-500);
+              localStorage.setItem(localKey, JSON.stringify(merged));
+              const curUser = sessionStore.getCurrentUser();
+              if (curUser && curUser.id === currentUidInSync) {
+                curUser.readNotificationIds = merged;
+                curUser.dismissed_reminders = merged;
+                sessionStore.setCurrentUser(curUser);
+              }
+            } catch {}
+          }
+        }
+      }
+
       // I. PHÂN CÔNG ĐỊA BÀN (phan_cong_dia_ban)
       const cloudPhanCong = phanCongSnap.docs.map((d) => d.data());
       const pcMap = new Map<string, any>();
@@ -1381,6 +1433,8 @@ export const cloudSyncService = {
       if (anyDataChanged) {
         window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
       }
+      // Luôn phát ubkt_reminders_sync để NotificationBell tính toán lại nhắc việc từ dữ liệu chuẩn
+      window.dispatchEvent(new CustomEvent('ubkt_reminders_sync'));
       if (ctChanged) {
         window.dispatchEvent(new CustomEvent('ubkt_chuong_trinh_updated'));
       }
