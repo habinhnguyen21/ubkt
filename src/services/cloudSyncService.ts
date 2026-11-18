@@ -112,6 +112,44 @@ export const cloudSyncService = {
     return this._dirtyMap.size > 0;
   },
 
+  // Kiểm tra xem lỗi trả về có phải lỗi từ chối quyền (PERMISSION_DENIED) của Firestore Rules hay không
+  isPermissionDeniedError(err: any): boolean {
+    if (!err) return false;
+    const code = String(err.code || err.status || '');
+    const message = String(err.message || '').toLowerCase();
+    return (
+      code === 'permission-denied' ||
+      code === 'firestore/permission-denied' ||
+      message.includes('permission-denied') ||
+      message.includes('permission_denied') ||
+      message.includes('missing or insufficient permissions') ||
+      message.includes('permission denied')
+    );
+  },
+
+  // Xử lý khi bị từ chối quyền ghi do vi phạm Single-Session: dừng đồng bộ, khóa màn hình và yêu cầu xác thực lại
+  handleSessionPermissionDenied(err: any): void {
+    console.warn(
+      '[CloudSync] Quyền ghi bị từ chối (PERMISSION_DENIED) do phiên làm việc đã bị thay thế bởi thiết bị khác:',
+      err
+    );
+    this.stopAutoSync();
+    this._isSyncing = false;
+    sessionStore.setSessionLocked(true);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('ubkt_session_locked', {
+          detail: {
+            reason: 'permission_denied',
+            message:
+              'Tài khoản của bạn đã được đăng nhập trên một thiết bị khác hoặc phiên làm việc đã hết hạn. Vui lòng mở khóa lại để tiếp tục.',
+          },
+        })
+      );
+      window.dispatchEvent(new CustomEvent('ubkt_lock_session'));
+    }
+  },
+
   // Chỉ đẩy các bản ghi có thay đổi local (dirty flag) lên Cloud, KHÔNG đọc lại toàn bộ 11 collection
   async flushDirtyChanges(): Promise<{ pushed: number }> {
     this._loadDirtyQueue();
@@ -123,10 +161,16 @@ export const cloudSyncService = {
     const entries = Array.from(this._dirtyMap.values());
     let pushed = 0;
     for (const entry of entries) {
+      if (sessionStore.isSessionLocked()) {
+        break;
+      }
       if (entry.action === 'delete') {
         await this.deleteItemFromCloud(entry.collection, entry.id);
       } else {
         await this.saveItemToCloud(entry.collection, entry.id, entry.data);
+      }
+      if (sessionStore.isSessionLocked()) {
+        break;
       }
       pushed++;
     }
@@ -166,6 +210,12 @@ export const cloudSyncService = {
         delete cleanData.passwordHash;
         cleanData.mat_khau = deleteField();
         cleanData.mat_khau_hash = deleteField();
+      } else {
+        // Đính kèm sessionId hiện tại để Firestore Rules kiểm tra tính hợp lệ của phiên
+        const currentSessionId = sessionStore.getSessionId();
+        if (currentSessionId) {
+          cleanData.sessionId = currentSessionId;
+        }
       }
       await setDoc(docRef, cleanData, { merge: true });
       this.clearDirty(collectionName, String(id));
@@ -175,7 +225,12 @@ export const cloudSyncService = {
         const tombRef = doc(firestoreDb, 'tombstones', String(id));
         deleteDoc(tombRef).catch(() => {});
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (this.isPermissionDeniedError(err)) {
+        this.clearDirty(collectionName, String(id));
+        this.handleSessionPermissionDenied(err);
+        return;
+      }
       this.markDirty(collectionName, String(id), data, 'upsert');
       console.warn(`[CloudSync] Lỗi lưu ${collectionName}/${id} (đã đánh dấu dirty để đẩy lại sau):`, err);
     }
@@ -189,21 +244,50 @@ export const cloudSyncService = {
         this.markDirty(collectionName, String(id), undefined, 'delete');
         return;
       }
-      const isAdmin = sessionStore.getCurrentUser()?.vai_tro === 'ADMIN';
+
+      const currentSessionId = sessionStore.getSessionId();
+      const currentUser = sessionStore.getCurrentUser();
+
+      // Kiểm tra xem phiên làm việc có bị đá bởi thiết bị khác không trước khi xóa
+      if (currentUser?.id) {
+        const userSnap = await getDoc(doc(firestoreDb, 'users', currentUser.id)).catch(() => null);
+        if (userSnap && userSnap.exists()) {
+          const cloudSessionId = userSnap.data()?.activeSessionId;
+          if (cloudSessionId && currentSessionId && cloudSessionId !== currentSessionId) {
+            const permErr: any = new Error(
+              'PERMISSION_DENIED: Phiên làm việc đã hết hạn hoặc được mở trên thiết bị khác'
+            );
+            permErr.code = 'permission-denied';
+            throw permErr;
+          }
+        }
+      }
+
+      const isAdmin = currentUser?.vai_tro === 'ADMIN';
       if (isAdmin) {
         // Ghi tombstone vào Firestore trước để các máy khác biết và không bao giờ đẩy lại
         const tombRef = doc(firestoreDb, 'tombstones', String(id));
-        await setDoc(tombRef, {
-          id: String(id),
-          collection: collectionName,
-          deleted_at: new Date().toISOString(),
-        }, { merge: true }).catch(() => {});
+        await setDoc(
+          tombRef,
+          {
+            id: String(id),
+            collection: collectionName,
+            deleted_at: new Date().toISOString(),
+            sessionId: currentSessionId || '',
+          },
+          { merge: true }
+        );
       }
 
       const docRef = doc(firestoreDb, collectionName, String(id));
       await deleteDoc(docRef);
       this.clearDirty(collectionName, String(id));
-    } catch (err) {
+    } catch (err: any) {
+      if (this.isPermissionDeniedError(err)) {
+        this.clearDirty(collectionName, String(id));
+        this.handleSessionPermissionDenied(err);
+        return;
+      }
       this.markDirty(collectionName, String(id), undefined, 'delete');
       console.warn(`[CloudSync] Lỗi xóa ${collectionName}/${id} (đã đánh dấu dirty để xóa lại sau):`, err);
     }
@@ -259,6 +343,7 @@ export const cloudSyncService = {
       const auditLogs: NhatKy[] = mockDb.auditLogs || [];
 
       // Hàm phụ trợ lưu mảng lên Firestore bằng batch (mỗi batch tối đa 400 docs)
+      const currentSessionId = sessionStore.getSessionId();
       const saveArrayToCollection = async (collName: string, items: any[], getId: (item: any) => string) => {
         if (!items || items.length === 0) return;
         const BATCH_SIZE = 400;
@@ -277,6 +362,8 @@ export const cloudSyncService = {
                 delete clean.passwordHash;
                 clean.mat_khau = deleteField();
                 clean.mat_khau_hash = deleteField();
+              } else if (currentSessionId) {
+                clean.sessionId = currentSessionId;
               }
               batch.set(ref, clean, { merge: true });
             }
@@ -327,13 +414,15 @@ export const cloudSyncService = {
       // Lưu cấu hình hệ thống (chỉ ADMIN có quyền ghi system_config)
       if (isAdminUser && gdriveConfig) {
         onProgress?.('Đang lưu cấu hình Google Drive...');
-        await setDoc(doc(firestoreDb, 'system_config', 'google_drive'), JSON.parse(JSON.stringify(gdriveConfig)), { merge: true });
+        const gdrivePayload = JSON.parse(JSON.stringify(gdriveConfig));
+        if (currentSessionId) gdrivePayload.sessionId = currentSessionId;
+        await setDoc(doc(firestoreDb, 'system_config', 'google_drive'), gdrivePayload, { merge: true });
       }
 
       // Lưu nhật ký đồng bộ
       const syncTime = new Date().toLocaleString('vi-VN');
       if (isAdminUser) {
-        await setDoc(doc(firestoreDb, 'system_config', 'sync_meta'), {
+        const syncMetaPayload: any = {
           last_synced_at: syncTime,
           timestamp: new Date().toISOString(),
           counts: {
@@ -346,7 +435,9 @@ export const cloudSyncService = {
             donThu: donThuList.length,
             users: users.length,
           },
-        }, { merge: true });
+        };
+        if (currentSessionId) syncMetaPayload.sessionId = currentSessionId;
+        await setDoc(doc(firestoreDb, 'system_config', 'sync_meta'), syncMetaPayload, { merge: true });
       }
 
       this.setLastSyncedAt(syncTime);
@@ -366,6 +457,9 @@ export const cloudSyncService = {
       };
     } catch (err: any) {
       console.error('[CloudSync] Lỗi đẩy dữ liệu lên Cloud:', err);
+      if (this.isPermissionDeniedError(err)) {
+        this.handleSessionPermissionDenied(err);
+      }
       return {
         success: false,
         error: err.message || String(err),

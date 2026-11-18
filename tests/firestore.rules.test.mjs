@@ -425,5 +425,75 @@ describe('Firestore Security Rules (firestore.rules)', () => {
       })
     );
   });
+
+  // ── TRƯỜNG HỢP 10: SINGLE-SESSION GUARD (CHẶN THIẾT BỊ CŨ GHI ĐÈ DỮ LIỆU) ──────
+  it('10. Single-Session Guard: Từ chối ghi khi sessionId không khớp activeSessionId; cho phép ghi khi khớp hoặc khi chưa thiết lập session', async () => {
+    const bienTapDb = testEnv.authenticatedContext(BIEN_TAP_UID).firestore();
+
+    // 10.1. Cập nhật activeSessionId cho BIEN_TAP = 'session-device-2'
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(
+        doc(db, 'users', BIEN_TAP_UID),
+        { activeSessionId: 'session-device-2' },
+        { merge: true }
+      );
+    });
+
+    // 10.2. Thiết bị cũ gửi sessionId = 'session-device-1' cũ -> BỊ TỪ CHỐI (PERMISSION_DENIED)
+    await assertFails(
+      setDoc(doc(bienTapDb, 'chuong_trinh', 'ct-stale-device'), {
+        id: 'ct-stale-device',
+        chu_the: 'Chi bộ Được Phân Công',
+        noi_dung: 'Bị chặn bởi phiên cũ',
+        nam: 2026,
+        trang_thai: 'DANG_THUC_HIEN',
+        don_vi_id: ASSIGNED_UNIT_ID,
+        sessionId: 'session-device-1', // Khác activeSessionId 'session-device-2'
+      })
+    );
+
+    // 10.3. Thiết bị cũ gửi request KHÔNG có sessionId -> BỊ TỪ CHỐI
+    await assertFails(
+      setDoc(doc(bienTapDb, 'chuong_trinh', 'ct-stale-device'), {
+        id: 'ct-stale-device',
+        chu_the: 'Chi bộ Được Phân Công',
+        noi_dung: 'Bị chặn vì thiếu sessionId',
+        nam: 2026,
+        trang_thai: 'DANG_THUC_HIEN',
+        don_vi_id: ASSIGNED_UNIT_ID,
+      })
+    );
+
+    // 10.4. Thiết bị mới gửi sessionId = 'session-device-2' khớp activeSessionId -> THÀNH CÔNG
+    await assertSucceeds(
+      setDoc(doc(bienTapDb, 'chuong_trinh', 'ct-active-device'), {
+        id: 'ct-active-device',
+        chu_the: 'Chi bộ Được Phân Công',
+        noi_dung: 'Được ghi nhận thành công từ phiên mới',
+        nam: 2026,
+        trang_thai: 'DANG_THUC_HIEN',
+        don_vi_id: ASSIGNED_UNIT_ID,
+        sessionId: 'session-device-2',
+      })
+    );
+
+    // 10.5. Cập nhật hồ sơ người dùng (users/{userId}) cho phép cập nhật activeSessionId khi đăng nhập thiết bị mới
+    await assertSucceeds(
+      setDoc(
+        doc(bienTapDb, 'users', BIEN_TAP_UID),
+        {
+          id: BIEN_TAP_UID,
+          ten_dang_nhap: 'bientap1',
+          ho_ten: 'Cán bộ Biên tập 1',
+          vai_tro: 'BIEN_TAP',
+          trang_thai: 1,
+          activeSessionId: 'session-device-3',
+          lastLoginDevice: 'Mozilla/5.0 Chrome Mobile',
+        },
+        { merge: true }
+      )
+    );
+  });
 });
 

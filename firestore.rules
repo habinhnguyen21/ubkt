@@ -71,6 +71,19 @@ service cloud.firestore {
         );
     }
 
+    // Kiểm tra tính hợp lệ của phiên làm việc (Single-Session write guard)
+    // Nếu tài khoản trên Firestore đã có activeSessionId, request ghi dữ liệu (create, update)
+    // bắt buộc phải kèm trường sessionId khớp với activeSessionId của phiên đang hoạt động.
+    function hasValidSession() {
+      return !('activeSessionId' in get(userDocPath(request.auth.uid)).data)
+        || (
+          request.resource != null
+          && ('sessionId' in request.resource.data)
+          && request.resource.data.sessionId is string
+          && request.resource.data.sessionId == get(userDocPath(request.auth.uid)).data.activeSessionId
+        );
+    }
+
     // =========================================================================
     // 2. HÀM VALIDATE KIỂU DỮ LIỆU & TRƯỜNG BẮT BUỘC
     // =========================================================================
@@ -223,9 +236,11 @@ service cloud.firestore {
     match /don_vi/{donViId} {
       allow read: if hasActiveUserDoc();
       allow create: if isAdmin()
+        && hasValidSession()
         && isValidDonViPayload(donViId, request.resource.data)
         && isValidVersionOnCreate(request.resource.data);
       allow update: if isAdmin()
+        && hasValidSession()
         && isValidDonViPayload(donViId, request.resource.data)
         && isValidVersionOnUpdate(resource.data, request.resource.data);
       allow delete: if isAdmin();
@@ -233,18 +248,20 @@ service cloud.firestore {
 
     match /phan_cong_dia_ban/{docId} {
       allow read: if hasActiveUserDoc();
-      allow create, update: if isAdmin() && isValidPhanCongPayload(request.resource.data);
+      allow create, update: if isAdmin() && hasValidSession() && isValidPhanCongPayload(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /system_config/{configId} {
       allow read: if hasActiveUserDoc();
-      allow create, update, delete: if isAdmin();
+      allow create, update: if isAdmin() && hasValidSession();
+      allow delete: if isAdmin();
     }
 
     match /tombstones/{tombId} {
       allow read: if hasActiveUserDoc();
       allow create, update: if isAdmin()
+        && hasValidSession()
         && request.resource.data.id == tombId
         && request.resource.data.collection is string
         && request.resource.data.deleted_at is string;
@@ -255,10 +272,12 @@ service cloud.firestore {
     // Không cho phép BIEN_TAP xóa hàng loạt các bản ghi gốc.
     match /chuong_trinh/{docId} {
       allow read: if hasActiveUserDoc();
-      allow create: if isValidChuongTrinhPayload(docId, request.resource.data)
+      allow create: if hasValidSession()
+        && isValidChuongTrinhPayload(docId, request.resource.data)
         && isValidVersionOnCreate(request.resource.data)
         && (isAdmin() || isAssignedToUnit(extractRecordUnitId(request.resource.data)));
-      allow update: if isValidChuongTrinhPayload(docId, request.resource.data)
+      allow update: if hasValidSession()
+        && isValidChuongTrinhPayload(docId, request.resource.data)
         && isValidVersionOnUpdate(resource.data, request.resource.data)
         && (
           isAdmin()
@@ -272,14 +291,16 @@ service cloud.firestore {
 
     match /ho_so_dia_ban_records/{docId} {
       allow read: if hasActiveUserDoc();
-      allow create: if isValidHoSoDiaBanRecordPayload(docId, request.resource.data)
+      allow create: if hasValidSession()
+        && isValidHoSoDiaBanRecordPayload(docId, request.resource.data)
         && isValidVersionOnCreate(request.resource.data)
         && (
           isAdmin()
           || isAssignedToUnit(docId)
           || isAssignedToUnit(extractRecordUnitId(request.resource.data))
         );
-      allow update: if isValidHoSoDiaBanRecordPayload(docId, request.resource.data)
+      allow update: if hasValidSession()
+        && isValidHoSoDiaBanRecordPayload(docId, request.resource.data)
         && isValidVersionOnUpdate(resource.data, request.resource.data)
         && (
           isAdmin()
@@ -291,9 +312,11 @@ service cloud.firestore {
 
     match /ho_so_dia_ban_files/{docId} {
       allow read: if hasActiveUserDoc();
-      allow create: if isValidHoSoDiaBanFilePayload(docId, request.resource.data)
+      allow create: if hasValidSession()
+        && isValidHoSoDiaBanFilePayload(docId, request.resource.data)
         && (isAdmin() || isAssignedToUnit(request.resource.data.don_vi_id));
-      allow update: if isValidHoSoDiaBanFilePayload(docId, request.resource.data)
+      allow update: if hasValidSession()
+        && isValidHoSoDiaBanFilePayload(docId, request.resource.data)
         && (
           isAdmin()
           || (
@@ -306,10 +329,12 @@ service cloud.firestore {
 
     match /bao_cao_thang/{docId} {
       allow read: if hasActiveUserDoc();
-      allow create: if isValidBaoCaoThangPayload(docId, request.resource.data)
+      allow create: if hasValidSession()
+        && isValidBaoCaoThangPayload(docId, request.resource.data)
         && isValidVersionOnCreate(request.resource.data)
         && (isAdmin() || isReportAssignedToBienTap(request.resource.data));
-      allow update: if isValidBaoCaoThangPayload(docId, request.resource.data)
+      allow update: if hasValidSession()
+        && isValidBaoCaoThangPayload(docId, request.resource.data)
         && isValidVersionOnUpdate(resource.data, request.resource.data)
         && (
           isAdmin()
@@ -323,9 +348,11 @@ service cloud.firestore {
 
     match /pdf_files/{docId} {
       allow read: if hasActiveUserDoc();
-      allow create: if isValidPdfFilePayload(docId, request.resource.data)
+      allow create: if hasValidSession()
+        && isValidPdfFilePayload(docId, request.resource.data)
         && (isAdmin() || isAssignedToUnit(extractRecordUnitId(request.resource.data)));
-      allow update: if isValidPdfFilePayload(docId, request.resource.data)
+      allow update: if hasValidSession()
+        && isValidPdfFilePayload(docId, request.resource.data)
         && (
           isAdmin()
           || (
@@ -338,9 +365,11 @@ service cloud.firestore {
 
     match /don_thu/{docId} {
       allow read: if hasActiveUserDoc();
-      allow create: if isValidDonThuPayload(docId, request.resource.data)
+      allow create: if hasValidSession()
+        && isValidDonThuPayload(docId, request.resource.data)
         && (isAdmin() || isAssignedToUnit(extractRecordUnitId(request.resource.data)));
-      allow update: if isValidDonThuPayload(docId, request.resource.data)
+      allow update: if hasValidSession()
+        && isValidDonThuPayload(docId, request.resource.data)
         && (
           isAdmin()
           || (
@@ -355,6 +384,7 @@ service cloud.firestore {
     match /audit_logs/{logId} {
       allow read: if isAdmin();
       allow create: if hasActiveUserDoc()
+        && hasValidSession()
         && request.resource.data.id == logId
         && request.resource.data.hanh_dong is string;
       allow update, delete: if false;

@@ -309,6 +309,20 @@ export function App() {
     sessionStore.setSessionLocked(true);
   }, []);
 
+  // Lắng nghe sự kiện yêu cầu khóa màn hình từ cloudSyncService/centralDataService khi phát hiện vi phạm Single-Session
+  useEffect(() => {
+    const handleLockEvent = () => {
+      setIsSessionLocked(true);
+      sessionStore.setSessionLocked(true);
+    };
+    window.addEventListener('ubkt_lock_session', handleLockEvent);
+    window.addEventListener('ubkt_session_locked', handleLockEvent);
+    return () => {
+      window.removeEventListener('ubkt_lock_session', handleLockEvent);
+      window.removeEventListener('ubkt_session_locked', handleLockEvent);
+    };
+  }, []);
+
   const handleUnlockSession = useCallback(() => {
     setIsSessionLocked(false);
     sessionStore.setSessionLocked(false);

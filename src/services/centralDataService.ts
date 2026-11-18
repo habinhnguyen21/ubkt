@@ -14,6 +14,7 @@ import { db as firestoreDb, auth } from './firebase';
 import { isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import { sanitizeUserForCloud } from '../utils/passwordCrypto';
 import { sessionStore } from '../utils/sessionStore';
+import { cloudSyncService } from './cloudSyncService';
 import type {
   DonVi,
   ChuongTrinhKtGs,
@@ -660,6 +661,13 @@ export const centralDataService = {
       firestorePayload.mat_khau_hash = deleteField();
     }
 
+    // Đính kèm sessionId hiện tại để Firestore Rules kiểm tra phiên hợp lệ (Single-Session guard)
+    const currentSessionId = sessionStore.getSessionId();
+    if (currentSessionId && collectionName !== 'users') {
+      cleanPayload.sessionId = currentSessionId;
+      firestorePayload.sessionId = currentSessionId;
+    }
+
     const docRef = doc(firestoreDb, collectionName, id);
 
     if (VERSIONED_COLLECTIONS.has(collectionName)) {
@@ -727,6 +735,10 @@ export const centralDataService = {
           transaction.set(docRef, firestorePayload, { merge: true });
         });
       } catch (err) {
+        if (cloudSyncService.isPermissionDeniedError(err)) {
+          cloudSyncService.handleSessionPermissionDenied(err);
+          throw err;
+        }
         if (err instanceof VersionConflictError) {
           if (options?.skipConflictDialog) {
             throw err;
@@ -754,7 +766,14 @@ export const centralDataService = {
       }
     } else {
       // 1. Ghi thẳng lên Firestore Cloud và chờ xác nhận
-      await setDoc(docRef, firestorePayload, { merge: true });
+      try {
+        await setDoc(docRef, firestorePayload, { merge: true });
+      } catch (err: any) {
+        if (cloudSyncService.isPermissionDeniedError(err)) {
+          cloudSyncService.handleSessionPermissionDenied(err);
+        }
+        throw err;
+      }
     }
 
     // 2. Nếu ID này từng nằm trong tombstones, xóa khỏi tombstones (chỉ ADMIN mới có quyền ghi/xóa tombstones)
@@ -831,20 +850,36 @@ export const centralDataService = {
     if (!id) return;
 
     const now = new Date().toISOString();
-    const tombstoneDoc = {
+    const currentSessionId = sessionStore.getSessionId();
+    const tombstoneDoc: any = {
       id,
       collection: collectionName,
       deleted_at: now,
       deleted_by: actor_name || 'Người dùng hệ thống',
     };
+    if (currentSessionId) {
+      tombstoneDoc.sessionId = currentSessionId;
+    }
 
     // 1. Đánh dấu tombstone trên Firestore Cloud (chỉ ADMIN được quyền ghi tombstones theo Rules)
     if (isCurrentUserAdmin()) {
-      await setDoc(doc(firestoreDb, 'tombstones', id), tombstoneDoc).catch(() => {});
+      await setDoc(doc(firestoreDb, 'tombstones', id), tombstoneDoc).catch((err) => {
+        if (cloudSyncService.isPermissionDeniedError(err)) {
+          cloudSyncService.handleSessionPermissionDenied(err);
+        }
+      });
     }
 
     // 2. Xóa tài liệu khỏi Firestore
-    await deleteDoc(doc(firestoreDb, collectionName, id));
+    try {
+      await deleteDoc(doc(firestoreDb, collectionName, id));
+    } catch (err: any) {
+      if (cloudSyncService.isPermissionDeniedError(err)) {
+        cloudSyncService.handleSessionPermissionDenied(err);
+        return;
+      }
+      throw err;
+    }
 
     // 3. Cập nhật bộ nhớ cục bộ
     memoryCache.tombstones.add(id);
