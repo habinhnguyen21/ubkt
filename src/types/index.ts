@@ -18,6 +18,9 @@ export interface User {
   pham_vi_quan_ly?: string[] | null;
   trang_thai: number;
   must_change_password: boolean;
+  activeSessionId?: string | null;
+  lastLoginDevice?: string | null;
+  lastActiveAt?: any;
   created_at: string;
   updated_at: string;
 }

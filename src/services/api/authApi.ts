@@ -21,7 +21,7 @@ import {
   browserSessionPersistence,
   browserLocalPersistence,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import {
   verifyPasswordClient,
   INITIAL_SEED_ADMIN_HASH,
@@ -29,6 +29,7 @@ import {
   stripSecretsFromUser,
   validatePasswordPolicy,
 } from '../../utils/passwordCrypto';
+import { sessionStore } from '../../utils/sessionStore';
 import { mockInvoke, registerMockCommands, requestApi, saveMockDb } from './core';
 
 registerMockCommands({
@@ -196,9 +197,28 @@ registerMockCommands({
 
     const idToken = await firebaseUser.getIdToken();
 
+    // Single-Session: Tạo sessionId duy nhất và ghi đè activeSessionId lên Firestore users/{uid}
+    const sessionId = sessionStore.generateSessionId();
+    const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown Device';
+
+    try {
+      await setDoc(
+        doc(firestoreDb, 'users', uid),
+        {
+          activeSessionId: sessionId,
+          lastLoginDevice: userAgent,
+          lastActiveAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (sessionErr) {
+      console.warn('[Auth] Không thể cập nhật activeSessionId lên Firestore (chế độ offline):', sessionErr);
+    }
+
     return {
       user: cleanProfile,
       token: idToken,
+      sessionId,
     };
   },
 
@@ -514,7 +534,7 @@ registerMockCommands({
 
 export const authApi = {
   login: (req: { ten_dang_nhap: string; mat_khau: string; ghi_nho?: boolean }) =>
-    mockInvoke<{ user: User; token: string }>('login', { req }),
+    mockInvoke<{ user: User; token: string; sessionId?: string }>('login', { req }),
 
   logout: async () => {
     await signOut(auth).catch(() => {});

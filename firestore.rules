@@ -214,7 +214,6 @@ service cloud.firestore {
           && request.resource.data.vai_tro == resource.data.vai_tro
           && request.resource.data.trang_thai == resource.data.trang_thai
           && request.resource.data.ten_dang_nhap == resource.data.ten_dang_nhap
-          && request.resource.data.must_change_password == false
         );
 
       allow delete: if isAdmin() && request.auth.uid != userId;

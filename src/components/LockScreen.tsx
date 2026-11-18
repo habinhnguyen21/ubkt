@@ -30,6 +30,9 @@ export const LockScreen: React.FC<LockScreenProps> = ({ user, onUnlock, onLogout
       if (res?.token) {
         sessionStore.setToken(res.token);
       }
+      if ((res as any)?.sessionId) {
+        sessionStore.setSessionId((res as any).sessionId);
+      }
       sessionStore.recordActivity(true);
       sessionStore.setSessionLocked(false);
       setPassword('');

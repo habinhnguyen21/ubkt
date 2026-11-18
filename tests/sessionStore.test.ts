@@ -187,8 +187,34 @@ describe('sessionStore - Quản lý phiên làm việc, ghi nhớ đăng nhập 
     expect(sessionStore.getToken()).toBeNull();
     expect(sessionStore.isSessionLocked()).toBe(false);
     expect(sessionStore.getLastActivity()).toBeNull();
+    expect(sessionStore.getSessionId()).toBeNull();
     expect(localStorage.getItem(SESSION_KEYS.USER)).toBeNull();
     expect(sessionStorage.getItem(SESSION_KEYS.USER)).toBeNull();
+    expect(localStorage.getItem(SESSION_KEYS.SESSION_ID)).toBeNull();
+    expect(sessionStorage.getItem(SESSION_KEYS.SESSION_ID)).toBeNull();
+  });
+
+  it('8. Single-Session: generateSessionId tạo id ngẫu nhiên duy nhất và quản lý qua sessionStore', () => {
+    const id1 = sessionStore.generateSessionId();
+    const id2 = sessionStore.generateSessionId();
+    expect(id1).toMatch(/^sess_/);
+    expect(id2).toMatch(/^sess_/);
+    expect(id1).not.toBe(id2);
+
+    // Lưu session có sessionId tùy chỉnh
+    const customSessionId = 'sess_custom_test_999';
+    sessionStore.saveSession(mockUser, mockToken, false, customSessionId);
+    expect(sessionStore.getSessionId()).toBe(customSessionId);
+    expect(sessionStorage.getItem(SESSION_KEYS.SESSION_ID)).toBe(customSessionId);
+
+    // Cập nhật sessionId mới
+    const newSessionId = 'sess_updated_456';
+    sessionStore.setSessionId(newSessionId);
+    expect(sessionStore.getSessionId()).toBe(newSessionId);
+
+    // Xóa phiên thì xóa luôn sessionId
+    sessionStore.clearSession();
+    expect(sessionStore.getSessionId()).toBeNull();
   });
 });
 

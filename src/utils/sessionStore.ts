@@ -22,6 +22,7 @@ export const SESSION_KEYS = {
   REMEMBER: 'ubkt_remember_me',
   LAST_ACTIVITY: 'ubkt_last_activity',
   LOCKED: 'ubkt_session_locked',
+  SESSION_ID: 'ubkt_session_id',
 } as const;
 
 let lastRecordedActivityTime = 0;
@@ -127,14 +128,58 @@ export function setToken(token: string): void {
 }
 
 /**
+ * Tạo một Session ID duy nhất cho phiên làm việc hiện tại (kết hợp timestamp, ngẫu nhiên và UUID).
+ */
+export function generateSessionId(): string {
+  const ts = Date.now().toString(36);
+  const rand = Math.random().toString(36).substring(2, 10);
+  const cryptoPart =
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID().replace(/-/g, '').substring(0, 12)
+      : Math.random().toString(36).substring(2, 12);
+  return `sess_${ts}_${rand}_${cryptoPart}`;
+}
+
+/**
+ * Lấy Session ID của phiên làm việc hiện tại từ sessionStorage hoặc localStorage.
+ */
+export function getSessionId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return (
+      sessionStorage.getItem(SESSION_KEYS.SESSION_ID) ||
+      localStorage.getItem(SESSION_KEYS.SESSION_ID)
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Đặt Session ID cho phiên làm việc hiện tại.
+ */
+export function setSessionId(sessionId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(SESSION_KEYS.SESSION_ID, sessionId);
+    if (localStorage.getItem(SESSION_KEYS.USER) || isRememberMe()) {
+      localStorage.setItem(SESSION_KEYS.SESSION_ID, sessionId);
+    }
+  } catch (err) {
+    console.warn('[sessionStore] Lỗi lưu Session ID:', err);
+  }
+}
+
+/**
  * Lưu phiên đăng nhập mới.
  * - rememberMe = false: lưu vào sessionStorage, dọn sạch localStorage. Đóng tab/trình duyệt là mất.
  * - rememberMe = true: lưu vào localStorage kèm thời điểm đăng nhập (hết hạn tuyệt đối sau 12 giờ).
  */
-export function saveSession(user: User, token: string, rememberMe: boolean): void {
+export function saveSession(user: User, token: string, rememberMe: boolean, sessionId?: string): void {
   if (typeof window === 'undefined') return;
   const now = Date.now().toString();
   const userStr = JSON.stringify(user);
+  const sId = sessionId || generateSessionId();
   lastRecordedActivityTime = Date.now();
 
   if (rememberMe) {
@@ -146,6 +191,7 @@ export function saveSession(user: User, token: string, rememberMe: boolean): voi
       sessionStorage.removeItem(SESSION_KEYS.REMEMBER);
       sessionStorage.removeItem(SESSION_KEYS.LAST_ACTIVITY);
       sessionStorage.removeItem(SESSION_KEYS.LOCKED);
+      sessionStorage.removeItem(SESSION_KEYS.SESSION_ID);
     } catch {}
 
     // Lưu vào localStorage
@@ -155,7 +201,10 @@ export function saveSession(user: User, token: string, rememberMe: boolean): voi
       localStorage.setItem(SESSION_KEYS.LOGIN_TIME, now);
       localStorage.setItem(SESSION_KEYS.REMEMBER, 'true');
       localStorage.setItem(SESSION_KEYS.LAST_ACTIVITY, now);
+      localStorage.setItem(SESSION_KEYS.SESSION_ID, sId);
       localStorage.removeItem(SESSION_KEYS.LOCKED);
+      // Lưu song song vào sessionStorage cho tab hiện tại
+      sessionStorage.setItem(SESSION_KEYS.SESSION_ID, sId);
     } catch (err) {
       console.warn('[sessionStore] Lỗi lưu vào localStorage:', err);
     }
@@ -168,6 +217,7 @@ export function saveSession(user: User, token: string, rememberMe: boolean): voi
       localStorage.removeItem(SESSION_KEYS.REMEMBER);
       localStorage.removeItem(SESSION_KEYS.LAST_ACTIVITY);
       localStorage.removeItem(SESSION_KEYS.LOCKED);
+      localStorage.removeItem(SESSION_KEYS.SESSION_ID);
     } catch {}
 
     // Lưu vào sessionStorage
@@ -177,6 +227,7 @@ export function saveSession(user: User, token: string, rememberMe: boolean): voi
       sessionStorage.setItem(SESSION_KEYS.LOGIN_TIME, now);
       sessionStorage.setItem(SESSION_KEYS.REMEMBER, 'false');
       sessionStorage.setItem(SESSION_KEYS.LAST_ACTIVITY, now);
+      sessionStorage.setItem(SESSION_KEYS.SESSION_ID, sId);
       sessionStorage.removeItem(SESSION_KEYS.LOCKED);
     } catch (err) {
       console.warn('[sessionStore] Lỗi lưu vào sessionStorage:', err);
@@ -197,6 +248,7 @@ export function clearSession(): void {
     SESSION_KEYS.REMEMBER,
     SESSION_KEYS.LAST_ACTIVITY,
     SESSION_KEYS.LOCKED,
+    SESSION_KEYS.SESSION_ID,
   ];
 
   keys.forEach((key) => {
@@ -315,6 +367,9 @@ export const sessionStore = {
   SESSION_MAX_LIFETIME_MS,
   ACTIVITY_THROTTLE_MS,
   SESSION_KEYS,
+  generateSessionId,
+  getSessionId,
+  setSessionId,
   isSessionExpired,
   getCurrentUser,
   setCurrentUser,

@@ -20,7 +20,7 @@ import { cloudSyncService } from './services/cloudSyncService';
 import { centralDataService } from './services/centralDataService';
 import { auth, db as firestoreDb } from './services/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { isSameData } from './utils/syncUtils';
 import { sessionStore, SESSION_IDLE_TIMEOUT_MS } from './utils/sessionStore';
 
@@ -69,6 +69,7 @@ if (typeof window !== 'undefined') {
 export function App() {
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [kickMessage, setKickMessage] = useState<string | null>(null);
 
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [showAuditLogs, setShowAuditLogs] = useState(false);
@@ -246,6 +247,9 @@ export function App() {
             }
             verifiedUser = { ...storedUser, ...cloudUser, id: firebaseUser.uid };
             sessionStore.setCurrentUser(verifiedUser);
+            if (!sessionStore.getSessionId() && cloudUser.activeSessionId) {
+              sessionStore.setSessionId(cloudUser.activeSessionId);
+            }
           }
         } catch (fetchErr) {
           console.warn('[App] Không thể kiểm tra vai trò người dùng từ Firestore:', fetchErr);
@@ -360,8 +364,82 @@ export function App() {
     };
   }, [currentUser, isSessionLocked, handleLockSession]);
 
-  const handleLoginSuccess = (user: User, token: string, rememberMe = false) => {
-    sessionStore.saveSession(user, token, rememberMe);
+  // Lắng nghe trực tiếp document users/{uid} trên Firestore để thực thi Single-Session
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const uid = currentUser.id;
+
+    let isTerminating = false;
+
+    const unsubSession = onSnapshot(
+      doc(firestoreDb, 'users', uid),
+      async (docSnap) => {
+        // Không đá phiên nếu snapshot từ cache cục bộ hoặc đang offline hoàn toàn
+        if (docSnap.metadata.fromCache) return;
+        if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+        if (!docSnap.exists() || isTerminating) return;
+
+        const data = docSnap.data();
+        const cloudActiveSessionId = data?.activeSessionId;
+
+        // Nếu trên Firestore chưa có activeSessionId thì bỏ qua
+        if (!cloudActiveSessionId || typeof cloudActiveSessionId !== 'string') {
+          return;
+        }
+
+        const currentLocalSessionId = sessionStore.getSessionId();
+
+        // Nếu máy này chưa có sessionId cục bộ (phiên cũ), ghi nhận sessionId hiện tại của cloud
+        if (!currentLocalSessionId) {
+          sessionStore.setSessionId(cloudActiveSessionId);
+          return;
+        }
+
+        // Nếu activeSessionId trên Firestore KHÁC với sessionId của trình duyệt hiện tại -> ĐÃ BỊ ĐĂNG NHẬP NƠI KHÁC
+        if (cloudActiveSessionId !== currentLocalSessionId) {
+          isTerminating = true;
+          console.warn(
+            `[Single-Session] Phát hiện đăng nhập mới trên thiết bị khác: cloud=${cloudActiveSessionId}, local=${currentLocalSessionId}`
+          );
+
+          // 1. Đẩy nốt các thay đổi dở dang (dirty) lên cloud trước khi ngắt phiên
+          try {
+            await cloudSyncService.flushDirtyChanges();
+          } catch (flushErr) {
+            console.warn('[Single-Session] Lỗi đẩy dữ liệu dở dang trước khi đăng xuất:', flushErr);
+          }
+
+          // 2. Dừng đồng bộ và xóa phiên làm việc
+          centralDataService.stopRealtimeSync();
+          cloudSyncService.stopAutoSync();
+          await signOut(auth).catch(() => {});
+          await api.logout().catch(() => {});
+          sessionStore.clearSession();
+          setActiveTab('tong_quan');
+          try {
+            localStorage.removeItem('ubkt_active_tab');
+          } catch {}
+
+          // 3. Chuyển trạng thái về LoginModal với thông báo rõ ràng
+          setCurrentUser(null);
+          setIsSessionLocked(false);
+          setKickMessage('Tài khoản của bạn đã được đăng nhập trên một thiết bị khác.');
+        }
+      },
+      (err) => {
+        console.warn('[Single-Session] Lỗi lắng nghe activeSessionId:', err);
+      }
+    );
+
+    return () => {
+      unsubSession();
+    };
+  }, [currentUser?.id]);
+
+  const handleLoginSuccess = (user: User, token: string, rememberMe = false, sessionId?: string) => {
+    const finalSessionId = sessionId || sessionStore.getSessionId() || sessionStore.generateSessionId();
+    sessionStore.saveSession(user, token, rememberMe, finalSessionId);
+    setKickMessage(null);
     setCurrentUser(user);
     setIsSessionLocked(false);
     fetchAppInfo();
@@ -373,6 +451,7 @@ export function App() {
   };
 
   const handleLogout = useCallback(() => {
+    setKickMessage(null);
     centralDataService.stopRealtimeSync();
     cloudSyncService.stopAutoSync();
     signOut(auth).catch(() => {});
@@ -518,7 +597,10 @@ export function App() {
 
       {/* Nếu chưa đăng nhập → chỉ hiện màn hình đăng nhập */}
       {!isAuthChecking && !currentUser && (
-        <LoginModal onLoginSuccess={handleLoginSuccess} />
+        <LoginModal
+          onLoginSuccess={handleLoginSuccess}
+          kickReason={kickMessage}
+        />
       )}
 
       {/* Ứng dụng chính sau đăng nhập */}

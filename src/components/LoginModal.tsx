@@ -15,17 +15,24 @@ if (typeof document !== 'undefined' && !document.getElementById('gfont-bevietnam
 }
 
 interface LoginModalProps {
-  onLoginSuccess: (user: User, token: string, rememberMe?: boolean) => void;
+  onLoginSuccess: (user: User, token: string, rememberMe?: boolean, sessionId?: string) => void;
+  kickReason?: string | null;
 }
 
-export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
+export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, kickReason }) => {
   const isMobile = useIsMobile();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(kickReason || null);
   const [showPw, setShowPw] = useState(false);
+
+  React.useEffect(() => {
+    if (kickReason) {
+      setError(kickReason);
+    }
+  }, [kickReason]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,7 +44,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
         mat_khau: password,
         ghi_nho: rememberMe,
       });
-      onLoginSuccess(res.user, res.token, rememberMe);
+      onLoginSuccess(res.user, res.token, rememberMe, (res as any)?.sessionId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
