@@ -1588,10 +1588,10 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
 
       {/* ── MODAL DATA ENTRY FORM (THÊM / CẬP NHẬT ĐƠN THƯ) ────────────────── */}
       {isFormModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4 animate-fadeIn">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl h-[100dvh] sm:h-auto max-h-[100dvh] sm:max-h-[92vh] flex flex-col overflow-hidden">
             {/* Modal Header */}
-            <div className="p-4 bg-gradient-to-r from-blue-800 to-indigo-900 text-white flex items-center justify-between">
+            <div className="p-4 bg-gradient-to-r from-blue-800 to-indigo-900 text-white flex items-center justify-between shrink-0">
               <div>
                 <h3 className="text-sm font-extrabold uppercase tracking-wide">
                   CẬP NHẬT THEO DÕI ĐƠN THƯ
@@ -1602,7 +1602,7 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
               </div>
               <button
                 onClick={() => setIsFormModalOpen(false)}
-                className="text-white/80 hover:text-white p-1 hover:bg-white/10 rounded-lg transition cursor-pointer"
+                className="text-white/80 hover:text-white p-2 sm:p-1 hover:bg-white/10 rounded-lg transition cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1988,19 +1988,19 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
               </div>
 
               {/* Action Buttons: [ Hủy bỏ ] [ Cập nhật danh mục ] [ Ghi lại (Lưu đơn) ] */}
-              <div className="flex items-center justify-between pt-3 border-t border-slate-200">
+              <div className="sticky bottom-0 bg-white/95 backdrop-blur-xs flex flex-wrap items-center justify-between gap-2 p-3 sm:pt-3 border-t border-slate-200 shrink-0">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setIsFormModalOpen(false)}
-                    className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 border border-slate-300 rounded-lg transition cursor-pointer"
+                    className="min-h-[44px] px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 border border-slate-300 rounded-lg transition cursor-pointer"
                   >
                     Hủy bỏ
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsCategoryModalOpen(true)}
-                    className="px-3.5 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition cursor-pointer flex items-center gap-1.5"
+                    className="min-h-[44px] px-3.5 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition cursor-pointer flex items-center gap-1.5"
                   >
                     <SlidersHorizontal className="w-3.5 h-3.5" />
                     <span>Cập nhật danh mục</span>
@@ -2010,7 +2010,7 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-6 py-2 text-xs font-bold text-white bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 rounded-lg shadow-md shadow-blue-900/20 transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                  className="min-h-[44px] px-6 py-2 text-xs font-bold text-white bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 rounded-lg shadow-md shadow-blue-900/20 transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                 >
                   <Check className="w-4 h-4" />
                   <span>{isSubmitting ? 'Đang lưu...' : 'Ghi lại (Lưu đơn)'}</span>
@@ -2023,9 +2023,9 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
 
       {/* ── MODAL XEM CHI TIẾT ĐƠN THƯ ────────────────────────────────────── */}
       {viewingItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-lg overflow-hidden">
-            <div className="p-4 bg-gradient-to-r from-slate-900 to-blue-900 text-white flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4 animate-fadeIn">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl border border-slate-200 w-full max-w-lg max-h-[100dvh] sm:max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-4 bg-gradient-to-r from-slate-900 to-blue-900 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-blue-300" />
                 <h3 className="text-sm font-bold uppercase tracking-wide">
@@ -2034,13 +2034,13 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
               </div>
               <button
                 onClick={() => setViewingItem(null)}
-                className="text-white/80 hover:text-white p-1 cursor-pointer"
+                className="text-white/80 hover:text-white p-2 sm:p-1 cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 space-y-4 text-xs">
+            <div className="p-5 space-y-4 text-xs overflow-y-auto flex-1">
               <div className="grid grid-cols-2 gap-3 pb-3 border-b border-slate-100">
                 <div>
                   <span className="text-slate-400 block text-[11px]">Ngày tiếp nhận:</span>
@@ -2125,19 +2125,19 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
               </div>
             </div>
 
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2 shrink-0">
               <button
                 onClick={() => {
                   setViewingItem(null);
                   handleOpenEditModal(viewingItem);
                 }}
-                className="px-4 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition cursor-pointer"
+                className="min-h-[44px] px-4 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition cursor-pointer"
               >
                 Cập nhật đơn này
               </button>
               <button
                 onClick={() => setViewingItem(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition cursor-pointer"
+                className="min-h-[44px] px-4 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition cursor-pointer"
               >
                 Đóng
               </button>
@@ -2148,9 +2148,9 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
 
       {/* ── MODAL CẬP NHẬT DANH MỤC ────────────────────────────────────────── */}
       {isCategoryModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
-            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4 animate-fadeIn">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl border border-slate-200 w-full max-w-md max-h-[100dvh] sm:max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <SlidersHorizontal className="w-5 h-5 text-indigo-400" />
                 <h3 className="text-sm font-bold uppercase tracking-wide">
@@ -2159,13 +2159,13 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
               </div>
               <button
                 onClick={() => setIsCategoryModalOpen(false)}
-                className="text-white/80 hover:text-white p-1 cursor-pointer"
+                className="text-white/80 hover:text-white p-2 sm:p-1 cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Thêm cán bộ mới:
@@ -2181,7 +2181,7 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
                   <button
                     type="button"
                     onClick={handleAddCanBo}
-                    className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition cursor-pointer"
+                    className="min-h-[44px] px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition cursor-pointer"
                   >
                     Thêm
                   </button>
@@ -2204,7 +2204,7 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
                       </div>
                       <button
                         onClick={() => handleRemoveCanBo(cb)}
-                        className="text-slate-400 hover:text-rose-600 transition p-1 cursor-pointer"
+                        className="text-slate-400 hover:text-rose-600 transition p-2 cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
                         title="Xóa khỏi danh mục"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -2222,11 +2222,11 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
               </div>
             </div>
 
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
               <button
                 type="button"
                 onClick={() => setIsCategoryModalOpen(false)}
-                className="px-4 py-2 text-xs font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-lg transition cursor-pointer"
+                className="min-h-[44px] px-5 py-2 text-xs font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-lg transition cursor-pointer"
               >
                 Đóng
               </button>
@@ -2237,8 +2237,8 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
 
       {/* ── MODAL XÁC NHẬN XÓA ĐƠN THƯ ────────────────────────────────────── */}
       {deletingItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md p-5 text-center space-y-4">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4 animate-fadeIn">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl border border-slate-200 w-full max-w-md p-5 text-center space-y-4 max-h-[100dvh]">
             <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 mx-auto flex items-center justify-center">
               <AlertTriangle className="w-6 h-6" />
             </div>
@@ -2252,13 +2252,13 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
             <div className="flex items-center justify-center gap-3 pt-2">
               <button
                 onClick={() => setDeletingItem(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 border border-slate-300 rounded-lg transition cursor-pointer"
+                className="min-h-[44px] px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 border border-slate-300 rounded-lg transition cursor-pointer"
               >
                 Hủy bỏ
               </button>
               <button
                 onClick={handleDeleteItem}
-                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition cursor-pointer"
+                className="min-h-[44px] px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition cursor-pointer"
               >
                 Xóa vĩnh viễn
               </button>

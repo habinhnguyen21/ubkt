@@ -120,33 +120,33 @@ export const OrgTypeManagerModal: React.FC<OrgTypeManagerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-hidden my-6 flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4 overflow-hidden">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-hidden my-0 sm:my-6 flex flex-col max-h-[100dvh] sm:max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-900 to-slate-900 px-6 py-4 text-white flex items-center justify-between">
+        <div className="bg-gradient-to-r from-blue-900 to-slate-900 px-4 sm:px-6 py-3 sm:py-4 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600/80 flex items-center justify-center text-white font-bold shadow-md">
+            <div className="w-10 h-10 rounded-xl bg-blue-600/80 flex items-center justify-center text-white font-bold shadow-md shrink-0">
               <Layers className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white tracking-wide">
+              <h3 className="text-sm sm:text-base font-bold text-white tracking-wide">
                 QUẢN LÝ DANH MỤC LOẠI HÌNH TỔ CHỨC
               </h3>
-              <p className="text-xs text-blue-200/80">
+              <p className="text-[11px] sm:text-xs text-blue-200/80">
                 Cấu hình danh mục loại hình tổ chức độc lập với cấu trúc phân cấp
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-blue-200 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer"
+            className="w-11 h-11 flex items-center justify-center text-blue-200 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
           {/* Add / Edit Form */}
           <form
             onSubmit={handleSaveItem}
@@ -188,7 +188,7 @@ export const OrgTypeManagerModal: React.FC<OrgTypeManagerModalProps> = ({
                   value={ma}
                   onChange={(e) => setMa(e.target.value.toUpperCase())}
                   placeholder="VD: DANG_BO_BP"
-                  className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-mono font-bold text-slate-900 uppercase focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100"
+                  className="w-full px-3 py-2 min-h-[44px] border border-slate-300 rounded-lg text-base sm:text-xs font-mono font-bold text-slate-900 uppercase focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100"
                 />
               </div>
 
@@ -202,7 +202,7 @@ export const OrgTypeManagerModal: React.FC<OrgTypeManagerModalProps> = ({
                   value={ten}
                   onChange={(e) => setTen(e.target.value)}
                   placeholder="VD: Đảng bộ bộ phận"
-                  className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2 min-h-[44px] border border-slate-300 rounded-lg text-base sm:text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
               </div>
 
@@ -215,7 +215,7 @@ export const OrgTypeManagerModal: React.FC<OrgTypeManagerModalProps> = ({
                   value={moTa}
                   onChange={(e) => setMoTa(e.target.value)}
                   placeholder="Mô tả chức năng..."
-                  className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2 min-h-[44px] border border-slate-300 rounded-lg text-base sm:text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
               </div>
             </div>
@@ -303,11 +303,11 @@ export const OrgTypeManagerModal: React.FC<OrgTypeManagerModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end">
+        <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end shrink-0 sticky bottom-0 z-10">
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+            className="w-full sm:w-auto px-5 py-2 min-h-[44px] bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-bold transition cursor-pointer"
           >
             Đóng
           </button>

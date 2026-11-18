@@ -176,19 +176,19 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4 overflow-hidden">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden my-0 sm:my-8 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[100dvh] sm:max-h-[90vh]">
         {/* Modal Header */}
-        <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 px-6 py-4 text-white flex items-center justify-between border-b border-blue-900/50">
+        <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 px-4 sm:px-6 py-3 sm:py-4 text-white flex items-center justify-between border-b border-blue-900/50 shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600/80 flex items-center justify-center text-white font-bold shadow-md">
+            <div className="w-10 h-10 rounded-xl bg-blue-600/80 flex items-center justify-center text-white font-bold shadow-md shrink-0">
               <Building2 className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white tracking-wide">
+              <h3 className="text-sm sm:text-base font-bold text-white tracking-wide">
                 {editingUnit ? 'CHỈNH SỬA TỔ CHỨC ĐẢNG' : 'THÊM MỚI TỔ CHỨC ĐẢNG'}
               </h3>
-              <p className="text-xs text-blue-200/80">
+              <p className="text-[11px] sm:text-xs text-blue-200/80">
                 {editingUnit
                   ? 'Cập nhật tên, quan hệ phân cấp và trạng thái hoạt động'
                   : 'Khai báo thông tin tổ chức, đơn vị trực thuộc mới vào hệ thống'}
@@ -197,7 +197,7 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="px-2.5 py-1 text-xs font-semibold text-blue-200 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer flex items-center space-x-1"
+            className="min-h-[44px] px-3 py-1 text-xs font-semibold text-blue-200 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer flex items-center space-x-1 shrink-0"
           >
             <X className="w-4 h-4" />
             <span>Thoát</span>
@@ -205,7 +205,7 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-5">
           {errorMsg && (
             <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700 flex items-start space-x-2.5">
               <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
@@ -232,7 +232,7 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
                 value={ten}
                 onChange={(e) => handleTenChange(e.target.value)}
                 placeholder="Ví dụ: Chi bộ Quân sự, Chi bộ Công an, Chi bộ Khu dân cư số 1..."
-                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium"
+                className="w-full px-3.5 py-2.5 min-h-[44px] border border-slate-300 rounded-xl text-base sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium"
               />
             </div>
 
@@ -248,9 +248,9 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
                   type="button"
                   onClick={handleRegenerateCode}
                   title="Tự động lấy mã số tuần tự tiếp theo"
-                  className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 cursor-pointer transition"
+                  className="min-h-[44px] text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 cursor-pointer transition"
                 >
-                  <RefreshCw className="w-3 h-3" />
+                  <RefreshCw className="w-3.5 h-3.5" />
                   <span>Cấp mã tự động</span>
                 </button>
               </div>
@@ -259,7 +259,7 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
                 value={ma}
                 onChange={(e) => setMa(e.target.value.toUpperCase())}
                 placeholder="Ví dụ: DU-01, CB-01 (tự động điền mã tuần tự)"
-                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-mono font-bold"
+                className="w-full px-3.5 py-2.5 min-h-[44px] border border-slate-300 rounded-xl text-base sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-mono font-bold"
               />
               <p className="text-[11px] text-slate-500 mt-1">
                 💡 Mã tổ chức được cấp tuần tự liên tục theo cơ cấu (ví dụ: <strong className="text-slate-700 font-mono">DU-01</strong> cho Đảng bộ/Đảng ủy, <strong className="text-slate-700 font-mono">CB-01...CB-17</strong> cho Chi bộ), đảm bảo không bao giờ bị trùng lặp.
@@ -273,7 +273,7 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
               <select
                 value={donViChaId}
                 onChange={(e) => handleParentChange(e.target.value)}
-                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium"
+                className="w-full px-3.5 py-2.5 min-h-[44px] border border-slate-300 rounded-xl text-base sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium"
               >
                 <option value="">-- Là tổ chức cấp cao nhất (Gốc) --</option>
                 {validParentOptions.map((u) => (
@@ -291,7 +291,7 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
               <select
                 value={trangThai}
                 onChange={(e) => setTrangThai(e.target.value as TrangThaiDonVi)}
-                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium"
+                className="w-full px-3.5 py-2.5 min-h-[44px] border border-slate-300 rounded-xl text-base sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium"
               >
                 <option value="DANG_HOAT_DONG">Đang hoạt động</option>
                 <option value="TAM_NGUNG">Tạm ngừng hoạt động</option>
@@ -308,14 +308,14 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
                 value={ghiChu}
                 onChange={(e) => setGhiChu(e.target.value)}
                 placeholder="Ghi chú thêm về địa bàn, nhiệm vụ hoặc quy mô của tổ chức..."
-                className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-base sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
             </div>
           </div>
 
           {/* NHÓM 2: THÔNG TIN HỆ THỐNG */}
           <div className="pt-3 border-t border-slate-200">
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-2 gap-3 text-xs text-slate-600">
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-600">
               <div>
                 <span className="font-medium text-slate-500">Người thực hiện:</span>
                 <p className="font-semibold text-slate-800 mt-0.5">
@@ -336,11 +336,11 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
         </form>
 
         {/* Modal Footer */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end space-x-3">
+        <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end space-x-3 shrink-0 sticky bottom-0 z-10">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+            className="px-4 py-2 min-h-[44px] border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
           >
             Hủy bỏ / Thoát
           </button>
@@ -348,7 +348,7 @@ export const OrgFormModal: React.FC<OrgFormModalProps> = ({
             type="button"
             onClick={handleSubmit}
             disabled={isSaving}
-            className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-md hover:shadow-lg transition cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+            className="px-5 py-2 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-md hover:shadow-lg transition cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
           >
             <CheckCircle2 className="w-4 h-4" />
             <span>{isSaving ? 'Đang lưu...' : editingUnit ? 'Lưu cập nhật' : 'Tạo tổ chức'}</span>

@@ -281,8 +281,17 @@ export default function UserManager({ currentUser, onClose }: Props) {
   };
 
   return (
-    <div style={styles.overlay}>
-      <div style={styles.panel}>
+    <div style={{
+      ...styles.overlay,
+      padding: isMobile ? 0 : 20,
+      alignItems: isMobile ? 'flex-end' : 'center',
+    }}>
+      <div style={{
+        ...styles.panel,
+        maxHeight: isMobile ? '100dvh' : '90vh',
+        height: isMobile ? '100dvh' : 'auto',
+        borderRadius: isMobile ? 0 : 16,
+      }}>
         {/* Header */}
         <div style={styles.panelHeader}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -292,7 +301,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
               <div style={styles.panelSubtitle}>Cấp phát, chỉnh sửa và đặt lại mật khẩu tài khoản</div>
             </div>
           </div>
-          <button style={styles.closeBtn} onClick={onClose}>✕</button>
+          <button style={{ ...styles.closeBtn, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>✕</button>
         </div>
 
         {/* Toast */}
@@ -303,19 +312,24 @@ export default function UserManager({ currentUser, onClose }: Props) {
         )}
 
         {/* Toolbar */}
-        <div style={styles.toolbar}>
+        <div style={{
+          ...styles.toolbar,
+          flexDirection: isMobile ? 'column' : 'row',
+          alignItems: isMobile ? 'stretch' : 'center',
+          gap: isMobile ? 8 : 12,
+        }}>
           <div style={styles.searchWrap}>
             <span style={styles.searchIcon}>🔍</span>
             <input
               id="user-search"
-              style={styles.searchInput}
+              style={{ ...styles.searchInput, fontSize: isMobile ? 16 : 14, minHeight: 44 }}
               placeholder="Tìm theo tên đăng nhập hoặc họ tên..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
           {isAdmin && (
-            <button id="btn-create-user" style={styles.btnPrimary} onClick={openCreate}>
+            <button id="btn-create-user" style={{ ...styles.btnPrimary, minHeight: 44 }} onClick={openCreate}>
               + Thêm tài khoản
             </button>
           )}
@@ -894,21 +908,40 @@ function ModalBox({
   children: React.ReactNode;
   confirmColor?: string;
 }) {
+  const isMobile = useIsMobile();
   return (
-    <div style={styles.modalOverlay} onClick={onClose}>
-      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div
+      style={{
+        ...styles.modalOverlay,
+        padding: isMobile ? 0 : 20,
+        alignItems: isMobile ? 'flex-end' : 'center',
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          ...styles.modal,
+          maxWidth: isMobile ? '100%' : 460,
+          maxHeight: isMobile ? '100dvh' : '90vh',
+          height: isMobile ? 'auto' : undefined,
+          borderRadius: isMobile ? '16px 16px 0 0' : 14,
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div style={styles.modalHeader}>
           <span style={{ fontWeight: 700, color: '#f1f5f9', fontSize: 16 }}>{title}</span>
-          <button style={styles.closeBtn} onClick={onClose}>✕</button>
+          <button style={{ ...styles.closeBtn, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>✕</button>
         </div>
-        <div style={styles.modalBody}>
+        <div style={{ ...styles.modalBody, flex: 1, overflowY: 'auto', maxHeight: isMobile ? 'calc(85dvh - 120px)' : 'auto' }}>
           {children}
           {error && <div style={styles.errorBox}>{error}</div>}
         </div>
-        <div style={styles.modalFooter}>
-          <button style={styles.btnSecondary} onClick={onClose} disabled={loading}>Hủy</button>
+        <div style={{ ...styles.modalFooter, position: isMobile ? 'sticky' : 'relative', bottom: 0, background: '#1e293b', zIndex: 10 }}>
+          <button style={{ ...styles.btnSecondary, minHeight: 44 }} onClick={onClose} disabled={loading}>Hủy</button>
           <button
-            style={{ ...styles.btnPrimary, background: confirmColor, minWidth: 140 }}
+            style={{ ...styles.btnPrimary, background: confirmColor, minWidth: 140, minHeight: 44 }}
             onClick={onConfirm}
             disabled={loading}
           >
@@ -1140,23 +1173,25 @@ const styles: Record<string, React.CSSProperties> = {
   },
   input: {
     width: '100%',
+    minHeight: 44,
     padding: '10px 12px',
     background: 'rgba(255,255,255,0.06)',
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 8,
     color: '#e2e8f0',
-    fontSize: 14,
+    fontSize: 16,
     outline: 'none',
     boxSizing: 'border-box',
   },
   select: {
     width: '100%',
+    minHeight: 44,
     padding: '10px 12px',
     background: '#0f172a',
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 8,
     color: '#e2e8f0',
-    fontSize: 14,
+    fontSize: 16,
     outline: 'none',
     boxSizing: 'border-box',
     cursor: 'pointer',

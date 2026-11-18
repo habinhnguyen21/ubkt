@@ -60,16 +60,16 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        <div className="bg-red-800 p-5 text-white flex items-center justify-between border-b-2 border-amber-500">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/80 backdrop-blur-sm p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-2xl border border-slate-200 w-full max-w-md max-h-[100dvh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div className="bg-red-800 p-4 sm:p-5 text-white flex items-center justify-between border-b-2 border-amber-500 shrink-0">
           <div className="flex items-center space-x-2.5">
-            <KeyRound className="w-6 h-6 text-amber-300" />
+            <KeyRound className="w-5 h-5 sm:w-6 sm:h-6 text-amber-300 shrink-0" />
             <div>
-              <h2 className="text-lg font-bold">
+              <h2 className="text-sm sm:text-lg font-bold leading-tight">
                 {isMandatory ? 'YÊU CẦU ĐỔI MẬT KHẨU KHỞI TẠO' : 'ĐỔI MẬT KHẨU TÀI KHOẢN'}
               </h2>
-              <p className="text-xs text-red-200">
+              <p className="text-[11px] sm:text-xs text-red-200">
                 Đồng chí: <strong>{user.ho_ten}</strong> ({user.ten_dang_nhap})
               </p>
             </div>
@@ -77,14 +77,14 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
           {!isMandatory && onClose && (
             <button
               onClick={onClose}
-              className="text-red-200 hover:text-white p-1 rounded-md transition"
+              className="text-red-200 hover:text-white w-11 h-11 flex items-center justify-center rounded-md transition cursor-pointer shrink-0"
             >
               <X className="w-5 h-5" />
             </button>
           )}
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
           {isMandatory && (
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-start space-x-2">
               <AlertCircle className="w-4 h-4 flex-shrink-0 text-amber-700 mt-0.5" />
@@ -110,7 +110,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               value={oldPassword}
               onChange={(e) => setOldPassword(e.target.value)}
               placeholder="Nhập mật khẩu hiện tại"
-              className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 text-sm"
+              className="w-full px-3.5 py-2.5 min-h-[44px] rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 text-base sm:text-sm"
             />
           </div>
 
@@ -124,7 +124,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="Tối thiểu 8 ký tự, có chữ hoa, chữ thường, số"
-              className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 text-sm"
+              className="w-full px-3.5 py-2.5 min-h-[44px] rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 text-base sm:text-sm"
             />
           </div>
 
@@ -138,16 +138,16 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Nhập lại mật khẩu mới"
-              className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 text-sm"
+              className="w-full px-3.5 py-2.5 min-h-[44px] rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 text-base sm:text-sm"
             />
           </div>
 
-          <div className="pt-2 flex items-center justify-end space-x-3">
+          <div className="pt-3 flex items-center justify-end space-x-3 sticky bottom-0 bg-white py-2 border-t border-slate-100 z-10">
             {!isMandatory && onClose && (
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50 font-medium transition cursor-pointer"
+                className="px-4 py-2 min-h-[44px] border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50 font-medium transition cursor-pointer"
               >
                 Hủy bỏ
               </button>
@@ -155,7 +155,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
             <button
               type="submit"
               disabled={loading}
-              className="px-5 py-2 bg-red-700 hover:bg-red-800 text-white rounded-lg text-sm font-semibold shadow transition disabled:opacity-50 cursor-pointer flex items-center space-x-1.5"
+              className="px-5 py-2 min-h-[44px] bg-red-700 hover:bg-red-800 text-white rounded-lg text-sm font-semibold shadow transition disabled:opacity-50 cursor-pointer flex items-center space-x-1.5"
             >
               <ShieldCheck className="w-4 h-4" />
               <span>{loading ? 'Đang lưu...' : 'Cập nhật Mật khẩu'}</span>

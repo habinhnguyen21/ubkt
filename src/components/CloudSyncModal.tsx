@@ -293,19 +293,19 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs font-sans">
-      <div className="bg-white rounded-2xl max-w-xl w-full border border-slate-200 shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/70 backdrop-blur-xs font-sans">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl max-w-xl w-full max-h-[100dvh] sm:max-h-[90vh] flex flex-col border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+        <div className="flex items-start justify-between border-b border-slate-100 p-4 sm:p-6 pb-3 sm:pb-4 shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="w-11 h-11 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shadow-xs">
-              <Cloud className="w-6 h-6 animate-pulse" />
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shadow-xs shrink-0">
+              <Cloud className="w-5 h-5 sm:w-6 sm:h-6 animate-pulse" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900 uppercase">
+              <h3 className="text-sm sm:text-base font-bold text-slate-900 uppercase">
                 Đồng Bộ Đám Mây Trực Tuyến
               </h3>
-              <p className="text-xs text-slate-500">
+              <p className="text-[11px] sm:text-xs text-slate-500">
                 Chia sẻ và đồng bộ dữ liệu tức thời giữa các máy tính & điện thoại qua Firebase Cloud
               </p>
             </div>
@@ -313,11 +313,14 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+            className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Modal Scrollable Body */}
+        <div className="p-4 sm:p-6 pt-3 sm:pt-4 space-y-4 sm:space-y-5 overflow-y-auto flex-1">
 
         {/* Trạng thái kết nối Cloud */}
         <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 text-xs space-y-2">
@@ -609,7 +612,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
                         value={restoreConfirmText}
                         onChange={(e) => setRestoreConfirmText(e.target.value)}
                         placeholder="Nhập KHOI PHUC"
-                        className="flex-1 px-2.5 py-1.5 rounded-lg border border-rose-300 bg-white text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                        className="flex-1 px-3 py-2 min-h-[44px] rounded-lg border border-rose-300 bg-white text-base sm:text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-rose-500"
                       />
                       <button
                         type="button"
@@ -618,7 +621,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
                           setRestoreStep(0);
                           setRestoreConfirmText('');
                         }}
-                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 font-semibold cursor-pointer"
+                        className="px-3 py-2 min-h-[44px] rounded-lg border border-slate-300 bg-white text-slate-700 font-semibold cursor-pointer"
                       >
                         Hủy
                       </button>
@@ -626,7 +629,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
                         type="button"
                         onClick={handleExecuteRestore}
                         disabled={isProcessing || restoreConfirmText.trim().toUpperCase() !== 'KHOI PHUC'}
-                        className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                        className="px-3 py-2 min-h-[44px] rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer disabled:opacity-50"
                       >
                         Xác nhận Khôi phục
                       </button>
@@ -637,6 +640,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   );

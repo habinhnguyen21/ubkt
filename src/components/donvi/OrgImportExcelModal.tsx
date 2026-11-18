@@ -153,33 +153,33 @@ export const OrgImportExcelModal: React.FC<OrgImportExcelModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl overflow-hidden my-6 flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4 overflow-hidden">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl overflow-hidden my-0 sm:my-6 flex flex-col max-h-[100dvh] sm:max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="bg-gradient-to-r from-emerald-900 to-slate-900 px-6 py-4 text-white flex items-center justify-between">
+        <div className="bg-gradient-to-r from-emerald-900 to-slate-900 px-4 sm:px-6 py-3 sm:py-4 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600/80 flex items-center justify-center text-white font-bold shadow-md">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600/80 flex items-center justify-center text-white font-bold shadow-md shrink-0">
               <FileSpreadsheet className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white tracking-wide">
+              <h3 className="text-sm sm:text-base font-bold text-white tracking-wide">
                 NHẬP DANH SÁCH TỔ CHỨC TỪ EXCEL / CSV
               </h3>
-              <p className="text-xs text-emerald-200/80">
+              <p className="text-[11px] sm:text-xs text-emerald-200/80">
                 Thêm hàng loạt tổ chức đảng trực thuộc theo mẫu chuẩn
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-emerald-200 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer"
+            className="w-11 h-11 flex items-center justify-center text-emerald-200 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-5">
           {errorMessage && (
             <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700 flex items-start space-x-2.5">
               <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
@@ -399,7 +399,7 @@ export const OrgImportExcelModal: React.FC<OrgImportExcelModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+        <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0 sticky bottom-0 z-10">
           <span className="text-xs text-slate-500">
             Người thực hiện: <strong>{currentUser.ho_ten}</strong>
           </span>
@@ -408,7 +408,7 @@ export const OrgImportExcelModal: React.FC<OrgImportExcelModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              className="px-4 py-2 min-h-[44px] border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
             >
               Hủy bỏ
             </button>
@@ -416,7 +416,7 @@ export const OrgImportExcelModal: React.FC<OrgImportExcelModalProps> = ({
               type="button"
               disabled={validCount === 0 || isImporting}
               onClick={handleConfirmImport}
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-md hover:shadow-lg transition cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+              className="px-5 py-2 min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-md hover:shadow-lg transition cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>

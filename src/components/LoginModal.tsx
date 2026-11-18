@@ -3,6 +3,7 @@ import { api } from '../services/api';
 import type { User } from '../types';
 import logoUbkt from '../assets/logo-ubkt.jpg';
 import loginBg from '../assets/login-bg.webp';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 // Font chuyên nghiệp từ Google Fonts
 if (typeof document !== 'undefined' && !document.getElementById('gfont-bevietnam')) {
@@ -18,6 +19,7 @@ interface LoginModalProps {
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
+  const isMobile = useIsMobile();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -54,22 +56,24 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
+        justifyContent: isMobile ? 'flex-start' : 'center',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        minHeight: '100dvh',
+        padding: isMobile ? '16px 16px 40px' : '20px 16px',
+        boxSizing: 'border-box',
       }}
     >
       {/* ── NỀN TRỐNG ĐỒNG ĐÔNG SƠN (ảnh đặt giữa, nằm sau khung đăng nhập) ───── */}
       <div
         aria-hidden="true"
         style={{
-          position: 'absolute',
+          position: 'fixed',
           inset: 0,
           backgroundImage: `url(${loginBg})`,
           backgroundRepeat: 'no-repeat',
           backgroundPosition: 'center',
-          // Chiều cao ảnh ~ đường kính trống đồng: hiện trọn vòng tròn trên máy tính (92% cạnh ngắn),
-          // tối thiểu 560px (trên điện thoại họa tiết lớn hơn màn hình, bị cắt hai bên) và tối đa 920px (tránh bị nhòe)
-          backgroundSize: 'auto min(max(92vmin, 560px), 920px)',
+          backgroundSize: isMobile ? 'min(95vw, 440px)' : 'auto min(max(92vmin, 560px), 920px)',
           pointerEvents: 'none',
         }}
       />
@@ -77,11 +81,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
       {/* ── SÓng trang trí trên cùng ──────────────────────────────────── */}
       <div
         style={{
-          position: 'absolute',
+          position: 'fixed',
           top: 0,
           left: 0,
           right: 0,
           height: 5,
+          zIndex: 10,
           background: 'linear-gradient(90deg, #c8282c 0%, #e03a3e 50%, #c8282c 100%)',
         }}
       />
@@ -91,15 +96,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
         style={{
           position: 'relative',
           zIndex: 2,
-          marginBottom: 18,
+          marginTop: isMobile ? 'auto' : 0,
+          marginBottom: isMobile ? 12 : 18,
         }}
       >
         <img
           src={logoUbkt}
           alt="Logo Ủy ban Kiểm tra Đảng"
           style={{
-            width: 110,
-            height: 110,
+            width: isMobile ? 76 : 110,
+            height: isMobile ? 76 : 110,
             borderRadius: '50%',
             objectFit: 'cover',
             display: 'block',
@@ -120,14 +126,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
           background: '#ffffff',
           borderRadius: 14,
           boxShadow: '0 4px 30px rgba(180,30,30,0.10), 0 1px 8px rgba(0,0,0,0.06)',
-          padding: '36px 40px 30px',
+          padding: isMobile ? '24px 20px 20px' : '36px 40px 30px',
+          marginBottom: isMobile ? 'auto' : 0,
           textAlign: 'center',
+          boxSizing: 'border-box',
         }}
       >
         {/* Tiêu đề */}
         <h1
           style={{
-            fontSize: 22,
+            fontSize: isMobile ? 20 : 22,
             fontWeight: 800,
             color: '#111111',
             margin: '0 0 8px',
@@ -139,7 +147,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
         </h1>
         <p
           style={{
-            fontSize: 12.5,
+            fontSize: isMobile ? 11.5 : 12.5,
             fontWeight: 600,
             color: '#b91c1c',
             letterSpacing: '0.04em',
@@ -191,15 +199,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
               id="login-username"
               type="text"
               required
+              inputMode="text"
+              autoCapitalize="none"
+              autoCorrect="off"
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Tên tài khoản"
               style={{
                 width: '100%',
+                minHeight: 44,
                 padding: '11px 14px',
                 border: '1.5px solid #d1d5db',
                 borderRadius: 8,
-                fontSize: 14,
+                fontSize: isMobile ? 16 : 14,
                 color: '#111827',
                 background: '#fff',
                 outline: 'none',
@@ -235,15 +248,17 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
                 id="login-password"
                 type={showPw ? 'text' : 'password'}
                 required
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Mật khẩu"
                 style={{
                   width: '100%',
+                  minHeight: 44,
                   padding: '11px 44px 11px 14px',
                   border: '1.5px solid #d1d5db',
                   borderRadius: 8,
-                  fontSize: 14,
+                  fontSize: isMobile ? 16 : 14,
                   color: '#111827',
                   background: '#fff',
                   outline: 'none',
@@ -266,16 +281,17 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
                 title={showPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                 style={{
                   position: 'absolute',
-                  right: 12,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 44,
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
                   padding: 0,
-                  lineHeight: 1,
                   display: 'flex',
                   alignItems: 'center',
+                  justifyContent: 'center',
                   color: '#9ca3af',
                 }}
               >
@@ -296,15 +312,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
           </div>
 
           {/* Ghi nhớ đăng nhập trên thiết bị này */}
-          <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ marginBottom: 20, minHeight: 44, display: 'flex', alignItems: 'center', gap: 10 }}>
             <input
               id="login-remember-me"
               type="checkbox"
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
               style={{
-                width: 16,
-                height: 16,
+                width: 18,
+                height: 18,
                 accentColor: '#c8282c',
                 cursor: 'pointer',
               }}
@@ -330,12 +346,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
             className="login-btn"
             style={{
               width: '100%',
+              minHeight: 46,
               padding: '13px',
               background: loading ? '#e87c7f' : '#c8282c',
               color: '#fff',
               border: 'none',
               borderRadius: 6,
-              fontSize: 15,
+              fontSize: isMobile ? 16 : 15,
               fontWeight: 700,
               cursor: loading ? 'not-allowed' : 'pointer',
               transition: 'background 0.2s, transform 0.1s',
@@ -383,13 +400,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
       {/* ── SÓng trang trí phía dưới ────────────────────────────────── */}
       <div
         style={{
-          position: 'absolute',
+          position: isMobile ? 'fixed' : 'absolute',
           bottom: 0,
           left: 0,
           right: 0,
-          height: 110,
+          height: isMobile ? 55 : 110,
           overflow: 'hidden',
           pointerEvents: 'none',
+          opacity: isMobile ? 0.35 : 1,
+          zIndex: 1,
         }}
       >
         <svg
@@ -413,11 +432,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
       {/* Version */}
       <div
         style={{
-          position: 'absolute',
-          bottom: 10,
-          right: 20,
+          position: isMobile ? 'relative' : 'absolute',
+          bottom: isMobile ? 0 : 10,
+          right: isMobile ? 0 : 20,
+          marginTop: isMobile ? 12 : 0,
+          textAlign: isMobile ? 'center' : 'right',
           fontSize: 10,
-          color: 'rgba(255,255,255,0.75)',
+          color: isMobile ? '#9a3412' : 'rgba(255,255,255,0.75)',
           zIndex: 3,
         }}
       >

@@ -1,1 +1,43 @@
 /* File kiểu CSS chung cho ứng dụng (Đã loại bỏ các CSS mẫu của Vite) */
+
+@media (max-width: 767px) {
+  /* Đảm bảo cỡ chữ tối thiểu 16px trên di động để iOS Safari không tự động phóng to trang */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="hidden"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Đảm bảo chiều cao tối thiểu 44px cho vùng chạm các trường nhập liệu trên điện thoại */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]),
+  select {
+    min-height: 44px;
+  }
+
+  /* Hộp thoại (modal) và ngăn kéo hiển thị gần như toàn màn hình trên điện thoại (< 768px) */
+  .fixed.inset-0.z-50:not([data-screen="lock"]) {
+    padding: 0 !important;
+    align-items: flex-end !important;
+  }
+  .fixed.inset-0.z-50:not([data-screen="lock"]) > div {
+    max-height: 100dvh !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow-y: auto !important;
+  }
+
+  /* Chiều cao tối thiểu 44px cho các nút bấm trong modal trên điện thoại */
+  .fixed.inset-0.z-50:not([data-screen="lock"]) button:not([role="tab"]) {
+    min-height: 44px;
+  }
+  .fixed.inset-0.z-50:not([data-screen="lock"]) button:has(svg:only-child) {
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}

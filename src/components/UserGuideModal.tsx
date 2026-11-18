@@ -16,31 +16,31 @@ interface UserGuideModalProps {
 
 export const UserGuideModal: React.FC<UserGuideModalProps> = ({ onClose }) => {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/70 backdrop-blur-xs p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl overflow-hidden flex flex-col max-h-[100dvh] sm:max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
         {/* Modal Header */}
-        <div className="bg-gradient-to-r from-red-800 to-red-900 px-6 py-4 text-white flex items-center justify-between border-b-2 border-amber-500">
+        <div className="bg-gradient-to-r from-red-800 to-red-900 px-4 sm:px-6 py-3 sm:py-4 text-white flex items-center justify-between border-b-2 border-amber-500 shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-full bg-red-950 border border-amber-400 flex items-center justify-center shadow">
+            <div className="w-9 h-9 rounded-full bg-red-950 border border-amber-400 flex items-center justify-center shadow shrink-0">
               <BookOpen className="w-5 h-5 text-amber-300" />
             </div>
             <div>
-              <h3 className="text-base font-bold tracking-tight">HƯỚNG DẪN SỬ DỤNG HỆ THỐNG</h3>
-              <p className="text-xs text-amber-200">
+              <h3 className="text-sm sm:text-base font-bold tracking-tight">HƯỚNG DẪN SỬ DỤNG HỆ THỐNG</h3>
+              <p className="text-[11px] sm:text-xs text-amber-200">
                 Phần mềm Quản lý Chương trình Kiểm tra, Giám sát của Đảng (Phiên bản 1.0)
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-red-200 hover:text-white p-1.5 rounded-lg hover:bg-red-700/60 transition cursor-pointer"
+            className="text-red-200 hover:text-white w-11 h-11 flex items-center justify-center rounded-lg hover:bg-red-700/60 transition cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 overflow-y-auto space-y-6 text-slate-800 text-sm">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-6 text-slate-800 text-sm flex-1">
           {/* Mục 1: Đăng nhập & Đổi mật khẩu */}
           <section className="bg-slate-50 p-4 rounded-xl border border-slate-200">
             <div className="flex items-center space-x-2 text-red-800 font-bold mb-2">
@@ -136,14 +136,14 @@ export const UserGuideModal: React.FC<UserGuideModalProps> = ({ onClose }) => {
         </div>
 
         {/* Modal Footer */}
-        <div className="bg-slate-50 px-6 py-3.5 border-t border-slate-200 flex items-center justify-between">
+        <div className="bg-slate-50 px-4 sm:px-6 py-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0 sticky bottom-0 z-10">
           <span className="text-xs text-slate-500 flex items-center gap-1.5">
-            <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            Bảo mật cấp ủy • Phân quyền vai trò: Admin, Biên tập, Xem
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+            Bảo mật cấp ủy • Phân quyền: Admin, Biên tập, Xem
           </span>
           <button
             onClick={onClose}
-            className="px-5 py-2 bg-red-700 hover:bg-red-800 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+            className="w-full sm:w-auto px-5 py-2.5 min-h-[44px] bg-red-700 hover:bg-red-800 text-white rounded-lg text-sm font-semibold shadow-xs transition cursor-pointer"
           >
             Đã hiểu, đóng hướng dẫn
           </button>

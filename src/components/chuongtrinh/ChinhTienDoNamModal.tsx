@@ -300,24 +300,24 @@ export const ChinhTienDoNamModal: React.FC<ChinhTienDoNamModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-6xl max-h-[100dvh] sm:max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Header Modal */}
-        <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/80 flex items-center justify-between">
+        <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-200 bg-slate-50/80 flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold shrink-0">
               <SlidersHorizontal className="w-5 h-5 text-emerald-700" />
             </div>
             <div>
-              <div className="flex items-center space-x-2">
-                <h3 className="text-base font-bold text-slate-800">
-                  Điều Chỉnh & Cập Nhật Tiến Độ Thực Hiện Theo Năm
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <h3 className="text-sm sm:text-base font-bold text-slate-800">
+                  Điều Chỉnh Tiến Độ Theo Năm
                 </h3>
-                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
                   {selectedYear === 'ALL' ? 'Tất cả các năm' : `Năm ${selectedYear}`}
                 </span>
               </div>
-              <p className="text-xs text-slate-500">
+              <p className="text-[11px] sm:text-xs text-slate-500">
                 Cập nhật nhanh trạng thái, thời gian thực hiện và số văn bản kết luận theo kế hoạch
               </p>
             </div>
@@ -326,7 +326,7 @@ export const ChinhTienDoNamModal: React.FC<ChinhTienDoNamModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 flex items-center justify-center transition cursor-pointer"
+            className="w-11 h-11 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 flex items-center justify-center transition cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
@@ -664,14 +664,14 @@ export const ChinhTienDoNamModal: React.FC<ChinhTienDoNamModalProps> = ({
         </div>
 
         {/* Footer Modal */}
-        <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="px-4 sm:px-5 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0 sticky bottom-0 z-10">
           <div className="text-xs text-slate-600 flex items-center space-x-2">
             <span>
               Đang hiển thị <strong>{filteredPrograms.length}</strong> / {programsInYear.length} nhiệm vụ
             </span>
             {modifiedCount > 0 && (
               <span className="font-bold text-amber-700 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full">
-                Đã chỉnh sửa: {modifiedCount} mục chưa lưu
+                Đã sửa: {modifiedCount}
               </span>
             )}
           </div>
@@ -682,17 +682,17 @@ export const ChinhTienDoNamModal: React.FC<ChinhTienDoNamModalProps> = ({
                 type="button"
                 onClick={handleReset}
                 disabled={isSaving}
-                className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center space-x-1"
+                className="px-3.5 py-2 min-h-[44px] bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center space-x-1"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>Hủy thay đổi</span>
+                <span>Hủy</span>
               </button>
             )}
 
             <button
               type="button"
               onClick={onClose}
-              className="px-3.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
+              className="px-4 py-2 min-h-[44px] bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
             >
               Đóng
             </button>
@@ -701,14 +701,14 @@ export const ChinhTienDoNamModal: React.FC<ChinhTienDoNamModalProps> = ({
               type="button"
               onClick={handleSaveAll}
               disabled={isSaving || modifiedCount === 0}
-              className={`px-4 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 shadow-xs ${
+              className={`px-4 py-2 min-h-[44px] rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 shadow-xs ${
                 modifiedCount > 0
                   ? 'bg-emerald-700 hover:bg-emerald-800 text-white'
                   : 'bg-slate-200 text-slate-400 cursor-not-allowed'
               }`}
             >
               <Save className="w-3.5 h-3.5" />
-              <span>{isSaving ? 'Đang lưu...' : `Lưu tiến độ (${modifiedCount})`}</span>
+              <span>{isSaving ? 'Đang lưu...' : `Lưu (${modifiedCount})`}</span>
             </button>
           </div>
         </div>

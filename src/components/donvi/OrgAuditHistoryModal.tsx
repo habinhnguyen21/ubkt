@@ -85,21 +85,21 @@ export const OrgAuditHistoryModal: React.FC<OrgAuditHistoryModalProps> = ({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-hidden my-6 flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4 overflow-hidden">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-hidden my-0 sm:my-6 flex flex-col max-h-[100dvh] sm:max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-6 py-4 text-white flex items-center justify-between">
+        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-4 sm:px-6 py-3 sm:py-4 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-slate-700 flex items-center justify-center text-white font-bold shadow-md">
+            <div className="w-10 h-10 rounded-xl bg-slate-700 flex items-center justify-center text-white font-bold shadow-md shrink-0">
               <History className="w-5 h-5 text-amber-300" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white tracking-wide">
+              <h3 className="text-sm sm:text-base font-bold text-white tracking-wide">
                 {targetUnit
                   ? `LỊCH SỬ THAY ĐỔI: ${targetUnit.ten.toUpperCase()}`
                   : 'NHẬT KÝ THAY ĐỔI CƠ CẤU TỔ CHỨC'}
               </h3>
-              <p className="text-xs text-slate-300">
+              <p className="text-[11px] sm:text-xs text-slate-300">
                 {targetUnit
                   ? `Mã: ${targetUnit.ma || 'N/A'} • Ghi vết thêm, sửa, đổi cấp trên, ngừng hoạt động`
                   : 'Toàn bộ tiến trình điều chỉnh tổ chức của đơn vị'}
@@ -108,14 +108,14 @@ export const OrgAuditHistoryModal: React.FC<OrgAuditHistoryModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer"
+            className="w-11 h-11 flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Search */}
-        <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center gap-3">
+        <div className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50 flex items-center gap-3 shrink-0">
           <div className="relative flex-1">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -123,7 +123,7 @@ export const OrgAuditHistoryModal: React.FC<OrgAuditHistoryModalProps> = ({
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Tìm kiếm theo hành động, người thực hiện hoặc nội dung..."
-              className="w-full pl-9 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full pl-9 pr-3 py-2 min-h-[44px] bg-white border border-slate-300 rounded-lg text-base sm:text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
           <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">
@@ -183,11 +183,11 @@ export const OrgAuditHistoryModal: React.FC<OrgAuditHistoryModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+        <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0 sticky bottom-0 z-10">
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+            className="w-full sm:w-auto px-5 py-2.5 min-h-[44px] bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-bold transition cursor-pointer"
           >
             Đóng
           </button>

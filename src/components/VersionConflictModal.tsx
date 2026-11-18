@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { VersionConflictPayload } from '../services/centralDataService';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 interface ConflictEventDetail {
   conflict: VersionConflictPayload;
@@ -42,6 +43,7 @@ function formatValue(val: any): string {
 }
 
 export const VersionConflictModal: React.FC = () => {
+  const isMobile = useIsMobile();
   const [activeConflict, setActiveConflict] = useState<ConflictEventDetail | null>(null);
   const [showDiff, setShowDiff] = useState(false);
 
@@ -100,17 +102,20 @@ export const VersionConflictModal: React.FC = () => {
         background: 'rgba(15, 23, 42, 0.72)',
         backdropFilter: 'blur(3px)',
         display: 'flex',
-        alignItems: 'center',
+        alignItems: isMobile ? 'flex-end' : 'center',
         justifyContent: 'center',
-        padding: 16,
+        padding: isMobile ? 0 : 16,
       }}
     >
       <div
         style={{
           background: '#fff',
-          borderRadius: 16,
+          borderRadius: isMobile ? '16px 16px 0 0' : 16,
           maxWidth: showDiff ? 760 : 520,
           width: '100%',
+          maxHeight: isMobile ? '100dvh' : '90vh',
+          display: 'flex',
+          flexDirection: 'column',
           boxShadow: '0 20px 50px rgba(0,0,0,0.28)',
           border: '1.5px solid #f59e0b',
           overflow: 'hidden',
@@ -119,11 +124,12 @@ export const VersionConflictModal: React.FC = () => {
         <div
           style={{
             background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
-            padding: '16px 20px',
+            padding: isMobile ? '14px 16px' : '16px 20px',
             borderBottom: '1px solid #fde68a',
             display: 'flex',
             alignItems: 'center',
             gap: 12,
+            flexShrink: 0,
           }}
         >
           <span style={{ fontSize: 26 }}>⚠️</span>
@@ -137,7 +143,7 @@ export const VersionConflictModal: React.FC = () => {
           </div>
         </div>
 
-        <div style={{ padding: '18px 20px', fontSize: 14, color: '#1e293b', lineHeight: 1.55 }}>
+        <div style={{ padding: isMobile ? '14px 16px' : '18px 20px', fontSize: 14, color: '#1e293b', lineHeight: 1.55, flex: 1, overflowY: 'auto' }}>
           <p style={{ margin: '0 0 10px', fontWeight: 600 }}>
             Bản ghi vừa được <span style={{ color: '#b45309', fontWeight: 800 }}>{conflict.updatedBy}</span> sửa lúc{' '}
             <span style={{ color: '#0f172a', fontWeight: 800 }}>{timeFormatted}</span> (Phiên bản Cloud: <code>v{conflict.cloudVersion}</code>, phiên bản bạn đang sửa: <code>v{conflict.localVersion}</code>).
@@ -215,20 +221,25 @@ export const VersionConflictModal: React.FC = () => {
 
         <div
           style={{
-            padding: '12px 20px',
+            padding: isMobile ? '12px 16px' : '12px 20px',
             background: '#f8fafc',
             borderTop: '1px solid #e2e8f0',
             display: 'flex',
             justifyContent: 'flex-end',
             gap: 10,
             flexWrap: 'wrap',
+            flexShrink: 0,
+            position: isMobile ? 'sticky' : 'relative',
+            bottom: 0,
+            zIndex: 10,
           }}
         >
           <button
             type="button"
             onClick={() => setShowDiff((v) => !v)}
             style={{
-              padding: '8px 14px',
+              padding: '10px 14px',
+              minHeight: 44,
               borderRadius: 8,
               border: '1px solid #cbd5e1',
               background: '#fff',
@@ -236,7 +247,8 @@ export const VersionConflictModal: React.FC = () => {
               fontSize: 13,
               fontWeight: 600,
               cursor: 'pointer',
-              marginRight: 'auto',
+              marginRight: isMobile ? 0 : 'auto',
+              width: isMobile ? '100%' : 'auto',
             }}
           >
             {showDiff ? 'Ẩn khác biệt' : `🔍 Xem khác biệt (${diffRows.length})`}
@@ -246,7 +258,8 @@ export const VersionConflictModal: React.FC = () => {
             type="button"
             onClick={() => handleAction('reload')}
             style={{
-              padding: '8px 16px',
+              padding: '10px 16px',
+              minHeight: 44,
               borderRadius: 8,
               border: '1px solid #2563eb',
               background: '#eff6ff',
@@ -254,6 +267,7 @@ export const VersionConflictModal: React.FC = () => {
               fontSize: 13,
               fontWeight: 700,
               cursor: 'pointer',
+              flex: isMobile ? 1 : 'none',
             }}
           >
             ↻ Tải lại từ Cloud
@@ -263,7 +277,8 @@ export const VersionConflictModal: React.FC = () => {
             type="button"
             onClick={() => handleAction('overwrite')}
             style={{
-              padding: '8px 16px',
+              padding: '10px 16px',
+              minHeight: 44,
               borderRadius: 8,
               border: 'none',
               background: '#d97706',
@@ -271,6 +286,7 @@ export const VersionConflictModal: React.FC = () => {
               fontSize: 13,
               fontWeight: 700,
               cursor: 'pointer',
+              flex: isMobile ? 1 : 'none',
             }}
           >
             ⚡ Ghi đè

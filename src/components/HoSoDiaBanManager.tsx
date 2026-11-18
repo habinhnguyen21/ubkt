@@ -3851,10 +3851,10 @@ export function HoSoDiaBanManager({ user }: Props) {
       {/* 3. MODAL XEM CHI TIẾT HỒ SƠ ĐỊA BÀN                                      */}
       {/* ──────────────────────────────────────────────────────────────────────── */}
       {selectedRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl h-[100dvh] sm:h-auto max-h-[100dvh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
             {/* Header Modal */}
-            <div className="bg-[#133863] px-6 py-4 text-white flex items-center justify-between border-b-2 border-amber-500 flex-shrink-0">
+            <div className="bg-[#133863] px-6 py-4 text-white flex items-center justify-between border-b-2 border-amber-500 shrink-0">
               <div className="flex items-center space-x-3">
                 <Building2 className="w-6 h-6 text-amber-300 flex-shrink-0" />
                 <div>
@@ -3883,7 +3883,7 @@ export function HoSoDiaBanManager({ user }: Props) {
                 )}
                 <button
                   onClick={() => setSelectedRecord(null)}
-                  className="text-white/70 hover:text-white p-1 rounded-md cursor-pointer"
+                  className="text-white/70 hover:text-white p-2 sm:p-1 rounded-md cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
                 >
                   <X className="w-6 h-6" />
                 </button>
@@ -5096,7 +5096,7 @@ export function HoSoDiaBanManager({ user }: Props) {
               </div>
               <button
                 onClick={() => setSelectedRecord(null)}
-                className="px-4 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded-lg hover:bg-slate-100 text-slate-700 cursor-pointer"
+                className="min-h-[44px] px-4 py-2 text-xs font-semibold bg-white border border-slate-300 rounded-lg hover:bg-slate-100 text-slate-700 cursor-pointer"
               >
                 Đóng
               </button>
@@ -5109,9 +5109,9 @@ export function HoSoDiaBanManager({ user }: Props) {
       {/* 4. MODAL ĐỔI CÁN BỘ PHỤ TRÁCH & BÀN GIAO ĐỊA BÀN                         */}
       {/* ──────────────────────────────────────────────────────────────────────── */}
       {isDoiCanBoOpen && doiCanBoRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-150">
-            <div className="bg-[#133863] px-5 py-4 text-white flex items-center justify-between border-b-2 border-amber-500">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl border border-slate-200 w-full max-w-lg max-h-[100dvh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="bg-[#133863] px-5 py-4 text-white flex items-center justify-between border-b-2 border-amber-500 shrink-0">
               <div className="flex items-center space-x-2">
                 <ArrowRightLeft className="w-5 h-5 text-amber-300" />
                 <h3 className="text-sm font-bold uppercase">Đổi cán bộ phụ trách & Bàn giao địa bàn</h3>
@@ -5121,13 +5121,13 @@ export function HoSoDiaBanManager({ user }: Props) {
                   setIsDoiCanBoOpen(false);
                   setDoiCanBoRecord(null);
                 }}
-                className="text-white/70 hover:text-white"
+                className="text-white/70 hover:text-white p-2 sm:p-1 rounded-md min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 space-y-3.5 text-xs">
+            <div className="p-5 space-y-3.5 text-xs overflow-y-auto flex-1">
               {/* Thông tin địa bàn & cán bộ hiện tại */}
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1.5">
                 <div className="flex items-center justify-between">
@@ -5242,14 +5242,14 @@ export function HoSoDiaBanManager({ user }: Props) {
                 </label>
               </div>
 
-              <div className="pt-3 border-t border-slate-200 flex justify-end space-x-2">
+              <div className="pt-3 border-t border-slate-200 flex justify-end space-x-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => {
                     setIsDoiCanBoOpen(false);
                     setDoiCanBoRecord(null);
                   }}
-                  className="px-3.5 py-1.5 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 cursor-pointer"
                 >
                   Hủy
                 </button>
@@ -5257,7 +5257,7 @@ export function HoSoDiaBanManager({ user }: Props) {
                   type="button"
                   disabled={!doiCanBoNewUserId || !doiCanBoXacNhan}
                   onClick={handleSaveDoiCanBo}
-                  className="px-4 py-1.5 bg-[#133863] text-white rounded-lg font-bold hover:bg-blue-900 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1"
+                  className="min-h-[44px] px-4 py-2 bg-[#133863] text-white rounded-lg font-bold hover:bg-blue-900 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1"
                 >
                   <ArrowRightLeft className="w-3.5 h-3.5" />
                   <span>Lưu & Bàn giao</span>
@@ -5272,9 +5272,9 @@ export function HoSoDiaBanManager({ user }: Props) {
       {/* 4b. MODAL KẾT THÚC HỒ SƠ ĐỊA BÀN                                         */}
       {/* ──────────────────────────────────────────────────────────────────────── */}
       {isKetThucModalOpen && ketThucRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-150">
-            <div className="bg-[#133863] px-5 py-4 text-white flex items-center justify-between border-b-2 border-emerald-500">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl border border-slate-200 w-full max-w-lg max-h-[100dvh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="bg-[#133863] px-5 py-4 text-white flex items-center justify-between border-b-2 border-emerald-500 shrink-0">
               <div className="flex items-center space-x-2">
                 <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                 <h3 className="text-sm font-bold uppercase">Kết thúc hồ sơ địa bàn</h3>
@@ -5284,13 +5284,13 @@ export function HoSoDiaBanManager({ user }: Props) {
                   setIsKetThucModalOpen(false);
                   setKetThucRecord(null);
                 }}
-                className="text-white/70 hover:text-white"
+                className="text-white/70 hover:text-white p-2 sm:p-1 rounded-md min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 space-y-3.5 text-xs">
+            <div className="p-5 space-y-3.5 text-xs overflow-y-auto flex-1">
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-700">Tổ chức Đảng:</span>
@@ -5364,21 +5364,21 @@ export function HoSoDiaBanManager({ user }: Props) {
                 />
               </div>
 
-              <div className="pt-3 border-t border-slate-200 flex justify-end space-x-2">
+              <div className="pt-3 border-t border-slate-200 flex justify-end space-x-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => {
                     setIsKetThucModalOpen(false);
                     setKetThucRecord(null);
                   }}
-                  className="px-3.5 py-1.5 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="button"
                   onClick={handleSaveKetThucHoSo}
-                  className="px-4 py-1.5 bg-emerald-700 text-white rounded-lg font-bold hover:bg-emerald-800 transition cursor-pointer flex items-center space-x-1"
+                  className="min-h-[44px] px-4 py-2 bg-emerald-700 text-white rounded-lg font-bold hover:bg-emerald-800 transition cursor-pointer flex items-center space-x-1"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   <span>Xác nhận kết thúc hồ sơ</span>

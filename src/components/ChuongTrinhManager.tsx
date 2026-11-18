@@ -3304,10 +3304,10 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
       {/* ── CỬA SỔ CHI TIẾT & CHỈNH SỬA / THÊM MỚI (CHỈ HIỂN THỊ KHI BẤM SỬA HOẶC THÊM MỚI) ── */}
       {isNhiemKyEditorOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-xs overflow-y-auto">
-          <div className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-slate-200 my-4 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/70 backdrop-blur-xs overflow-hidden">
+          <div className="relative w-full max-w-4xl bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 my-0 sm:my-4 overflow-hidden flex flex-col max-h-[100dvh] sm:max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
-            <div className="bg-gradient-to-r from-[#0f2d4a] via-[#1a3a5c] to-slate-900 px-6 py-4 text-white flex items-center justify-between border-b-2 border-blue-500">
+            <div className="bg-gradient-to-r from-[#0f2d4a] via-[#1a3a5c] to-slate-900 px-4 sm:px-6 py-3 sm:py-4 text-white flex items-center justify-between border-b-2 border-blue-500 shrink-0">
               <div className="flex items-center space-x-3">
                 <div className="w-9 h-9 rounded-full bg-blue-950 border border-blue-400 flex items-center justify-center shadow">
                   <Layers className="w-5 h-5 text-blue-300" />
@@ -6647,19 +6647,19 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
       {/* ── MODAL THÊM MỚI / CHỈNH SỬA CHƯƠNG TRÌNH HÀNG NĂM (PHẦN NĂM) ──────── */}
       {isHnModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-xs overflow-y-auto">
-          <div className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-slate-200 my-4 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/70 backdrop-blur-xs overflow-hidden">
+          <div className="relative w-full max-w-3xl bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 my-0 sm:my-4 overflow-hidden flex flex-col max-h-[100dvh] sm:max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
             {/* Header */}
-            <div className="bg-gradient-to-r from-emerald-800 to-teal-900 px-6 py-4 text-white flex items-center justify-between border-b-2 border-emerald-400">
+            <div className="bg-gradient-to-r from-emerald-800 to-teal-900 px-4 sm:px-6 py-3 sm:py-4 text-white flex items-center justify-between border-b-2 border-emerald-400 shrink-0">
               <div className="flex items-center space-x-3">
-                <div className="w-9 h-9 rounded-full bg-emerald-950 border border-emerald-300 flex items-center justify-center shadow">
+                <div className="w-9 h-9 rounded-full bg-emerald-950 border border-emerald-300 flex items-center justify-center shadow shrink-0">
                   <Calendar className="w-5 h-5 text-emerald-300" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold tracking-tight">
+                  <h3 className="text-sm sm:text-base font-bold tracking-tight">
                     {editingHnItem ? 'CHỈNH SỬA CHƯƠNG TRÌNH CÔNG TÁC HÀNG NĂM' : 'THÊM MỚI CHƯƠNG TRÌNH CÔNG TÁC HÀNG NĂM'}
                   </h3>
-                  <p className="text-xs text-emerald-200">
+                  <p className="text-[11px] sm:text-xs text-emerald-200">
                     Ủy ban Kiểm tra Đảng ủy — Kế hoạch kiểm tra, giám sát thường niên
                   </p>
                 </div>
@@ -6667,7 +6667,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
               <button
                 type="button"
                 onClick={() => setIsHnModalOpen(false)}
-                className="text-emerald-200 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition cursor-pointer"
+                className="w-11 h-11 flex items-center justify-center text-emerald-200 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -6974,18 +6974,18 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
               </div>
 
               {/* Footer */}
-              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-200">
+              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-200 shrink-0 sticky bottom-0 bg-white py-2 z-10">
                 <button
                   type="button"
                   onClick={() => setIsHnModalOpen(false)}
-                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 transition cursor-pointer"
+                  className="px-4 py-2 min-h-[44px] border border-slate-300 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 transition cursor-pointer"
                 >
                   Hủy bỏ
                 </button>
                 <button
                   type="submit"
                   disabled={hnIsSaving}
-                  className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-xs transition cursor-pointer flex items-center space-x-1"
+                  className="px-5 py-2 min-h-[44px] bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-xs transition cursor-pointer flex items-center space-x-1"
                 >
                   {hnIsSaving ? (
                     <>
@@ -7007,8 +7007,8 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
       {/* ── MODAL XÁC NHẬN XÓA ───────────────────────────────────────────── */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-4">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-white rounded-t-2xl sm:rounded-xl max-w-md w-full p-4 sm:p-6 shadow-xl border border-slate-200 space-y-4">
             <div className="flex items-center space-x-3 text-red-600">
               <AlertCircle className="w-6 h-6 flex-shrink-0" />
               <h3 className="text-base font-bold text-slate-900">Xác nhận xóa chương trình</h3>
@@ -7019,13 +7019,13 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
             <div className="flex items-center justify-end space-x-3 pt-2">
               <button
                 onClick={() => setDeleteTarget(null)}
-                className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-medium transition cursor-pointer"
+                className="px-4 py-2 min-h-[44px] border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-medium transition cursor-pointer"
               >
                 Hủy bỏ
               </button>
               <button
                 onClick={confirmDelete}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+                className="px-4 py-2 min-h-[44px] bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
               >
                 Xác nhận xóa
               </button>

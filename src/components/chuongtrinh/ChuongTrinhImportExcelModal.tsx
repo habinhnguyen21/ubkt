@@ -250,26 +250,27 @@ export const ChuongTrinhImportExcelModal: React.FC<ChuongTrinhImportExcelModalPr
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn">
-      <div className="relative w-full max-w-5xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn overflow-hidden">
+      <div className="relative w-full max-w-5xl bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[100dvh] sm:max-h-[92vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-800 text-white shrink-0">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-800 text-white shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="p-2 bg-white/10 rounded-xl backdrop-blur-xs">
-              <FileSpreadsheet className="w-6 h-6 text-emerald-200" />
+            <div className="p-2 bg-white/10 rounded-xl backdrop-blur-xs shrink-0">
+              <FileSpreadsheet className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-200" />
             </div>
             <div>
-              <h2 className="text-lg font-bold tracking-tight">
-                Nhập Chương Trình KT-GS Năm Hàng Loạt Bằng Excel
+              <h2 className="text-sm sm:text-lg font-bold tracking-tight">
+                Nhập Chương Trình KT-GS Năm Bằng Excel
               </h2>
-              <p className="text-xs text-emerald-100/90 font-medium">
+              <p className="text-[11px] sm:text-xs text-emerald-100/90 font-medium">
                 Hỗ trợ tệp định dạng .xlsx chuẩn và .csv (UTF-8 BOM) • Tự động kiểm tra trùng lặp & dữ liệu hợp lệ
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-emerald-100 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            className="w-11 h-11 flex items-center justify-center p-1.5 rounded-lg text-emerald-200 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
@@ -706,7 +707,7 @@ export const ChuongTrinhImportExcelModal: React.FC<ChuongTrinhImportExcelModalPr
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-t border-slate-200 shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-3 bg-slate-50 border-t border-slate-200 shrink-0 sticky bottom-0 z-10">
           <div className="text-xs text-slate-600">
             {rows.length > 0 ? (
               <span>
@@ -723,7 +724,7 @@ export const ChuongTrinhImportExcelModal: React.FC<ChuongTrinhImportExcelModalPr
               type="button"
               onClick={onClose}
               disabled={isImporting}
-              className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition cursor-pointer"
+              className="px-4 py-2 min-h-[44px] bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition cursor-pointer"
             >
               Hủy bỏ
             </button>
@@ -731,7 +732,7 @@ export const ChuongTrinhImportExcelModal: React.FC<ChuongTrinhImportExcelModalPr
               type="button"
               onClick={handleExecuteImport}
               disabled={validCount === 0 || isImporting || isParsing}
-              className="inline-flex items-center space-x-2 px-5 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
+              className="inline-flex items-center space-x-2 px-5 py-2 min-h-[44px] bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
             >
               {isImporting ? (
                 <>

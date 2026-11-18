@@ -18,10 +18,10 @@ export const OverdueTasksModal: React.FC<OverdueTasksModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fadeIn">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-fadeIn">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[100dvh] sm:max-h-[85vh]">
         {/* Modal Header */}
-        <div className="p-4 bg-rose-50 border-b border-rose-100 flex items-center justify-between">
+        <div className="p-4 bg-rose-50 border-b border-rose-100 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
               <AlertCircle className="w-5 h-5" />
@@ -37,7 +37,7 @@ export const OverdueTasksModal: React.FC<OverdueTasksModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-rose-500 hover:text-rose-800 hover:bg-rose-100/60 transition cursor-pointer"
+            className="w-11 h-11 flex items-center justify-center rounded-lg text-rose-500 hover:text-rose-800 hover:bg-rose-100/60 transition cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
@@ -101,10 +101,10 @@ export const OverdueTasksModal: React.FC<OverdueTasksModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-end">
+        <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-end shrink-0 sticky bottom-0 z-10">
           <button
             onClick={onClose}
-            className="px-4 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer transition shadow-2xs"
+            className="w-full sm:w-auto px-4 py-2 min-h-[44px] text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer transition shadow-2xs"
           >
             Đóng
           </button>

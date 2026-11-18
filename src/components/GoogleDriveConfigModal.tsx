@@ -101,19 +101,19 @@ export const GoogleDriveConfigModal: React.FC<Props> = ({ isOpen, onClose, onSav
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[100dvh] sm:max-h-[90vh] animate-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="bg-[#133863] text-white px-6 py-4 flex items-center justify-between border-b-2 border-emerald-500 flex-shrink-0">
+        <div className="bg-[#133863] text-white px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between border-b-2 border-emerald-500 shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-400 border border-emerald-400/30">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-400 border border-emerald-400/30 shrink-0">
               <Cloud className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold tracking-tight uppercase">
+              <h3 className="text-sm sm:text-base font-bold tracking-tight uppercase">
                 CẤU HÌNH LƯU TRỮ GOOGLE DRIVE
               </h3>
-              <p className="text-xs text-blue-200 mt-0.5">
+              <p className="text-[11px] sm:text-xs text-blue-200 mt-0.5">
                 Kết nối qua Google Apps Script Web App (Hoàn toàn miễn phí & không giới hạn)
               </p>
             </div>
@@ -121,14 +121,14 @@ export const GoogleDriveConfigModal: React.FC<Props> = ({ isOpen, onClose, onSav
           <button
             type="button"
             onClick={onClose}
-            className="text-white/70 hover:text-white p-1 rounded-md transition cursor-pointer"
+            className="text-white/70 hover:text-white w-11 h-11 flex items-center justify-center rounded-md transition cursor-pointer shrink-0"
           >
             <X className="w-6 h-6" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-5 overflow-y-auto text-xs">
+        <div className="p-4 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto text-xs flex-1">
           {/* Hướng dẫn 3 bước */}
           <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-4 space-y-3">
             <h4 className="font-bold text-sm text-[#133863] flex items-center space-x-1.5">
@@ -205,20 +205,20 @@ export const GoogleDriveConfigModal: React.FC<Props> = ({ isOpen, onClose, onSav
                 value={folderId}
                 onChange={(e) => setFolderId(e.target.value)}
                 placeholder="Ví dụ: 1BxiMVs0XRA5nFMdKvBHK9... (để trống sẽ tự tạo thư mục KHO_DU_LIEU_UBKT)"
-                className="w-full px-3.5 py-2 border border-slate-300 rounded-lg text-xs font-mono bg-white focus:outline-none focus:ring-2 focus:ring-[#133863]"
+                className="w-full px-3.5 py-2.5 min-h-[44px] border border-slate-300 rounded-lg text-base sm:text-xs font-mono bg-white focus:outline-none focus:ring-2 focus:ring-[#133863]"
               />
               <p className="text-[11px] text-slate-500 mt-1">
                 * Mở thư mục trên Google Drive, ID là chuỗi ký tự ở cuối thanh địa chỉ trình duyệt. Nếu để trống, hệ thống sẽ tự động tạo thư mục mang tên <strong>KHO_DU_LIEU_UBKT</strong> trong Drive của bạn.
               </p>
             </div>
 
-            <div className="pt-1 flex items-center space-x-2">
+            <div className="pt-1 flex items-center space-x-2 min-h-[44px]">
               <input
                 type="checkbox"
                 id="chkAutoUpload"
                 checked={autoUpload}
                 onChange={(e) => setAutoUpload(e.target.checked)}
-                className="rounded text-[#133863] focus:ring-[#133863] w-4 h-4 cursor-pointer"
+                className="rounded text-[#133863] focus:ring-[#133863] w-5 h-5 cursor-pointer"
               />
               <label htmlFor="chkAutoUpload" className="text-xs font-medium text-slate-700 cursor-pointer">
                 Tự động tải lên Google Drive khi cán bộ tải tệp vào Kho dữ liệu / Hồ sơ địa bàn
@@ -226,12 +226,12 @@ export const GoogleDriveConfigModal: React.FC<Props> = ({ isOpen, onClose, onSav
             </div>
 
             {/* Nút kiểm tra kết nối */}
-            <div className="pt-2 flex items-center space-x-3">
+            <div className="pt-2 flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 disabled={isTesting || !scriptUrl.trim()}
                 onClick={handleTestConnection}
-                className="px-3.5 py-1.5 border border-slate-300 hover:bg-slate-100 rounded-lg font-semibold text-slate-700 flex items-center space-x-1.5 transition cursor-pointer disabled:opacity-50"
+                className="px-3.5 py-2 min-h-[44px] border border-slate-300 hover:bg-slate-100 rounded-lg font-semibold text-slate-700 flex items-center space-x-1.5 transition cursor-pointer disabled:opacity-50"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin text-blue-600' : ''}`} />
                 <span>{isTesting ? 'Đang kiểm tra...' : 'Kiểm tra kết nối Web App'}</span>
@@ -239,16 +239,16 @@ export const GoogleDriveConfigModal: React.FC<Props> = ({ isOpen, onClose, onSav
 
               {testResult && (
                 <div
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 ${
+                  className={`px-3 py-1.5 min-h-[44px] rounded-lg text-xs font-semibold flex items-center space-x-1.5 ${
                     testResult.success
                       ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
                       : 'bg-rose-50 text-rose-800 border border-rose-300'
                   }`}
                 >
                   {testResult.success ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   ) : (
-                    <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
                   )}
                   <span>{testResult.msg}</span>
                 </div>
@@ -265,13 +265,13 @@ export const GoogleDriveConfigModal: React.FC<Props> = ({ isOpen, onClose, onSav
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-between flex-shrink-0">
+        <div className="px-4 sm:px-6 py-3 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 shrink-0 sticky bottom-0 z-10">
           <div>
             {scriptUrl && (
               <button
                 type="button"
                 onClick={handleClear}
-                className="px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 font-semibold transition cursor-pointer"
+                className="px-3 py-2 min-h-[44px] text-xs text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 font-semibold transition cursor-pointer"
               >
                 Hủy liên kết Drive
               </button>
@@ -281,14 +281,14 @@ export const GoogleDriveConfigModal: React.FC<Props> = ({ isOpen, onClose, onSav
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
+              className="px-4 py-2 min-h-[44px] border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
             >
               Đóng
             </button>
             <button
               type="button"
               onClick={handleSave}
-              className="px-5 py-2 bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-bold shadow-xs transition cursor-pointer"
+              className="px-5 py-2 min-h-[44px] bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-bold shadow-xs transition cursor-pointer"
             >
               Lưu cấu hình
             </button>

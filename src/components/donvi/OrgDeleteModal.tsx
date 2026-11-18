@@ -73,19 +73,19 @@ export const OrgDeleteModal: React.FC<OrgDeleteModalProps> = ({
     };
 
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-        <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4 overflow-hidden">
+        <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[100dvh] sm:max-h-[90vh]">
           {/* Header */}
-          <div className="bg-gradient-to-r from-rose-700 to-red-800 px-6 py-4 text-white flex items-center justify-between shrink-0">
+          <div className="bg-gradient-to-r from-rose-700 to-red-800 px-4 sm:px-6 py-3 sm:py-4 text-white flex items-center justify-between shrink-0">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white shadow-inner">
+              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white shadow-inner shrink-0">
                 <Trash2 className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-white tracking-wide">
+                <h3 className="text-sm sm:text-base font-bold text-white tracking-wide">
                   XÓA HÀNG LOẠT TỔ CHỨC ĐẢNG
                 </h3>
-                <p className="text-xs text-rose-100/80">
+                <p className="text-[11px] sm:text-xs text-rose-100/80">
                   Xác nhận gỡ bỏ {units.length} tổ chức đã chọn khỏi cơ cấu
                 </p>
               </div>
@@ -93,14 +93,14 @@ export const OrgDeleteModal: React.FC<OrgDeleteModalProps> = ({
             <button
               onClick={onClose}
               disabled={isDeleting}
-              className="p-1.5 text-rose-200 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer"
+              className="w-11 h-11 flex items-center justify-center text-rose-200 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer shrink-0"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Content */}
-          <div className="p-6 space-y-4 overflow-y-auto flex-1">
+          <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
             {errorMsg && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start space-x-2 text-xs text-rose-700 font-medium">
                 <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
@@ -207,12 +207,12 @@ export const OrgDeleteModal: React.FC<OrgDeleteModalProps> = ({
           </div>
 
           {/* Footer Buttons */}
-          <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end space-x-3 shrink-0">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end space-x-3 shrink-0 sticky bottom-0 z-10">
             <button
               type="button"
               onClick={onClose}
               disabled={isDeleting}
-              className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-bold transition cursor-pointer"
+              className="px-4 py-2 min-h-[44px] border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-bold transition cursor-pointer"
             >
               Hủy bỏ
             </button>
@@ -220,7 +220,7 @@ export const OrgDeleteModal: React.FC<OrgDeleteModalProps> = ({
               type="button"
               onClick={handleBatchDelete}
               disabled={validUnits.length === 0 || isDeleting}
-              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition shadow-sm ${
+              className={`px-4 py-2 min-h-[44px] rounded-xl text-xs font-bold flex items-center space-x-1.5 transition shadow-sm ${
                 validUnits.length === 0 || isDeleting
                   ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                   : 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-md'
@@ -268,32 +268,32 @@ export const OrgDeleteModal: React.FC<OrgDeleteModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4 overflow-hidden">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md max-h-[100dvh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="bg-gradient-to-r from-rose-700 to-red-800 px-6 py-4 text-white flex items-center justify-between">
+        <div className="bg-gradient-to-r from-rose-700 to-red-800 px-4 sm:px-6 py-3 sm:py-4 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white shadow-inner">
+            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white shadow-inner shrink-0">
               <Trash2 className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white tracking-wide">
+              <h3 className="text-sm sm:text-base font-bold text-white tracking-wide">
                 XÓA TỔ CHỨC ĐẢNG
               </h3>
-              <p className="text-xs text-rose-100/80">Xác nhận gỡ bỏ tổ chức khỏi cơ cấu</p>
+              <p className="text-[11px] sm:text-xs text-rose-100/80">Xác nhận gỡ bỏ tổ chức khỏi cơ cấu</p>
             </div>
           </div>
           <button
             onClick={onClose}
             disabled={isDeleting}
-            className="p-1.5 text-rose-200 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer"
+            className="w-11 h-11 flex items-center justify-center text-rose-200 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-4">
+        <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
           {errorMsg && (
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start space-x-2 text-xs text-rose-700 font-medium">
               <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
@@ -348,12 +348,12 @@ export const OrgDeleteModal: React.FC<OrgDeleteModalProps> = ({
         </div>
 
         {/* Footer Buttons */}
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end space-x-3">
+        <div className="px-4 sm:px-6 py-3 sm:py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end space-x-3 shrink-0 sticky bottom-0 z-10">
           <button
             type="button"
             onClick={onClose}
             disabled={isDeleting}
-            className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-bold transition cursor-pointer"
+            className="px-4 py-2 min-h-[44px] border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-bold transition cursor-pointer"
           >
             Hủy bỏ
           </button>
@@ -361,7 +361,7 @@ export const OrgDeleteModal: React.FC<OrgDeleteModalProps> = ({
             type="button"
             onClick={handleDelete}
             disabled={hasChildren || isDeleting}
-            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition shadow-sm ${
+            className={`px-4 py-2 min-h-[44px] rounded-xl text-xs font-bold flex items-center space-x-1.5 transition shadow-sm ${
               hasChildren || isDeleting
                 ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 : 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer'

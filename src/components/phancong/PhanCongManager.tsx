@@ -1479,17 +1479,17 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
 
       {/* ── MODAL: CHUYỂN PHÂN CÔNG SANG TÀI KHOẢN KHÁC ── */}
       {transferModalTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 space-y-4 animate-fadeIn">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2 text-blue-700 font-bold text-base">
-                <ArrowRightLeft className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs p-0 sm:p-4 overflow-hidden">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-w-lg w-full max-h-[100dvh] sm:max-h-[90vh] flex flex-col p-4 sm:p-6 border border-slate-200 space-y-4 animate-fadeIn overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-2 text-blue-700 font-bold text-sm sm:text-base">
+                <ArrowRightLeft className="w-5 h-5 shrink-0" />
                 <span>Chuyển phân công sang tài khoản khác</span>
               </div>
               <button
                 type="button"
                 onClick={() => setTransferModalTarget(null)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1532,7 +1532,7 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                 <select
                   value={selectedTransferUserId}
                   onChange={(e) => setSelectedTransferUserId(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 border border-slate-300 rounded-xl text-base sm:text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
                 >
                   {usersList
                     .filter((u) => u.trang_thai !== 0)
@@ -1557,18 +1557,18 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 shrink-0 sticky bottom-0 bg-white z-10">
               <button
                 type="button"
                 onClick={() => setTransferModalTarget(null)}
-                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+                className="px-4 py-2 min-h-[44px] border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
               >
                 Hủy
               </button>
               <button
                 type="button"
                 onClick={handleConfirmTransfer}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
+                className="px-4 py-2 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
               >
                 Xác nhận chuyển
               </button>
@@ -1579,17 +1579,17 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
 
       {/* ── MODAL: XÓA BẢN PHÂN CÔNG CỦA CÁN BỘ KHÔNG TỒN TẠI ── */}
       {deleteModalTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 space-y-4 animate-fadeIn">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2 text-rose-700 font-bold text-base">
-                <Trash2 className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs p-0 sm:p-4 overflow-hidden">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-w-md w-full max-h-[100dvh] sm:max-h-[90vh] flex flex-col p-4 sm:p-6 border border-slate-200 space-y-4 animate-fadeIn overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-2 text-rose-700 font-bold text-sm sm:text-base">
+                <Trash2 className="w-5 h-5 shrink-0" />
                 <span>Xác nhận xóa bản phân công</span>
               </div>
               <button
                 type="button"
                 onClick={() => setDeleteModalTarget(null)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1623,18 +1623,18 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 shrink-0 sticky bottom-0 bg-white z-10">
               <button
                 type="button"
                 onClick={() => setDeleteModalTarget(null)}
-                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+                className="px-4 py-2 min-h-[44px] border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
               >
                 Hủy
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDeleteAssignment}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
+                className="px-4 py-2 min-h-[44px] bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
               >
                 Xác nhận xóa
               </button>
@@ -1645,17 +1645,17 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
 
       {/* ── MODAL: GỠ ĐƠN VỊ KHÔNG TỒN TẠI KHỎI PHÂN CÔNG ── */}
       {removeUnitsModalTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 space-y-4 animate-fadeIn">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2 text-amber-700 font-bold text-base">
-                <Eraser className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs p-0 sm:p-4 overflow-hidden">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-w-md w-full max-h-[100dvh] sm:max-h-[90vh] flex flex-col p-4 sm:p-6 border border-slate-200 space-y-4 animate-fadeIn overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-2 text-amber-700 font-bold text-sm sm:text-base">
+                <Eraser className="w-5 h-5 shrink-0" />
                 <span>Gỡ đơn vị không tồn tại khỏi phân công</span>
               </div>
               <button
                 type="button"
                 onClick={() => setRemoveUnitsModalTarget(null)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1683,18 +1683,18 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 shrink-0 sticky bottom-0 bg-white z-10">
               <button
                 type="button"
                 onClick={() => setRemoveUnitsModalTarget(null)}
-                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+                className="px-4 py-2 min-h-[44px] border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
               >
                 Hủy
               </button>
               <button
                 type="button"
                 onClick={handleConfirmRemoveInvalidUnits}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
+                className="px-4 py-2 min-h-[44px] bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
               >
                 Gỡ khỏi phân công
               </button>
@@ -1705,23 +1705,23 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
 
       {/* ── MODAL: CHUYỂN GIAO TOÀN BỘ ĐƠN VỊ TỪ CÁN BỘ A SANG CÁN BỘ B ── */}
       {isTransferAllModalOpen && transferAllSourceUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 space-y-4 animate-fadeIn">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2 text-amber-800 font-bold text-base">
-                <ArrowRightLeft className="w-5 h-5 text-amber-600" />
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs p-0 sm:p-4 overflow-hidden">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-w-lg w-full max-h-[100dvh] sm:max-h-[90vh] flex flex-col p-4 sm:p-6 border border-slate-200 space-y-4 animate-fadeIn overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-2 text-amber-800 font-bold text-sm sm:text-base">
+                <ArrowRightLeft className="w-5 h-5 text-amber-600 shrink-0" />
                 <span>Chuyển giao toàn bộ địa bàn phụ trách</span>
               </div>
               <button
                 type="button"
                 onClick={() => setIsTransferAllModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="text-xs text-slate-600 space-y-3">
+            <div className="text-xs text-slate-600 space-y-3 flex-1 overflow-y-auto">
               {/* Thông tin cán bộ nguồn */}
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900">
                 <p>
@@ -1758,7 +1758,7 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                 <select
                   value={transferAllTargetUserId}
                   onChange={(e) => setTransferAllTargetUserId(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 border border-slate-300 rounded-xl text-base sm:text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
                 >
                   <option value="">-- Chọn cán bộ tiếp nhận --</option>
                   {usersList
@@ -1781,7 +1781,7 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                     type="date"
                     value={transferAllEffectiveDate}
                     onChange={(e) => setTransferAllEffectiveDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 border border-slate-300 rounded-xl text-base sm:text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
                 </div>
                 <div>
@@ -1793,7 +1793,7 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                     value={transferAllDecisionNo}
                     onChange={(e) => setTransferAllDecisionNo(e.target.value)}
                     placeholder="VD: 45-QĐ/UBKT"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 border border-slate-300 rounded-xl text-base sm:text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
                 </div>
               </div>
@@ -1815,11 +1815,11 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 shrink-0 sticky bottom-0 bg-white z-10">
               <button
                 type="button"
                 onClick={() => setIsTransferAllModalOpen(false)}
-                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+                className="px-4 py-2 min-h-[44px] border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
               >
                 Hủy
               </button>
@@ -1827,7 +1827,7 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                 type="button"
                 disabled={!transferAllTargetUserId}
                 onClick={handleConfirmTransferAll}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+                className="px-4 py-2 min-h-[44px] bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
               >
                 <ArrowRightLeft className="w-4 h-4" />
                 <span>Xác nhận chuyển giao</span>
@@ -1839,11 +1839,11 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
 
       {/* ── MODAL: DỌN TẤT CẢ CẢNH BÁO (2 BƯỚC) ── */}
       {isCleanAllModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 space-y-4 animate-fadeIn">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2 text-rose-700 font-bold text-base">
-                <Sparkles className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs p-0 sm:p-4 overflow-hidden">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-w-lg w-full max-h-[100dvh] sm:max-h-[90vh] flex flex-col p-4 sm:p-6 border border-slate-200 space-y-4 animate-fadeIn overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-2 text-rose-700 font-bold text-sm sm:text-base">
+                <Sparkles className="w-5 h-5 shrink-0" />
                 <span>
                   {cleanAllStep === 1
                     ? 'Dọn tất cả cảnh báo phân công (Bước 1/2)'
@@ -1856,7 +1856,7 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                   setIsCleanAllModalOpen(false);
                   setCleanAllStep(1);
                 }}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1923,7 +1923,7 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 shrink-0 sticky bottom-0 bg-white z-10">
               {cleanAllStep === 1 ? (
                 <>
                   <button
@@ -1932,14 +1932,14 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                       setIsCleanAllModalOpen(false);
                       setCleanAllStep(1);
                     }}
-                    className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+                    className="px-4 py-2 min-h-[44px] border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
                   >
                     Hủy
                   </button>
                   <button
                     type="button"
                     onClick={() => setCleanAllStep(2)}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1"
+                    className="px-4 py-2 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1"
                   >
                     <span>Tiếp tục sang bước 2</span>
                     <ChevronRight className="w-4 h-4" />
@@ -1950,14 +1950,14 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
                   <button
                     type="button"
                     onClick={() => setCleanAllStep(1)}
-                    className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+                    className="px-4 py-2 min-h-[44px] border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
                   >
                     Quay lại bước 1
                   </button>
                   <button
                     type="button"
                     onClick={handleConfirmCleanAll}
-                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+                    className="px-4 py-2 min-h-[44px] bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Xác nhận dọn sạch ngay</span>

@@ -1141,32 +1141,32 @@ export const ThongKeManager: React.FC<ThongKeManagerProps> = ({ user }) => {
 
       {/* ── 6. MODAL XEM CHI TIẾT KHI BẤM VÀO BIỂU ĐỒ HOẶC THẺ CHỈ TIÊU (DRILL-DOWN) ── */}
       {drillDownModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fadeIn">
-          <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-xs p-0 sm:p-4 animate-fadeIn">
+          <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl border border-slate-200 w-full max-w-4xl h-[100dvh] sm:h-auto max-h-[100dvh] sm:max-h-[85vh] flex flex-col overflow-hidden">
             {/* Header */}
-            <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50/80">
+            <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50/80 shrink-0">
               <div className="flex items-center gap-2">
                 <ClipboardCheck className="w-4 h-4 text-blue-600" />
                 <h3 className="text-sm font-bold text-slate-800">{drillDownModal.title}</h3>
               </div>
               <button
                 onClick={() => setDrillDownModal({ isOpen: false, title: '', items: [] })}
-                className="w-7 h-7 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 flex items-center justify-center transition cursor-pointer"
+                className="w-9 h-9 sm:w-7 sm:h-7 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 flex items-center justify-center transition cursor-pointer min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Search Input */}
-            <div className="px-5 py-2.5 border-b border-slate-100 bg-white">
+            <div className="px-5 py-2.5 border-b border-slate-100 bg-white shrink-0">
               <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                <Search className="w-4 h-4 absolute left-3 top-3 sm:top-2.5 text-slate-400" />
                 <input
                   type="text"
                   placeholder="Tìm nhanh theo nội dung, số văn bản, tên đơn vị..."
                   value={drillDownSearch}
                   onChange={(e) => setDrillDownSearch(e.target.value)}
-                  className="w-full pl-9 pr-4 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full pl-9 pr-4 py-2 sm:py-1.5 text-sm sm:text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
             </div>
@@ -1262,13 +1262,13 @@ export const ThongKeManager: React.FC<ThongKeManagerProps> = ({ user }) => {
             </div>
 
             {/* Footer */}
-            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
+            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-xs text-slate-500 shrink-0">
               <span>
                 Hiển thị {drillDownModal.complaintItems ? filteredModalComplaints.length : filteredModalPrograms.length} bản ghi
               </span>
               <button
                 onClick={() => setDrillDownModal({ isOpen: false, title: '', items: [] })}
-                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-lg transition cursor-pointer"
+                className="min-h-[44px] px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-lg transition cursor-pointer"
               >
                 Đóng
               </button>

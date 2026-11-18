@@ -1547,9 +1547,9 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
 
       {/* ── MODAL THÊM TÀI LIỆU VÀO KHO DỮ LIỆU ─────────────────────────── */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="relative w-full max-w-lg bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-6 py-4 bg-[#133863] text-white border-b-2 border-amber-500">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="relative w-full max-w-lg bg-white rounded-t-2xl sm:rounded-xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 h-[100dvh] sm:h-auto max-h-[100dvh] sm:max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 bg-[#133863] text-white border-b-2 border-amber-500 shrink-0">
               <div className="flex items-center space-x-2">
                 <Upload className="w-5 h-5 text-amber-300" />
                 <h2 className="text-sm font-bold uppercase tracking-wide">
@@ -1559,13 +1559,14 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
               <button
                 type="button"
                 onClick={() => setIsAddModalOpen(false)}
-                className="text-white/70 hover:text-white p-1 rounded-md cursor-pointer"
+                className="text-white/70 hover:text-white p-2 sm:p-1 rounded-md cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveFile} className="p-6 space-y-3.5 text-xs max-h-[85vh] overflow-y-auto">
+            <form onSubmit={handleSaveFile} className="flex-1 flex flex-col overflow-hidden">
+              <div className="p-6 space-y-3.5 text-xs overflow-y-auto flex-1">
               {formError && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex items-start space-x-2">
                   <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
@@ -1786,18 +1787,20 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                 </div>
               )}
 
-              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-200">
+              </div>
+
+              <div className="sticky bottom-0 bg-white/95 backdrop-blur-xs flex items-center justify-end space-x-2 p-4 border-t border-slate-200 shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-medium cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-medium cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50 flex items-center space-x-1.5"
+                  className="min-h-[44px] px-5 py-2 bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50 flex items-center space-x-1.5"
                 >
                   {isSubmitting ? (
                     <>
@@ -1824,8 +1827,8 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
         );
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-            <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-xl border border-slate-200 space-y-4">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div className="bg-white rounded-t-2xl sm:rounded-xl max-w-sm w-full p-6 shadow-xl border border-slate-200 space-y-4 max-h-[100dvh]">
               <div className="flex items-center space-x-2 text-red-600">
                 <AlertCircle className="w-5 h-5 flex-shrink-0" />
                 <h3 className="text-sm font-bold text-slate-900">Gỡ tệp khỏi kho</h3>
@@ -1848,7 +1851,7 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                   type="button"
                   disabled={isDeletingFile}
                   onClick={() => setDeleteTarget(null)}
-                  className="px-3 py-1.5 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-medium cursor-pointer disabled:opacity-50"
+                  className="min-h-[44px] px-3.5 py-1.5 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-medium cursor-pointer disabled:opacity-50"
                 >
                   Hủy
                 </button>
@@ -1856,7 +1859,7 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                   type="button"
                   disabled={isDeletingFile}
                   onClick={handleDeleteConfirm}
-                  className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer disabled:opacity-50 flex items-center space-x-1.5"
+                  className="min-h-[44px] px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer disabled:opacity-50 flex items-center space-x-1.5"
                 >
                   {isDeletingFile ? (
                     <>
@@ -1921,10 +1924,10 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
         };
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-slate-900/60 backdrop-blur-xs">
-            <div className="bg-white rounded-2xl max-w-5xl w-full shadow-2xl border border-slate-200 flex flex-col max-h-[92vh] overflow-hidden animate-in zoom-in-95 duration-150">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-3 md:p-6 bg-slate-900/60 backdrop-blur-xs">
+            <div className="bg-white rounded-t-2xl sm:rounded-2xl max-w-5xl w-full shadow-2xl border border-slate-200 flex flex-col h-[100dvh] sm:h-auto max-h-[100dvh] sm:max-h-[92vh] overflow-hidden animate-in zoom-in-95 duration-150">
               {/* Header Modal */}
-              <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 bg-slate-50/70">
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 shrink-0">
                 <div className="flex items-center space-x-2.5 overflow-hidden pr-2">
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-xs border bg-white">
                     {isDrive ? (
@@ -1971,7 +1974,7 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                       type="button"
                       onClick={handleOpenExternal}
                       title={isDrive ? 'Mở trực tiếp trên Google Drive trong tab mới' : 'Mở toàn màn hình tab mới'}
-                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition"
+                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition min-h-[44px]"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">{isDrive ? 'Mở Google Drive' : 'Mở toàn màn hình'}</span>
@@ -1983,7 +1986,7 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                     type="button"
                     onClick={() => handleDownload(previewPdf)}
                     title={`Tải tệp về máy: ${previewPdf.ten_file}`}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-xs transition"
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-[#133863] hover:bg-blue-900 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-xs transition min-h-[44px]"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span className="hidden sm:inline">Tải về máy</span>
@@ -1994,9 +1997,9 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                     type="button"
                     onClick={() => setPreviewPdf(null)}
                     title="Đóng bản xem trước"
-                    className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg cursor-pointer transition"
+                    className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg cursor-pointer transition min-h-[44px] min-w-[44px] flex items-center justify-center"
                   >
-                    <X className="w-4 h-4" />
+                    <X className="w-5 h-5" />
                   </button>
                 </div>
               </div>
@@ -2218,8 +2221,8 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
 
       {/* ── MODAL TỰ ĐỘNG QUÉT & ĐỒNG BỘ TỆP VÀO KHO & GOOGLE DRIVE ──────── */}
       {isAutoScanModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/70 backdrop-blur-xs">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-150 max-h-[100dvh] overflow-y-auto">
             {/* Header */}
             <div className="flex items-start justify-between">
               <div className="flex items-center space-x-3">
@@ -2239,7 +2242,7 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                 <button
                   type="button"
                   onClick={() => setIsAutoScanModalOpen(false)}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                  className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -2343,7 +2346,7 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
                 <button
                   type="button"
                   onClick={() => setIsAutoScanModalOpen(false)}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
                 >
                   Xác nhận & Đóng
                 </button>
@@ -2355,8 +2358,8 @@ export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChange
 
       {/* ── MODAL TIẾN TRÌNH ĐỒNG BỘ TỆP LÊN GOOGLE DRIVE ────────────────────── */}
       {isMigratingAll && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/70 backdrop-blur-xs">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150 max-h-[100dvh]">
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600">
                 <CloudUpload className="w-5 h-5 animate-bounce" />

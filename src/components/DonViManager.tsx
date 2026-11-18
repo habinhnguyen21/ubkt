@@ -1169,11 +1169,11 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
       {/* Modal 5: Thay đổi trạng thái hoạt động (Đang hoạt động / Tạm ngừng / Đã chấm dứt) */}
       {toggleStatusTarget && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4"
           onClick={() => setToggleStatusTarget(null)}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150"
+            className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md max-h-[100dvh] overflow-y-auto animate-in zoom-in-95 duration-150"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
@@ -1187,7 +1187,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
               <button
                 type="button"
                 onClick={() => setToggleStatusTarget(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-md transition cursor-pointer"
+                className="text-slate-400 hover:text-white p-2 sm:p-1 rounded-md transition cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1343,7 +1343,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
                 <button
                   type="button"
                   onClick={() => setToggleStatusTarget(null)}
-                  className="flex-1 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+                  className="min-h-[44px] flex-1 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
                 >
                   Hủy bỏ
                 </button>
@@ -1351,7 +1351,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
                   type="button"
                   disabled={isTogglingStatus}
                   onClick={handleConfirmToggleStatus}
-                  className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-sm disabled:opacity-50"
+                  className="min-h-[44px] flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-sm disabled:opacity-50"
                 >
                   {isTogglingStatus ? 'Đang cập nhật...' : 'Xác nhận thay đổi'}
                 </button>
@@ -1363,8 +1363,8 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
 
       {/* Modal 7: Tạo nhanh tài khoản cán bộ để phân công (Tab 2) */}
       {isCreateUserModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl border border-slate-200 w-full max-w-md max-h-[100dvh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
             <div className="bg-slate-900 px-5 py-4 text-white flex items-center justify-between border-b border-slate-800">
               <div className="flex items-center space-x-2">
                 <UserPlus className="w-5 h-5 text-amber-300" />
@@ -1372,7 +1372,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
               </div>
               <button
                 onClick={() => setIsCreateUserModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1 rounded-md"
+                className="text-slate-400 hover:text-white p-2 sm:p-1 rounded-md min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1496,14 +1496,14 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
                 <button
                   type="button"
                   onClick={() => setIsCreateUserModalOpen(false)}
-                  className="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50 font-medium transition cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50 font-medium transition cursor-pointer"
                 >
                   Hủy bỏ
                 </button>
                 <button
                   type="submit"
                   disabled={isCreatingUser}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold shadow transition disabled:opacity-50 cursor-pointer flex items-center space-x-1.5"
+                  className="min-h-[44px] px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold shadow transition disabled:opacity-50 cursor-pointer flex items-center space-x-1.5"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>{isCreatingUser ? 'Đang tạo...' : 'Tạo tài khoản'}</span>
@@ -1516,8 +1516,8 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
 
       {/* Modal 8: Xem lịch sử phân công phụ trách địa bàn (Tab 2) */}
       {historyTargetUnit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[85vh]">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col h-[100dvh] sm:h-auto max-h-[100dvh] sm:max-h-[85vh]">
             {/* Header */}
             <div className="bg-slate-900 px-6 py-4 text-white flex items-center justify-between border-b-2 border-amber-500 shrink-0">
               <div className="flex items-center space-x-2.5">
@@ -1534,7 +1534,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
               <button
                 type="button"
                 onClick={() => setHistoryTargetUnit(null)}
-                className="text-white/70 hover:text-white p-1 rounded-md cursor-pointer"
+                className="text-white/70 hover:text-white p-2 sm:p-1 rounded-md cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1754,7 +1754,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
               <button
                 type="button"
                 onClick={() => setHistoryTargetUnit(null)}
-                className="px-4 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg hover:bg-slate-900 transition cursor-pointer"
+                className="min-h-[44px] px-5 py-2 bg-slate-800 text-white text-xs font-bold rounded-lg hover:bg-slate-900 transition cursor-pointer"
               >
                 Đóng
               </button>
