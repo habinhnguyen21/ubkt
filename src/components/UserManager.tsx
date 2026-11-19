@@ -6,7 +6,7 @@ import { getUserAssignmentImpact } from '../utils/diaBanSync';
 import type { User, DonVi } from '../types';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { UserMobileList } from './user/UserMobileList';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, RefreshCw } from 'lucide-react';
 
 interface Props {
   currentUser: User;
@@ -62,7 +62,39 @@ export default function UserManager({ currentUser, onClose }: Props) {
   const [deleteImpactUnits, setDeleteImpactUnits] = useState<DonVi[]>([]);
   const [loadingImpact, setLoadingImpact] = useState<boolean>(false);
 
+  // Trạng thái đồng bộ Firebase UID
+  const [syncingUidUserId, setSyncingUidUserId] = useState<string | null>(null);
+  const [isSyncingAllUid, setIsSyncingAllUid] = useState<boolean>(false);
+
   const isAdmin = currentUser.vai_tro === 'ADMIN';
+
+  const handleSyncSingleUserUid = async (u: User) => {
+    setSyncingUidUserId(u.id);
+    setError('');
+    try {
+      await api.syncUserUid(u.id);
+      showSuccess(`Đã kích hoạt và đồng bộ Firebase UID cho tài khoản "${u.ho_ten}" (@${u.ten_dang_nhap}) thành công.`);
+      await load();
+    } catch (err: any) {
+      setError(`Không thể đồng bộ UID cho "${u.ho_ten}": ${err?.message || String(err)}`);
+    } finally {
+      setSyncingUidUserId(null);
+    }
+  };
+
+  const handleSyncAllUsersUid = async () => {
+    setIsSyncingAllUid(true);
+    setError('');
+    try {
+      const res = await api.syncAllUsersUid();
+      showSuccess(`Đã đồng bộ thành công Firebase UID cho ${res.count}/${res.total} tài khoản.`);
+      await load();
+    } catch (err: any) {
+      setError(`Lỗi khi đồng bộ UID toàn bộ tài khoản: ${err?.message || String(err)}`);
+    } finally {
+      setIsSyncingAllUid(false);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -333,9 +365,33 @@ export default function UserManager({ currentUser, onClose }: Props) {
             />
           </div>
           {isAdmin && (
-            <button id="btn-create-user" style={{ ...styles.btnPrimary, minHeight: 44 }} onClick={openCreate}>
-              + Thêm tài khoản
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                id="btn-sync-all-users-uid"
+                type="button"
+                style={{
+                  ...styles.btnSecondary,
+                  minHeight: 44,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: '#0284c7',
+                  color: '#ffffff',
+                  border: '1px solid #38bdf8',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+                onClick={handleSyncAllUsersUid}
+                disabled={isSyncingAllUid}
+                title="Tự động kiểm tra, khởi tạo Firebase Auth UID và chuẩn hóa document users/{uid} cho toàn bộ tài khoản"
+              >
+                <RefreshCw style={{ width: 14, height: 14, animation: isSyncingAllUid ? 'spin 1s linear infinite' : 'none' }} />
+                <span>{isSyncingAllUid ? 'Đang đồng bộ UID...' : 'Đồng bộ UID toàn bộ tài khoản'}</span>
+              </button>
+              <button id="btn-create-user" style={{ ...styles.btnPrimary, minHeight: 44 }} onClick={openCreate}>
+                + Thêm tài khoản
+              </button>
+            </div>
           )}
         </div>
 
@@ -350,6 +406,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
             onEdit={openEdit}
             onResetPassword={openReset}
             onDelete={openDelete}
+            onSyncUid={handleSyncSingleUserUid}
             roleLabels={ROLE_LABELS}
             roleColors={ROLE_COLORS}
           />
@@ -361,6 +418,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
                   <th style={styles.th}>Họ và Tên</th>
                   <th style={styles.th}>Chức danh UBKT</th>
                   <th style={styles.th}>Tên đăng nhập</th>
+                  <th style={styles.th}>Firebase UID</th>
                   <th style={styles.th}>Vai trò</th>
                   <th style={styles.th}>Trạng thái</th>
                   <th style={styles.th}>Bảo mật</th>
@@ -412,6 +470,50 @@ export default function UserManager({ currentUser, onClose }: Props) {
                     </td>
                     <td style={{ ...styles.td, color: '#94a3b8', fontFamily: 'monospace' }}>{u.ten_dang_nhap}</td>
                     <td style={styles.td}>
+                      {u.firebaseUid || (u.id && u.id.length >= 20) ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span
+                            style={{
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              color: '#38bdf8',
+                              background: 'rgba(56, 189, 248, 0.1)',
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              border: '1px solid rgba(56, 189, 248, 0.2)',
+                            }}
+                            title={u.firebaseUid || u.id}
+                          >
+                            {(u.firebaseUid || u.id).slice(0, 8)}...{(u.firebaseUid || u.id).slice(-4)}
+                          </span>
+                          <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>● Đã cấp</span>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 11, color: '#f87171', fontWeight: 500 }}>⚠ Chưa có UID</span>
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => handleSyncSingleUserUid(u)}
+                              disabled={syncingUidUserId === u.id}
+                              style={{
+                                fontSize: 11,
+                                padding: '2px 6px',
+                                background: '#2563eb',
+                                color: '#fff',
+                                borderRadius: 4,
+                                border: 'none',
+                                cursor: 'pointer',
+                              }}
+                              title="Kích hoạt & Đồng bộ Firebase UID cho tài khoản này"
+                            >
+                              {syncingUidUserId === u.id ? 'Đang cấp...' : 'Cấp UID'}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td style={styles.td}>
                       <span style={{ ...styles.badge, background: ROLE_COLORS[u.vai_tro as string] + '22', color: ROLE_COLORS[u.vai_tro as string], border: `1px solid ${ROLE_COLORS[u.vai_tro as string]}44` }}>
                         {ROLE_LABELS[u.vai_tro as string] ?? u.vai_tro}
                       </span>
@@ -433,6 +535,13 @@ export default function UserManager({ currentUser, onClose }: Props) {
                     {isAdmin && (
                       <td style={{ ...styles.td, textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                          <button
+                            id={`btn-sync-uid-${u.id}`}
+                            style={{ ...styles.actionBtn, background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}
+                            title="Kích hoạt / Đồng bộ Firebase UID"
+                            onClick={() => handleSyncSingleUserUid(u)}
+                            disabled={syncingUidUserId === u.id}
+                          >🔄</button>
                           <button
                             id={`btn-edit-user-${u.id}`}
                             style={styles.actionBtn}
@@ -460,7 +569,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
                 ))}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={isAdmin ? 7 : 6} style={{ ...styles.td, textAlign: 'center', color: '#64748b', padding: '32px' }}>
+                    <td colSpan={isAdmin ? 8 : 7} style={{ ...styles.td, textAlign: 'center', color: '#64748b', padding: '32px' }}>
                       Không tìm thấy tài khoản nào
                     </td>
                   </tr>

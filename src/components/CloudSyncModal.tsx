@@ -33,6 +33,7 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
     uid: null,
     isReady: false,
   });
+  const [authCheckingTimedOut, setAuthCheckingTimedOut] = useState<boolean>(false);
   const [localCounts, setLocalCounts] = useState<any>({
     donVi: 0,
     chuongTrinh: 0,
@@ -115,12 +116,36 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
     setAutoSyncEnabled(enabled);
   };
 
+  const handleRelogin = () => {
+    onClose();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('ubkt_relogin_needed', {
+          detail: { message: 'Vui lòng đăng nhập lại để kết nối tài khoản với Cloud.' },
+        })
+      );
+    }
+  };
+
   useEffect(() => {
+    let timer: any = null;
     if (isOpen) {
+      setAuthCheckingTimedOut(false);
       loadCloudInfo();
       setStatusAlert(null);
       setProgressMsg('');
+
+      // Sau 5 giây nếu chưa xác thực được Firebase, hiển thị trạng thái Chưa liên kết
+      timer = setTimeout(() => {
+        const fbUser = cloudSyncService.getFirebaseAuthUser();
+        if (!fbUser) {
+          setAuthCheckingTimedOut(true);
+        }
+      }, 5000);
     }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;

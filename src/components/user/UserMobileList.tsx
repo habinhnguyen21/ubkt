@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MoreVertical, Edit2, Key, Trash2 } from 'lucide-react';
+import { MoreVertical, Edit2, Key, Trash2, RefreshCw } from 'lucide-react';
 import type { User } from '../../types';
 
 export interface UserMobileListProps {
@@ -9,6 +9,7 @@ export interface UserMobileListProps {
   onEdit: (user: User) => void;
   onResetPassword: (user: User) => void;
   onDelete: (user: User) => void;
+  onSyncUid?: (user: User) => void;
   roleLabels: Record<string, string>;
   roleColors: Record<string, string>;
 }
@@ -20,6 +21,7 @@ export const UserMobileList: React.FC<UserMobileListProps> = ({
   onEdit,
   onResetPassword,
   onDelete,
+  onSyncUid,
   roleLabels,
   roleColors,
 }) => {
@@ -121,6 +123,20 @@ export const UserMobileList: React.FC<UserMobileListProps> = ({
                         <span>Đặt lại mật khẩu</span>
                       </button>
 
+                      {onSyncUid && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveMenuId(null);
+                            onSyncUid(u);
+                          }}
+                          className="w-full min-h-[44px] px-3.5 py-2 text-left text-xs text-sky-300 hover:bg-slate-700 flex items-center space-x-2 cursor-pointer"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 text-sky-400" />
+                          <span>Đồng bộ Firebase UID</span>
+                        </button>
+                      )}
+
                       {u.id !== currentUser.id && (
                         <button
                           type="button"
@@ -156,6 +172,16 @@ export const UserMobileList: React.FC<UserMobileListProps> = ({
               >
                 {roleLabel}
               </span>
+
+              {u.firebaseUid || (u.id && u.id.length >= 20) ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-sky-950/40 text-sky-300 border border-sky-500/30">
+                  UID: {(u.firebaseUid || u.id).slice(0, 6)}...
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-rose-950/40 text-rose-300 border border-rose-500/30">
+                  ⚠ Chưa có UID
+                </span>
+              )}
             </div>
 
             {/* Hàng 3: Trạng thái & Bảo mật */}

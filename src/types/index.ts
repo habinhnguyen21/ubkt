@@ -16,6 +16,7 @@ export interface User {
   don_vi_id?: string | null;
   ten_don_vi?: string | null;
   pham_vi_quan_ly?: string[] | null;
+  firebaseUid?: string | null;
   trang_thai: number;
   must_change_password: boolean;
   activeSessionId?: string | null;

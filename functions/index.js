@@ -199,3 +199,178 @@ exports.adminCreateUser = onCall({ cors: true, region: 'asia-southeast1' }, asyn
   };
 });
 
+/**
+ * Cloud Function v2 (onCall): Kích hoạt / Đồng bộ Firebase Auth UID cho một tài khoản
+ */
+exports.adminSyncUserUid = onCall({ cors: true, region: 'asia-southeast1' }, async (request) => {
+  const { callerUid, callerData } = await assertCallerIsAdmin(request);
+  const payload = request.data || {};
+  const tenDangNhap = String(payload.ten_dang_nhap || '').trim().toLowerCase();
+  const hoTen = String(payload.ho_ten || '').trim() || tenDangNhap;
+  const vaiTro = ['ADMIN', 'BIEN_TAP', 'XEM'].includes(payload.vai_tro) ? payload.vai_tro : 'BIEN_TAP';
+  const chucDanh = String(payload.chuc_danh || 'Chuyên viên UBKT').trim();
+  const oldId = String(payload.old_id || payload.id || '').trim();
+  const defaultPassword = String(payload.password || 'Ubkt@2026!');
+
+  if (!tenDangNhap) {
+    throw new HttpsError('invalid-argument', 'Tên đăng nhập không được để trống.');
+  }
+
+  const email = tenDangNhap.includes('@') ? tenDangNhap : `${tenDangNhap}@ubkt.local`;
+
+  let userRecord;
+  try {
+    userRecord = await auth.getUserByEmail(email);
+  } catch (err) {
+    if (err.code === 'auth/user-not-found') {
+      userRecord = await auth.createUser({
+        email,
+        password: defaultPassword,
+        displayName: hoTen,
+        disabled: false,
+      });
+    } else {
+      throw new HttpsError('internal', `Lỗi tra cứu/tạo tài khoản Firebase Auth: ${err.message || String(err)}`);
+    }
+  }
+
+  const uid = userRecord.uid;
+  const now = new Date().toISOString();
+
+  const userDocRef = db.collection('users').doc(uid);
+  const userDocSnap = await userDocRef.get();
+  const existingData = userDocSnap.exists ? userDocSnap.data() : {};
+
+  const updatedDoc = {
+    ...existingData,
+    id: uid,
+    firebaseUid: uid,
+    ten_dang_nhap: tenDangNhap,
+    email,
+    ho_ten: hoTen,
+    vai_tro: existingData.vai_tro || vaiTro,
+    chuc_danh: existingData.chuc_danh || chucDanh,
+    trang_thai: existingData.trang_thai !== undefined ? existingData.trang_thai : 1,
+    must_change_password: existingData.must_change_password !== undefined ? existingData.must_change_password : true,
+    updated_at: now,
+  };
+  if (!updatedDoc.created_at) {
+    updatedDoc.created_at = now;
+  }
+
+  await userDocRef.set(updatedDoc, { merge: true });
+
+  // Di trú phân công địa bàn nếu ID cũ khác UID
+  if (oldId && oldId !== uid) {
+    const oldPcSnap = await db.collection('phan_cong_dia_ban').doc(oldId).get().catch(() => null);
+    if (oldPcSnap && oldPcSnap.exists) {
+      const pcData = oldPcSnap.data();
+      await db.collection('phan_cong_dia_ban').doc(uid).set({
+        ...pcData,
+        id: uid,
+        user_id: uid,
+        updated_at: now,
+      }, { merge: true });
+      await db.collection('phan_cong_dia_ban').doc(oldId).delete().catch(() => {});
+    }
+    await db.collection('users').doc(oldId).delete().catch(() => {});
+  }
+
+  return {
+    success: true,
+    uid,
+    user: updatedDoc,
+  };
+});
+
+/**
+ * Cloud Function v2 (onCall): Đồng bộ Firebase Auth UID cho toàn bộ tài khoản
+ */
+exports.adminSyncAllUsersUid = onCall({ cors: true, region: 'asia-southeast1' }, async (request) => {
+  const { callerUid, callerData } = await assertCallerIsAdmin(request);
+  const payload = request.data || {};
+  const usersList = Array.isArray(payload.users) ? payload.users : [];
+  const defaultPassword = String(payload.default_password || 'Ubkt@2026!');
+  const now = new Date().toISOString();
+
+  let syncedCount = 0;
+  const results = [];
+
+  for (const u of usersList) {
+    const tenDangNhap = String(u.ten_dang_nhap || '').trim().toLowerCase();
+    if (!tenDangNhap) continue;
+
+    const email = tenDangNhap.includes('@') ? tenDangNhap : `${tenDangNhap}@ubkt.local`;
+    const hoTen = String(u.ho_ten || tenDangNhap).trim();
+    const oldId = String(u.id || '').trim();
+
+    try {
+      let userRecord;
+      try {
+        userRecord = await auth.getUserByEmail(email);
+      } catch (err) {
+        if (err.code === 'auth/user-not-found') {
+          userRecord = await auth.createUser({
+            email,
+            password: defaultPassword,
+            displayName: hoTen,
+            disabled: false,
+          });
+        } else {
+          throw err;
+        }
+      }
+
+      const uid = userRecord.uid;
+      const userDocRef = db.collection('users').doc(uid);
+      const userDocSnap = await userDocRef.get();
+      const existingData = userDocSnap.exists ? userDocSnap.data() : {};
+
+      const updatedDoc = {
+        ...existingData,
+        id: uid,
+        firebaseUid: uid,
+        ten_dang_nhap: tenDangNhap,
+        email,
+        ho_ten: hoTen,
+        vai_tro: existingData.vai_tro || u.vai_tro || 'BIEN_TAP',
+        chuc_danh: existingData.chuc_danh || u.chuc_danh || 'Chuyên viên UBKT',
+        trang_thai: existingData.trang_thai !== undefined ? existingData.trang_thai : (u.trang_thai ?? 1),
+        must_change_password: existingData.must_change_password !== undefined ? existingData.must_change_password : true,
+        updated_at: now,
+      };
+      if (!updatedDoc.created_at) {
+        updatedDoc.created_at = u.created_at || now;
+      }
+
+      await userDocRef.set(updatedDoc, { merge: true });
+
+      if (oldId && oldId !== uid) {
+        const oldPcSnap = await db.collection('phan_cong_dia_ban').doc(oldId).get().catch(() => null);
+        if (oldPcSnap && oldPcSnap.exists) {
+          await db.collection('phan_cong_dia_ban').doc(uid).set({
+            ...oldPcSnap.data(),
+            id: uid,
+            user_id: uid,
+            updated_at: now,
+          }, { merge: true });
+          await db.collection('phan_cong_dia_ban').doc(oldId).delete().catch(() => {});
+        }
+        await db.collection('users').doc(oldId).delete().catch(() => {});
+      }
+
+      syncedCount++;
+      results.push({ ten_dang_nhap: tenDangNhap, uid, status: 'synced' });
+    } catch (userErr) {
+      results.push({ ten_dang_nhap: tenDangNhap, error: userErr.message || String(userErr), status: 'failed' });
+    }
+  }
+
+  return {
+    success: true,
+    syncedCount,
+    total: usersList.length,
+    results,
+  };
+});
+

@@ -359,11 +359,23 @@ export function App() {
       setIsSessionLocked(true);
       sessionStore.setSessionLocked(true);
     };
+    const handleReloginNeeded = () => {
+      setKickMessage('Vui lòng đăng nhập lại để liên kết Firebase UID và kết nối Cloud.');
+      centralDataService.stopRealtimeSync();
+      cloudSyncService.stopAutoSync();
+      signOut(auth).catch(() => {});
+      sessionStore.clearSession();
+      setCurrentUser(null);
+      setIsSessionLocked(false);
+      setShowCloudSyncModal(false);
+    };
     window.addEventListener('ubkt_lock_session', handleLockEvent);
     window.addEventListener('ubkt_session_locked', handleLockEvent);
+    window.addEventListener('ubkt_relogin_needed', handleReloginNeeded);
     return () => {
       window.removeEventListener('ubkt_lock_session', handleLockEvent);
       window.removeEventListener('ubkt_session_locked', handleLockEvent);
+      window.removeEventListener('ubkt_relogin_needed', handleReloginNeeded);
     };
   }, []);
 

@@ -367,6 +367,7 @@ registerMockCommands({
     const now = new Date().toISOString();
     const newUser: User = {
       id: newUid,
+      firebaseUid: newUid,
       ten_dang_nhap: req.ten_dang_nhap.trim(),
       ho_ten: req.ho_ten.trim(),
       vai_tro: req.vai_tro as User['vai_tro'],
@@ -402,43 +403,214 @@ registerMockCommands({
       | undefined;
     if (!user) throw new Error('Người dùng không tồn tại');
 
-    if (!IS_CLOUD_FUNCTIONS_ENABLED) {
-      throw new Error(
-        'Dự án đang dùng gói Firebase Spark (miễn phí) nên chưa triển khai Cloud Functions (adminResetPassword). Vui lòng thực hiện đổi/đặt lại mật khẩu trực tiếp trong Firebase Console -> Authentication -> Users.'
-      );
-    }
+    const normalizedU = user.ten_dang_nhap.trim().toLowerCase();
+    const authEmail = usernameToAuthEmail(normalizedU);
+    let resolvedUid = user.firebaseUid || (user.id.length >= 20 ? user.id : '');
 
-    try {
-      const resetPasswordFn = httpsCallable<
-        { uid: string; password: string },
-        { success: boolean; uid: string; must_change_password: boolean; updated_at: string }
-      >(functions, 'adminResetPassword');
+    // 1. Thử gọi Cloud Function adminResetPassword nếu đã cấu hình
+    let cloudFnSuccess = false;
+    if (IS_CLOUD_FUNCTIONS_ENABLED) {
+      try {
+        const resetPasswordFn = httpsCallable<
+          { uid: string; password: string },
+          { success: boolean; uid: string; must_change_password: boolean; updated_at: string }
+        >(functions, 'adminResetPassword');
 
-      const result = await resetPasswordFn({
-        uid: req.user_id,
-        password: req.mat_khau_moi,
-      });
+        const result = await resetPasswordFn({
+          uid: resolvedUid || user.id,
+          password: req.mat_khau_moi,
+        });
 
-      if (!result.data?.success) {
-        throw new Error('Cloud Function adminResetPassword không trả về trạng thái thành công.');
+        if (result.data?.success) {
+          cloudFnSuccess = true;
+          if (result.data.uid) resolvedUid = result.data.uid;
+        }
+      } catch (fnErr: any) {
+        console.warn('[Auth] Không thể gọi Cloud Function adminResetPassword:', fnErr);
       }
-    } catch (fnErr: any) {
-      const detail = fnErr?.message || String(fnErr);
-      throw new Error(
-        `Không thể đặt lại mật khẩu trên Firebase Authentication (adminResetPassword): ${detail}`
-      );
     }
 
+    // 2. Dự phòng: Dùng Secondary Firebase Auth tạo tài khoản nếu tài khoản chưa có trên Firebase Auth
+    if (!cloudFnSuccess) {
+      const secondaryAuth = getSecondaryAuth();
+      try {
+        const cred = await createUserWithEmailAndPassword(secondaryAuth, authEmail, req.mat_khau_moi);
+        resolvedUid = cred.user.uid;
+      } catch (createErr: any) {
+        if (createErr?.code === 'auth/email-already-in-use') {
+          console.info('[Auth] Tài khoản đã có trên Firebase Auth. Cập nhật trạng thái must_change_password.');
+        } else {
+          console.warn('[Auth] Lỗi Secondary Auth khi đặt lại mật khẩu:', createErr);
+        }
+      } finally {
+        await signOut(secondaryAuth).catch(() => {});
+      }
+    }
+
+    if (!resolvedUid) {
+      resolvedUid = user.id;
+    }
+
+    const now = new Date().toISOString();
+    const oldId = user.id;
+    user.id = resolvedUid;
+    user.firebaseUid = resolvedUid;
     user.must_change_password = true;
     delete user.mat_khau;
     delete user.mat_khau_hash;
-    user.updated_at = new Date().toISOString();
+    user.updated_at = now;
     saveMockDb(db);
 
+    // Cập nhật lên Firestore users/{resolvedUid}
+    try {
+      await setDoc(
+        doc(firestoreDb, 'users', resolvedUid),
+        {
+          id: resolvedUid,
+          firebaseUid: resolvedUid,
+          ten_dang_nhap: user.ten_dang_nhap,
+          ho_ten: user.ho_ten,
+          vai_tro: user.vai_tro,
+          chuc_danh: user.chuc_danh || 'Chuyên viên UBKT',
+          trang_thai: user.trang_thai,
+          must_change_password: true,
+          updated_at: now,
+        },
+        { merge: true }
+      );
+      if (oldId && oldId !== resolvedUid) {
+        const oldPcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => null);
+        if (oldPcSnap && oldPcSnap.exists()) {
+          await setDoc(doc(firestoreDb, 'phan_cong_dia_ban', resolvedUid), {
+            ...oldPcSnap.data(),
+            id: resolvedUid,
+            user_id: resolvedUid,
+            updated_at: now,
+          }, { merge: true });
+          await deleteDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => {});
+        }
+        await deleteDoc(doc(firestoreDb, 'users', oldId)).catch(() => {});
+      }
+    } catch (saveErr) {
+      console.warn('[Auth] Lỗi lưu Firestore khi đặt lại mật khẩu:', saveErr);
+    }
+
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
+      window.dispatchEvent(new CustomEvent('ubkt_users_updated', { detail: user }));
     }
     return undefined;
+  },
+
+  sync_user_uid: async (db, args) => {
+    const { user_id, password } = args as { user_id: string; password?: string };
+    const user = db.users.find((u) => u.id === user_id);
+    if (!user) throw new Error('Người dùng không tồn tại');
+
+    const normalizedU = user.ten_dang_nhap.trim().toLowerCase();
+    const authEmail = usernameToAuthEmail(normalizedU);
+    const tempPassword = password || 'Ubkt@2026!';
+    let resolvedUid = user.firebaseUid || (user.id.length >= 20 ? user.id : '');
+
+    // 1. Thử gọi Cloud Function adminSyncUserUid nếu có
+    if (IS_CLOUD_FUNCTIONS_ENABLED) {
+      try {
+        const syncFn = httpsCallable<any, { success: boolean; uid: string; user: User }>(
+          functions,
+          'adminSyncUserUid'
+        );
+        const res = await syncFn({
+          ten_dang_nhap: normalizedU,
+          ho_ten: user.ho_ten,
+          vai_tro: user.vai_tro,
+          chuc_danh: user.chuc_danh,
+          old_id: user.id,
+          password: tempPassword,
+        });
+        if (res.data?.success && res.data.uid) {
+          resolvedUid = res.data.uid;
+        }
+      } catch (fnErr) {
+        console.warn('[Auth] Lỗi Cloud Function adminSyncUserUid:', fnErr);
+      }
+    }
+
+    // 2. Dùng Secondary Auth để tạo tài khoản trên Firebase Auth nếu chưa có
+    if (!resolvedUid || resolvedUid.length < 20) {
+      const secondaryAuth = getSecondaryAuth();
+      try {
+        const cred = await createUserWithEmailAndPassword(secondaryAuth, authEmail, tempPassword);
+        resolvedUid = cred.user.uid;
+      } catch (err: any) {
+        if (err?.code === 'auth/email-already-in-use') {
+          try {
+            const usersSnap = await getDocs(collection(firestoreDb, 'users'));
+            const matchingDoc = usersSnap.docs.find(
+              (d) => String(d.data().ten_dang_nhap || '').toLowerCase() === normalizedU
+            );
+            if (matchingDoc && matchingDoc.id.length >= 20) {
+              resolvedUid = matchingDoc.id;
+            }
+          } catch {}
+        }
+      } finally {
+        await signOut(secondaryAuth).catch(() => {});
+      }
+    }
+
+    if (!resolvedUid) {
+      resolvedUid = user.id;
+    }
+
+    const now = new Date().toISOString();
+    const oldId = user.id;
+    user.id = resolvedUid;
+    user.firebaseUid = resolvedUid;
+    user.updated_at = now;
+    saveMockDb(db);
+
+    const userPayload: any = {
+      ...sanitizeUserForCloud(user),
+      id: resolvedUid,
+      firebaseUid: resolvedUid,
+      updated_at: now,
+    };
+    try {
+      await setDoc(doc(firestoreDb, 'users', resolvedUid), userPayload, { merge: true });
+      if (oldId && oldId !== resolvedUid) {
+        const oldPcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => null);
+        if (oldPcSnap && oldPcSnap.exists()) {
+          await setDoc(doc(firestoreDb, 'phan_cong_dia_ban', resolvedUid), {
+            ...oldPcSnap.data(),
+            id: resolvedUid,
+            user_id: resolvedUid,
+            updated_at: now,
+          }, { merge: true });
+          await deleteDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => {});
+        }
+        await deleteDoc(doc(firestoreDb, 'users', oldId)).catch(() => {});
+      }
+    } catch (saveErr) {
+      console.warn('[Auth] Lỗi lưu Firestore khi đồng bộ UID:', saveErr);
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ubkt_users_updated', { detail: user }));
+    }
+    return user;
+  },
+
+  sync_all_users_uid: async (db, _args) => {
+    const users = [...db.users];
+    let synced = 0;
+    for (const u of users) {
+      try {
+        await mockInvoke<User>('sync_user_uid', { user_id: u.id });
+        synced++;
+      } catch (e) {
+        console.warn(`[Auth] Không thể đồng bộ UID cho @${u.ten_dang_nhap}:`, e);
+      }
+    }
+    return { success: true, count: synced, total: users.length };
   },
 
   update_user: async (db, args) => {
@@ -628,5 +800,11 @@ export const authApi = {
 
   deleteUser: (user_id: string, actor_id: string, actor_name: string) =>
     mockInvoke<void>('delete_user', { user_id, actor_id, actor_name }),
+
+  syncUserUid: (user_id: string, password?: string) =>
+    mockInvoke<User>('sync_user_uid', { user_id, password }),
+
+  syncAllUsersUid: () =>
+    mockInvoke<{ success: boolean; count: number; total: number }>('sync_all_users_uid'),
 };
 
