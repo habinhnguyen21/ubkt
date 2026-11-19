@@ -1,7 +1,16 @@
-import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, deleteApp, type FirebaseApp } from 'firebase/app';
 import { getAnalytics, isSupported as isAnalyticsSupported, type Analytics } from 'firebase/analytics';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth, setPersistence, inMemoryPersistence, type Auth } from 'firebase/auth';
+import {
+  getAuth,
+  setPersistence,
+  inMemoryPersistence,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updatePassword,
+  signOut,
+  type Auth,
+} from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 import { getFunctions, type Functions } from 'firebase/functions';
 
@@ -98,6 +107,69 @@ export function getSecondaryAuth(): Auth {
     setPersistence(secAuth, inMemoryPersistence).catch(() => {});
   }
   return secAuth;
+}
+
+/**
+ * Khởi tạo Firebase Auth instance phụ tạm thời để tạo hoặc liên kết tài khoản Firebase Auth
+ * cho nhân viên / cán bộ mà KHÔNG làm thay đổi hoặc đăng xuất phiên Admin hiện tại.
+ */
+export async function provisionFirebaseUserForStaff(
+  username: string,
+  password: string
+): Promise<{ uid: string; email: string }> {
+  const normalizedU = String(username || '').trim().toLowerCase();
+  if (!normalizedU) {
+    throw new Error('Tên đăng nhập không hợp lệ');
+  }
+  const internalEmail = usernameToAuthEmail(normalizedU);
+
+  const tempAppName = `SecondaryProvisioner_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const secondaryApp = initializeApp(firebaseConfig, tempAppName);
+  const secondaryAuth = getAuth(secondaryApp);
+
+  try {
+    if (typeof window !== 'undefined') {
+      await setPersistence(secondaryAuth, inMemoryPersistence).catch(() => {});
+    }
+
+    let uid = '';
+    try {
+      const cred = await createUserWithEmailAndPassword(secondaryAuth, internalEmail, password);
+      uid = cred.user.uid;
+    } catch (err: any) {
+      if (err?.code === 'auth/email-already-in-use') {
+        // Tài khoản đã tồn tại trên Firebase Auth từ trước -> Thử đăng nhập bằng mật khẩu để lấy lại UID
+        try {
+          const signCred = await signInWithEmailAndPassword(secondaryAuth, internalEmail, password);
+          uid = signCred.user.uid;
+        } catch {
+          // Thử nếu mật khẩu mẫu hoặc mặc định khớp để cập nhật mật khẩu mới
+          try {
+            const fallbackCred = await signInWithEmailAndPassword(secondaryAuth, internalEmail, 'Ubkt@2026!');
+            uid = fallbackCred.user.uid;
+            await updatePassword(fallbackCred.user, password).catch(() => {});
+          } catch {
+            throw new Error(
+              `Tài khoản @${normalizedU} (${internalEmail}) đã tồn tại trên Firebase Auth nhưng không khớp mật khẩu. Vui lòng sử dụng tính năng "Đặt lại mật khẩu" hoặc "Đồng bộ UID".`
+            );
+          }
+        }
+      } else {
+        throw new Error(err?.message || `Lỗi khi khởi tạo Firebase Authentication cho @${normalizedU}`);
+      }
+    }
+
+    if (!uid) {
+      throw new Error(`Không thể cấp Firebase UID cho tài khoản @${normalizedU}`);
+    }
+
+    return { uid, email: internalEmail };
+  } finally {
+    try {
+      await signOut(secondaryAuth).catch(() => {});
+      await deleteApp(secondaryApp).catch(() => {});
+    } catch {}
+  }
 }
 
 // Analytics (Chỉ kích hoạt trên trình duyệt hỗ trợ)

@@ -174,13 +174,24 @@ export const UserMobileList: React.FC<UserMobileListProps> = ({
               </span>
 
               {u.firebaseUid || (u.id && u.id.length >= 20) ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-sky-950/40 text-sky-300 border border-sky-500/30">
-                  UID: {(u.firebaseUid || u.id).slice(0, 6)}...
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-950/40 text-emerald-300 border border-emerald-500/30">
+                  ● Đã kích hoạt UID
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-rose-950/40 text-rose-300 border border-rose-500/30">
-                  ⚠ Chưa có UID
-                </span>
+                <div className="inline-flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-rose-950/40 text-rose-300 border border-rose-500/30">
+                    ⚠ Chưa có UID
+                  </span>
+                  {isAdmin && onSyncUid && (
+                    <button
+                      type="button"
+                      onClick={() => onSyncUid(u)}
+                      className="px-2 py-0.5 text-[10px] bg-blue-600 hover:bg-blue-700 text-white rounded font-medium cursor-pointer"
+                    >
+                      Kích hoạt ngay
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 

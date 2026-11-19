@@ -108,4 +108,9 @@ describe('Firebase Auth Synchronization & Mobile Fallback Handling', () => {
     expect(usernameToAuthEmail('user@gmail.com')).toBe('user@gmail.com');
     expect(usernameToAuthEmail('')).toBe('');
   });
+
+  it('6. provisionFirebaseUserForStaff ném lỗi khi username rỗng', async () => {
+    const { provisionFirebaseUserForStaff } = await import('../src/services/firebase');
+    await expect(provisionFirebaseUserForStaff('', 'test-password')).rejects.toThrow('Tên đăng nhập không hợp lệ');
+  });
 });

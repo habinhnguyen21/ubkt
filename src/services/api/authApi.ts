@@ -6,8 +6,8 @@ import {
   db as firestoreDb,
   functions,
   IS_CLOUD_FUNCTIONS_ENABLED,
-  getSecondaryAuth,
   usernameToAuthEmail,
+  provisionFirebaseUserForStaff,
 } from '../firebase';
 import { httpsCallable } from 'firebase/functions';
 import {
@@ -327,6 +327,7 @@ registerMockCommands({
     const exists = db.users.some((u) => u.ten_dang_nhap.toLowerCase() === normalizedU);
     if (exists) throw new Error('Tên đăng nhập đã tồn tại');
 
+    let newUid = '';
     if (IS_CLOUD_FUNCTIONS_ENABLED) {
       try {
         const createFn = httpsCallable<typeof req, { success: boolean; user: User }>(
@@ -345,23 +346,20 @@ registerMockCommands({
         }
         return createdUser;
       } catch (fnErr: any) {
-        throw new Error(fnErr?.message || 'Lỗi khi gọi Cloud Function adminCreateUser.');
+        console.warn('[Auth] Lỗi Cloud Function adminCreateUser, chuyển sang provisioner cục bộ:', fnErr);
       }
     }
 
-    const secondaryAuth = getSecondaryAuth();
-    const authEmail = usernameToAuthEmail(normalizedU);
-    let newUid = '';
     try {
-      const cred = await createUserWithEmailAndPassword(secondaryAuth, authEmail, req.mat_khau);
-      newUid = cred.user.uid;
-    } catch (err: any) {
-      if (err?.code === 'auth/email-already-in-use') {
-        throw new Error('Tên đăng nhập này đã tồn tại trên Firebase Authentication.');
-      }
-      throw new Error(err?.message || 'Lỗi khi tạo tài khoản trên Firebase Authentication');
-    } finally {
-      await signOut(secondaryAuth).catch(() => {});
+      const provisionRes = await provisionFirebaseUserForStaff(normalizedU, req.mat_khau);
+      newUid = provisionRes.uid;
+    } catch (authErr: any) {
+      console.error('[Auth] Lỗi khởi tạo Firebase Auth cho user mới:', authErr);
+      throw new Error(authErr?.message || 'Không thể tạo tài khoản trên Firebase Authentication');
+    }
+
+    if (!newUid) {
+      throw new Error('Khởi tạo Firebase UID cho tài khoản thất bại. Vui lòng thử lại.');
     }
 
     const now = new Date().toISOString();
@@ -404,7 +402,6 @@ registerMockCommands({
     if (!user) throw new Error('Người dùng không tồn tại');
 
     const normalizedU = user.ten_dang_nhap.trim().toLowerCase();
-    const authEmail = usernameToAuthEmail(normalizedU);
     let resolvedUid = user.firebaseUid || (user.id.length >= 20 ? user.id : '');
 
     // 1. Thử gọi Cloud Function adminResetPassword nếu đã cấu hình
@@ -430,20 +427,24 @@ registerMockCommands({
       }
     }
 
-    // 2. Dự phòng: Dùng Secondary Firebase Auth tạo tài khoản nếu tài khoản chưa có trên Firebase Auth
+    // 2. Dự phòng: Dùng provisionFirebaseUserForStaff để tạo hoặc liên kết tài khoản Firebase Auth
     if (!cloudFnSuccess) {
-      const secondaryAuth = getSecondaryAuth();
       try {
-        const cred = await createUserWithEmailAndPassword(secondaryAuth, authEmail, req.mat_khau_moi);
-        resolvedUid = cred.user.uid;
+        const provisionRes = await provisionFirebaseUserForStaff(normalizedU, req.mat_khau_moi);
+        resolvedUid = provisionRes.uid;
       } catch (createErr: any) {
-        if (createErr?.code === 'auth/email-already-in-use') {
-          console.info('[Auth] Tài khoản đã có trên Firebase Auth. Cập nhật trạng thái must_change_password.');
-        } else {
-          console.warn('[Auth] Lỗi Secondary Auth khi đặt lại mật khẩu:', createErr);
+        console.warn('[Auth] Lỗi provisioner khi đặt lại mật khẩu:', createErr);
+        if (!resolvedUid || resolvedUid.length < 20) {
+          try {
+            const usersSnap = await getDocs(collection(firestoreDb, 'users'));
+            const matchingDoc = usersSnap.docs.find(
+              (d: any) => String(d.data().ten_dang_nhap || '').toLowerCase() === normalizedU
+            );
+            if (matchingDoc && matchingDoc.id.length >= 20) {
+              resolvedUid = matchingDoc.id;
+            }
+          } catch {}
         }
-      } finally {
-        await signOut(secondaryAuth).catch(() => {});
       }
     }
 
@@ -507,7 +508,6 @@ registerMockCommands({
     if (!user) throw new Error('Người dùng không tồn tại');
 
     const normalizedU = user.ten_dang_nhap.trim().toLowerCase();
-    const authEmail = usernameToAuthEmail(normalizedU);
     const tempPassword = password || 'Ubkt@2026!';
     let resolvedUid = user.firebaseUid || (user.id.length >= 20 ? user.id : '');
 
@@ -534,26 +534,22 @@ registerMockCommands({
       }
     }
 
-    // 2. Dùng Secondary Auth để tạo tài khoản trên Firebase Auth nếu chưa có
+    // 2. Dùng provisionFirebaseUserForStaff để tạo hoặc liên kết tài khoản Firebase Auth
     if (!resolvedUid || resolvedUid.length < 20) {
-      const secondaryAuth = getSecondaryAuth();
       try {
-        const cred = await createUserWithEmailAndPassword(secondaryAuth, authEmail, tempPassword);
-        resolvedUid = cred.user.uid;
+        const provRes = await provisionFirebaseUserForStaff(normalizedU, tempPassword);
+        resolvedUid = provRes.uid;
       } catch (err: any) {
-        if (err?.code === 'auth/email-already-in-use') {
-          try {
-            const usersSnap = await getDocs(collection(firestoreDb, 'users'));
-            const matchingDoc = usersSnap.docs.find(
-              (d: any) => String(d.data().ten_dang_nhap || '').toLowerCase() === normalizedU
-            );
-            if (matchingDoc && matchingDoc.id.length >= 20) {
-              resolvedUid = matchingDoc.id;
-            }
-          } catch {}
-        }
-      } finally {
-        await signOut(secondaryAuth).catch(() => {});
+        console.warn('[Auth] Lỗi provisioner khi đồng bộ UID:', err);
+        try {
+          const usersSnap = await getDocs(collection(firestoreDb, 'users'));
+          const matchingDoc = usersSnap.docs.find(
+            (d: any) => String(d.data().ten_dang_nhap || '').toLowerCase() === normalizedU
+          );
+          if (matchingDoc && matchingDoc.id.length >= 20) {
+            resolvedUid = matchingDoc.id;
+          }
+        } catch {}
       }
     }
 
@@ -633,6 +629,48 @@ registerMockCommands({
     delete (user as any).lastLoginDevice;
     delete (user as any).lastActiveAt;
     user.updated_at = new Date().toISOString();
+
+    // Tự động kiểm tra và gắn Firebase UID nếu tài khoản cũ chưa có UID
+    if (!user.firebaseUid || user.id.length < 20) {
+      let resolvedUid = '';
+      try {
+        const provRes = await provisionFirebaseUserForStaff(user.ten_dang_nhap, 'Ubkt@2026!');
+        resolvedUid = provRes.uid;
+      } catch {
+        try {
+          const usersSnap = await getDocs(collection(firestoreDb, 'users'));
+          const matchingDoc = usersSnap.docs.find(
+            (d: any) => String(d.data().ten_dang_nhap || '').toLowerCase() === user.ten_dang_nhap.toLowerCase()
+          );
+          if (matchingDoc && matchingDoc.id.length >= 20) {
+            resolvedUid = matchingDoc.id;
+          }
+        } catch {}
+      }
+      if (resolvedUid) {
+        const oldId = user.id;
+        user.firebaseUid = resolvedUid;
+        user.id = resolvedUid;
+        if (oldId && oldId !== resolvedUid) {
+          try {
+            const oldPcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => null);
+            if (oldPcSnap && oldPcSnap.exists()) {
+              await setDoc(doc(firestoreDb, 'phan_cong_dia_ban', resolvedUid), {
+                ...oldPcSnap.data(),
+                id: resolvedUid,
+                user_id: resolvedUid,
+                updated_at: user.updated_at,
+              }, { merge: true });
+              await deleteDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => {});
+            }
+            await deleteDoc(doc(firestoreDb, 'users', oldId)).catch(() => {});
+          } catch (e) {
+            console.warn('[Auth] Di trú ID cũ sang UID khi sửa tài khoản:', e);
+          }
+        }
+      }
+    }
+
     saveMockDb(db);
     await centralDataService.saveDoc('users', user.id, sanitizeUserForCloud(user));
 

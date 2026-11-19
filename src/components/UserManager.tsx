@@ -210,7 +210,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
       }
       await load();
       closeModal();
-      showSuccess(`Đã tạo tài khoản "${formTenDangNhap}" thành công. Người dùng sẽ phải đổi mật khẩu khi đăng nhập lần đầu.`);
+      showSuccess(`Đã tạo tài khoản "${formTenDangNhap}" và kích hoạt Firebase UID thành công. Người dùng sẽ phải đổi mật khẩu khi đăng nhập lần đầu.`);
     } catch (e: unknown) {
       setError((e as Error).message || 'Tạo tài khoản thất bại');
     } finally {
@@ -263,7 +263,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
       );
       await load();
       closeModal();
-      showSuccess(`Đã đặt lại mật khẩu cho "${selectedUser.ho_ten}". Họ sẽ phải đổi mật khẩu khi đăng nhập lần tiếp theo.`);
+      showSuccess(`Đã đặt lại mật khẩu và đồng bộ Firebase UID cho "${selectedUser.ho_ten}". Họ sẽ phải đổi mật khẩu khi đăng nhập lần tiếp theo.`);
     } catch (e: unknown) {
       setError((e as Error).message || 'Đặt lại mật khẩu thất bại');
     } finally {
@@ -486,11 +486,11 @@ export default function UserManager({ currentUser, onClose }: Props) {
                           >
                             {(u.firebaseUid || u.id).slice(0, 8)}...{(u.firebaseUid || u.id).slice(-4)}
                           </span>
-                          <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>● Đã cấp</span>
+                          <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>● Đã kích hoạt UID</span>
                         </div>
                       ) : (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 11, color: '#f87171', fontWeight: 500 }}>⚠ Chưa có UID</span>
+                          <span style={{ fontSize: 11, color: '#f87171', fontWeight: 600 }}>⚠ Chưa có UID</span>
                           {isAdmin && (
                             <button
                               type="button"
@@ -498,16 +498,17 @@ export default function UserManager({ currentUser, onClose }: Props) {
                               disabled={syncingUidUserId === u.id}
                               style={{
                                 fontSize: 11,
-                                padding: '2px 6px',
+                                padding: '2px 8px',
                                 background: '#2563eb',
                                 color: '#fff',
                                 borderRadius: 4,
                                 border: 'none',
                                 cursor: 'pointer',
+                                fontWeight: 500,
                               }}
                               title="Kích hoạt & Đồng bộ Firebase UID cho tài khoản này"
                             >
-                              {syncingUidUserId === u.id ? 'Đang cấp...' : 'Cấp UID'}
+                              {syncingUidUserId === u.id ? 'Đang kích hoạt...' : 'Kích hoạt ngay'}
                             </button>
                           )}
                         </div>
