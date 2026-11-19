@@ -21,7 +21,7 @@ import {
   browserLocalPersistence,
   browserSessionPersistence,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import {
   verifyPasswordClient,
   INITIAL_SEED_ADMIN_HASH,
@@ -545,7 +545,7 @@ registerMockCommands({
           try {
             const usersSnap = await getDocs(collection(firestoreDb, 'users'));
             const matchingDoc = usersSnap.docs.find(
-              (d) => String(d.data().ten_dang_nhap || '').toLowerCase() === normalizedU
+              (d: any) => String(d.data().ten_dang_nhap || '').toLowerCase() === normalizedU
             );
             if (matchingDoc && matchingDoc.id.length >= 20) {
               resolvedUid = matchingDoc.id;

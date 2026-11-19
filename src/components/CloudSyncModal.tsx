@@ -375,9 +375,13 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
                 ● Đã kết nối Firebase Auth
               </span>
+            ) : authCheckingTimedOut ? (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                ● Chưa liên kết phiên Firebase Auth
+              </span>
             ) : (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                ⚠ Đang chờ xác thực Firebase
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">
+                ⚠ Đang kiểm tra Firebase Auth...
               </span>
             )}
           </div>
@@ -393,10 +397,30 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
             <div className="flex items-center justify-between gap-2">
               <span className="text-slate-500 font-medium">Firebase UID:</span>
               <span className="font-mono text-[10px] text-slate-600 truncate text-right" title={authInfo.uid || ''}>
-                {authInfo.uid ? (authInfo.uid.length > 20 ? `${authInfo.uid.slice(0, 10)}...${authInfo.uid.slice(-6)}` : authInfo.uid) : 'Đang đồng bộ...'}
+                {authInfo.uid
+                  ? (authInfo.uid.length > 20 ? `${authInfo.uid.slice(0, 10)}...${authInfo.uid.slice(-6)}` : authInfo.uid)
+                  : authCheckingTimedOut
+                  ? <span className="text-rose-600 font-semibold">Chưa có UID</span>
+                  : 'Đang kiểm tra...'}
               </span>
             </div>
           </div>
+
+          {authCheckingTimedOut && !authInfo.isReady && (
+            <div className="bg-rose-50 border border-rose-200 rounded-lg p-2.5 flex items-center justify-between gap-2 text-rose-700 text-[11px]">
+              <div>
+                <p className="font-semibold">Phiên đăng nhập chưa được liên kết Firebase Auth.</p>
+                <p className="text-rose-600 text-[10px]">Vui lòng đăng nhập lại để hệ thống cấp Firebase UID và cho phép đồng bộ Cloud.</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleRelogin}
+                className="shrink-0 px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded text-[11px] font-medium transition cursor-pointer"
+              >
+                Đăng nhập lại
+              </button>
+            </div>
+          )}
 
           <div className="text-slate-500 flex items-center justify-between pt-1 border-t border-slate-200/60 text-[11px]">
             <span>Đồng bộ gần nhất: <strong>{lastSynced || 'Chưa thực hiện trên thiết bị này'}</strong></span>
