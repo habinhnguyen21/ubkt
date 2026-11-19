@@ -8,6 +8,7 @@ import {
   onSnapshot,
   writeBatch,
   runTransaction,
+  serverTimestamp,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db as firestoreDb, auth } from './firebase';
@@ -15,6 +16,7 @@ import { isSameData, captureActiveInput, restoreActiveInput } from '../utils/syn
 import { sanitizeUserForCloud } from '../utils/passwordCrypto';
 import { sessionStore } from '../utils/sessionStore';
 import { cloudSyncService } from './cloudSyncService';
+import { indexedDbStorage } from './indexedDbStorage';
 import type {
   DonVi,
   ChuongTrinhKtGs,
@@ -253,6 +255,12 @@ function persistCacheToLocalStorage() {
     localStorage.setItem('ubkt_bao_cao_thang', JSON.stringify(memoryCache.baoCaoThangList));
     localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(memoryCache.phanCongList));
     localStorage.setItem('ubkt_tombstones', JSON.stringify(Array.from(memoryCache.tombstones)));
+
+    // Đồng bộ đồng thời vào IndexedDB để thiết bị di động / máy mới luôn có dữ liệu đầy đủ
+    indexedDbStorage.setItem('ubkt_mock_db', mockDb).catch(() => {});
+    indexedDbStorage.setItem('ubkt_ho_so_dia_ban_records', memoryCache.hoSoDiaBanRecords).catch(() => {});
+    indexedDbStorage.setItem('ubkt_ho_so_dia_ban_files', memoryCache.hoSoDiaBanFiles).catch(() => {});
+    indexedDbStorage.setItem('ubkt_bao_cao_thang', memoryCache.baoCaoThangList).catch(() => {});
   } catch (err) {
     console.warn('[CentralData] Lỗi lưu cache localStorage:', err);
   }
@@ -569,6 +577,27 @@ export const centralDataService = {
                 items.push({ ...cleanUser, id: d.id });
               }
             });
+            const myUid = auth.currentUser?.uid;
+            if (myUid) {
+              const myDoc = snap.docs.find((d) => d.id === myUid);
+              if (myDoc) {
+                const myData = myDoc.data();
+                const cloudReadIds = myData?.readNotificationIds || myData?.dismissed_reminders;
+                if (Array.isArray(cloudReadIds)) {
+                  const cur = sessionStore.getCurrentUser();
+                  if (cur && cur.id === myUid) {
+                    cur.readNotificationIds = cloudReadIds;
+                    cur.dismissed_reminders = cloudReadIds;
+                    sessionStore.setCurrentUser(cur);
+                    try {
+                      localStorage.setItem(`ubkt_dismissed_reminders_${myUid}`, JSON.stringify(cloudReadIds));
+                    } catch {}
+                    window.dispatchEvent(new CustomEvent('ubkt_reminders_sync'));
+                  }
+                }
+              }
+            }
+
             if (isSameData(memoryCache.users, items)) return;
             memoryCache.users = items;
             persistCacheToLocalStorage();
@@ -587,7 +616,22 @@ export const centralDataService = {
           (docSnap) => {
             if (docSnap.metadata.hasPendingWrites) return;
             if (!docSnap.exists()) return;
-            const cleanUser = sanitizeUserForCloud(docSnap.data() as Record<string, any>) as User;
+            const selfData = docSnap.data();
+            const cloudReadIds = selfData?.readNotificationIds || selfData?.dismissed_reminders;
+            if (Array.isArray(cloudReadIds)) {
+              const cur = sessionStore.getCurrentUser();
+              if (cur && cur.id === currentUid) {
+                cur.readNotificationIds = cloudReadIds;
+                cur.dismissed_reminders = cloudReadIds;
+                sessionStore.setCurrentUser(cur);
+                try {
+                  localStorage.setItem(`ubkt_dismissed_reminders_${currentUid}`, JSON.stringify(cloudReadIds));
+                } catch {}
+                window.dispatchEvent(new CustomEvent('ubkt_reminders_sync'));
+              }
+            }
+
+            const cleanUser = sanitizeUserForCloud(selfData as Record<string, any>) as User;
             const selfItem = { ...cleanUser, id: docSnap.id };
             const idx = memoryCache.users.findIndex((u) => u.id === selfItem.id);
             if (idx !== -1) {
@@ -643,35 +687,50 @@ export const centralDataService = {
   ): Promise<T> {
     if (!id) throw new Error('ID bản ghi không hợp lệ');
 
-    const now = new Date().toISOString();
-    const actorName = (data as any).updated_by || getCurrentUserName();
-    const cleanPayload: any = {
-      ...data,
-      id,
-      updated_at: now,
-      updated_by: actorName,
-      is_deleted: false,
-    };
-    if (!cleanPayload.created_at) {
-      cleanPayload.created_at = now;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ubkt_saving_start'));
     }
+
+    try {
+      const now = new Date().toISOString();
+      const currentUser = sessionStore.getCurrentUser();
+      const currentUserId = currentUser?.id || auth.currentUser?.uid || 'unknown';
+      const actorName = (data as any).updated_by_name || currentUser?.ho_ten || (data as any).updated_by || getCurrentUserName();
+      const cleanPayload: any = {
+        ...data,
+        id,
+        updated_at: now,
+        updated_by: currentUserId,
+        updated_by_name: actorName,
+        is_deleted: false,
+      };
+      if (!cleanPayload.created_at) {
+        cleanPayload.created_at = now;
+        cleanPayload.created_by = currentUserId;
+      }
 
     // Gỡ bỏ undefined để tránh lỗi Firestore
     Object.keys(cleanPayload).forEach((k) => {
       if (cleanPayload[k] === undefined) delete cleanPayload[k];
     });
 
-    // Không bao giờ đẩy bất kỳ trường mật khẩu nào lên Firestore collection users
+    // Không bao giờ đẩy bất kỳ trường mật khẩu hay trường phiên nào lên Firestore collection users
     const firestorePayload: any = { ...cleanPayload };
     if (collectionName === 'users') {
       delete cleanPayload.mat_khau;
       delete cleanPayload.mat_khau_hash;
       delete cleanPayload.password;
       delete cleanPayload.passwordHash;
+      delete cleanPayload.activeSessionId;
+      delete cleanPayload.lastLoginDevice;
+      delete cleanPayload.lastActiveAt;
       delete firestorePayload.mat_khau;
       delete firestorePayload.mat_khau_hash;
       delete firestorePayload.password;
       delete firestorePayload.passwordHash;
+      delete firestorePayload.activeSessionId;
+      delete firestorePayload.lastLoginDevice;
+      delete firestorePayload.lastActiveAt;
       firestorePayload.mat_khau = deleteField();
       firestorePayload.mat_khau_hash = deleteField();
     }
@@ -682,6 +741,7 @@ export const centralDataService = {
       cleanPayload.sessionId = currentSessionId;
       firestorePayload.sessionId = currentSessionId;
     }
+    firestorePayload.server_updated_at = serverTimestamp();
 
     const docRef = doc(firestoreDb, collectionName, id);
 
@@ -804,7 +864,12 @@ export const centralDataService = {
     persistCacheToLocalStorage();
 
     return cleanPayload;
-  },
+  } finally {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ubkt_saving_end'));
+    }
+  }
+},
 
   /**
    * Ghi tự động hồ sơ địa bàn trong nền (không do người dùng trực tiếp bấm lưu).

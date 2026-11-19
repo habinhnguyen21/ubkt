@@ -12,6 +12,7 @@ import { db as firestoreDb, auth, ensureFirebaseAuthReady } from './firebase';
 import { isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import { sanitizeUserForCloud } from '../utils/passwordCrypto';
 import { sessionStore } from '../utils/sessionStore';
+import { indexedDbStorage } from './indexedDbStorage';
 import type {
   DonVi,
   ChuongTrinhKtGs,
@@ -209,6 +210,9 @@ export const cloudSyncService = {
         delete cleanData.mat_khau_hash;
         delete cleanData.password;
         delete cleanData.passwordHash;
+        delete cleanData.activeSessionId;
+        delete cleanData.lastLoginDevice;
+        delete cleanData.lastActiveAt;
         cleanData.mat_khau = deleteField();
         cleanData.mat_khau_hash = deleteField();
       } else {
@@ -372,6 +376,9 @@ export const cloudSyncService = {
                 delete clean.mat_khau_hash;
                 delete clean.password;
                 delete clean.passwordHash;
+                delete clean.activeSessionId;
+                delete clean.lastLoginDevice;
+                delete clean.lastActiveAt;
                 clean.mat_khau = deleteField();
                 clean.mat_khau_hash = deleteField();
               } else if (currentSessionId) {
@@ -1040,18 +1047,7 @@ export const cloudSyncService = {
           // Gỡ bỏ vĩnh viễn khỏi Firestore Cloud nếu đã xóa
           this.deleteItemFromCloud('don_vi', cloudItem.id).catch(() => {});
         } else {
-          const localItem = donViMap.get(cloudItem.id);
-          if (!localItem) {
-            donViMap.set(cloudItem.id, cloudItem);
-          } else {
-            const cloudTime = new Date(cloudItem.updated_at || cloudItem.created_at || 0).getTime();
-            const localTime = new Date(localItem.updated_at || localItem.created_at || 0).getTime();
-            if (cloudTime > localTime) {
-              donViMap.set(cloudItem.id, cloudItem);
-            } else if (localTime > cloudTime) {
-              itemsToPushToCloud.push({ collection: 'don_vi', id: localItem.id, data: localItem });
-            }
-          }
+          donViMap.set(cloudItem.id, cloudItem);
         }
       });
 
@@ -1078,18 +1074,7 @@ export const cloudSyncService = {
           ctMap.delete(cloudItem.id);
           this.deleteItemFromCloud('chuong_trinh', cloudItem.id).catch(() => {});
         } else {
-          const localItem = ctMap.get(cloudItem.id);
-          if (!localItem) {
-            ctMap.set(cloudItem.id, cloudItem);
-          } else {
-            const cloudTime = new Date((cloudItem as any).updated_at || (cloudItem as any).created_at || 0).getTime();
-            const localTime = new Date((localItem as any).updated_at || (localItem as any).created_at || 0).getTime();
-            if (cloudTime > localTime) {
-              ctMap.set(cloudItem.id, cloudItem);
-            } else if (localTime > cloudTime) {
-              itemsToPushToCloud.push({ collection: 'chuong_trinh', id: localItem.id, data: localItem });
-            }
-          }
+          ctMap.set(cloudItem.id, cloudItem);
         }
       });
 
@@ -1116,24 +1101,7 @@ export const cloudSyncService = {
           // Gỡ bỏ vĩnh viễn khỏi Firestore Cloud
           this.deleteItemFromCloud('ho_so_dia_ban_records', c.id).catch(() => {});
         } else {
-          const local = diaBanMap.get(c.id);
-          if (!local) {
-            diaBanMap.set(c.id, c);
-          } else {
-            const cTime = new Date(c.updated_at || c.thoi_gian_tao || 0).getTime();
-            const lTime = new Date(local.updated_at || local.thoi_gian_tao || 0).getTime();
-            if (cTime > lTime) {
-              diaBanMap.set(c.id, c);
-            } else if (lTime > cTime) {
-              const curUser = sessionStore.getCurrentUser();
-              const canPush =
-                isAdminSync ||
-                Boolean(curUser && (local.can_bo_phu_trach_id === curUser.id || local.can_bo_phu_trach_ids?.includes(curUser.id)));
-              if (canPush) {
-                itemsToPushToCloud.push({ collection: 'ho_so_dia_ban_records', id: local.id, data: local });
-              }
-            }
-          }
+          diaBanMap.set(c.id, c);
         }
       });
       const cloudDbSet = new Set(cloudDiaBan.map((d) => d.id));
@@ -1394,7 +1362,11 @@ export const cloudSyncService = {
       const mockDbChanged = donViChanged || ctChanged || pdfChanged || donThuChanged || usersChanged;
       if (mockDbChanged || !silent) {
         localStorage.setItem('ubkt_mock_db', JSON.stringify(currentMockDb));
+        indexedDbStorage.setItem('ubkt_mock_db', currentMockDb).catch(() => {});
       }
+      indexedDbStorage.setItem('ubkt_ho_so_dia_ban_records', mergedDiaBan).catch(() => {});
+      indexedDbStorage.setItem('ubkt_ho_so_dia_ban_files', mergedFiles).catch(() => {});
+      indexedDbStorage.setItem('ubkt_bao_cao_thang', mergedBc).catch(() => {});
 
       // Đẩy các mục mới ở máy này lên Cloud (lọc theo quyền hạn của vai trò hiện tại để không vi phạm Firestore Rules)
       const filteredItemsToPush = itemsToPushToCloud.filter((item) => {

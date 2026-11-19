@@ -195,7 +195,9 @@ export function generateSecurePassword(length = 12): string {
 
 /**
  * Loại bỏ hoàn toàn mọi trường mật khẩu (mat_khau, mat_khau_hash, password, passwordHash)
- * trước khi lưu hoặc đồng bộ lên Firestore Cloud (xác thực do Firebase Authentication đảm nhiệm).
+ * và các trường phiên làm việc (activeSessionId, lastLoginDevice, lastActiveAt)
+ * trước khi lưu hoặc đồng bộ lên Firestore Cloud (xác thực do Firebase Authentication đảm nhiệm,
+ * phiên làm việc do hàm login quản lý độc quyền).
  */
 export function sanitizeUserForCloud<T extends Record<string, any>>(
   user: T
@@ -206,11 +208,15 @@ export function sanitizeUserForCloud<T extends Record<string, any>>(
   delete copy.mat_khau_hash;
   delete copy.password;
   delete copy.passwordHash;
+  delete copy.activeSessionId;
+  delete copy.lastLoginDevice;
+  delete copy.lastActiveAt;
   return copy as Omit<T, 'mat_khau' | 'mat_khau_hash' | 'password' | 'passwordHash'>;
 }
 
 /**
- * Loại bỏ cả mat_khau và mat_khau_hash trước khi trả thông tin User về giao diện.
+ * Loại bỏ mat_khau, mat_khau_hash và các trường phiên (activeSessionId, lastLoginDevice, lastActiveAt)
+ * trước khi trả thông tin User về giao diện hoặc lưu vào bản sao người dùng cục bộ.
  */
 export function stripSecretsFromUser<T extends Record<string, any>>(
   user: T
@@ -219,6 +225,11 @@ export function stripSecretsFromUser<T extends Record<string, any>>(
   const copy: Record<string, any> = { ...user };
   delete copy.mat_khau;
   delete copy.mat_khau_hash;
+  delete copy.password;
+  delete copy.passwordHash;
+  delete copy.activeSessionId;
+  delete copy.lastLoginDevice;
+  delete copy.lastActiveAt;
   return copy as Omit<T, 'mat_khau' | 'mat_khau_hash'>;
 }
 

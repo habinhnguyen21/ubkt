@@ -2,6 +2,8 @@ import type { DiaBanRecord, HoSoDiaBanFile, PhanCongDiaBan } from '../../types';
 import { centralDataService } from '../centralDataService';
 import { registerMockCommands, requestApi, saveMockDb } from './core';
 import { sessionStore } from '../../utils/sessionStore';
+import { writeBatch, doc } from 'firebase/firestore';
+import { db as firestoreDb } from '../firebase';
 
 registerMockCommands({
   get_dia_ban_records: async (db) => {
@@ -123,24 +125,42 @@ registerMockCommands({
       action_info?: { hanh_dong: string; du_lieu_cu?: any; du_lieu_moi?: any };
     };
 
-    // 1. Xóa các document phan_cong_dia_ban không còn tồn tại khỏi Firestore và memoryCache
+    // 1. Áp dụng Atomic writeBatch cho toàn bộ danh sách phân công
+    const batch = writeBatch(firestoreDb);
+    const now = new Date().toISOString();
+    const currentSessionId = sessionStore.getSessionId();
     const existing = centralDataService.getPhanCongList();
     const newIds = new Set((assignments || []).map((a) => a.user_id));
+
     for (const ex of existing) {
       const exId = ex.id || ex.user_id;
       if (exId && !newIds.has(exId)) {
-        await centralDataService.deleteDoc('phan_cong_dia_ban', exId, actor_name);
+        const ref = doc(firestoreDb, 'phan_cong_dia_ban', exId);
+        batch.delete(ref);
+        centralDataService._removeMemoryCacheItem('phan_cong_dia_ban', exId);
       }
     }
 
-    // 2. Lưu danh sách phân công mới
     localStorage.setItem('ubkt_phan_cong_dia_ban', JSON.stringify(assignments || []));
+
     for (const as of assignments || []) {
-      await centralDataService.saveDoc('phan_cong_dia_ban', as.user_id, {
+      const asId = as.id || as.user_id;
+      const ref = doc(firestoreDb, 'phan_cong_dia_ban', asId);
+      const payload: any = {
         ...as,
-        id: as.id || as.user_id,
-      });
+        id: asId,
+        user_id: as.user_id,
+        updated_at: now,
+        updated_by: currentUser?.id || user_id || 'ADMIN',
+      };
+      if (currentSessionId) {
+        payload.sessionId = currentSessionId;
+      }
+      batch.set(ref, payload, { merge: true });
+      centralDataService._updateMemoryCacheItem('phan_cong_dia_ban', payload);
     }
+
+    await batch.commit();
 
     // 3. Ghi audit log nếu có thông tin hành động
     if (action_info && action_info.hanh_dong) {

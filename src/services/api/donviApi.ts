@@ -166,6 +166,22 @@ registerMockCommands({
       thoi_gian: new Date().toISOString(),
     });
     saveMockDb(db);
+    await centralDataService.saveDoc('don_vi', item.id, item);
+
+    // Đồng bộ trạng thái sang Hồ sơ địa bàn tương ứng nếu có
+    try {
+      const rawRecords = localStorage.getItem('ubkt_ho_so_dia_ban_records');
+      if (rawRecords) {
+        const recs = JSON.parse(rawRecords);
+        const rIdx = recs.findIndex((r: any) => r.id === item.id);
+        if (rIdx >= 0) {
+          recs[rIdx].trang_thai_to_chuc = trang_thai;
+          localStorage.setItem('ubkt_ho_so_dia_ban_records', JSON.stringify(recs));
+          await centralDataService.saveBackgroundDiaBanRecord(item.id, recs[rIdx], ['trang_thai_to_chuc']);
+        }
+      }
+    } catch {}
+
     return item;
   },
 

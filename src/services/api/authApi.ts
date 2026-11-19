@@ -19,6 +19,7 @@ import {
   reauthenticateWithCredential,
   setPersistence,
   browserLocalPersistence,
+  browserSessionPersistence,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import {
@@ -41,9 +42,12 @@ registerMockCommands({
 
     if (typeof window !== 'undefined') {
       try {
-        await setPersistence(auth, browserLocalPersistence);
+        const persistence = req.ghi_nho
+          ? browserLocalPersistence
+          : browserSessionPersistence;
+        await setPersistence(auth, persistence);
       } catch (pErr) {
-        console.warn('[Auth] Không thể thiết lập browserLocalPersistence cho Firebase Auth:', pErr);
+        console.warn('[Auth] Không thể thiết lập persistence cho Firebase Auth:', pErr);
       }
     }
 
@@ -286,6 +290,9 @@ registerMockCommands({
     if (user) {
       delete (user as any).mat_khau;
       delete (user as any).mat_khau_hash;
+      delete (user as any).activeSessionId;
+      delete (user as any).lastLoginDevice;
+      delete (user as any).lastActiveAt;
       user.must_change_password = false;
       user.updated_at = new Date().toISOString();
       saveMockDb(db);
@@ -441,6 +448,10 @@ registerMockCommands({
       user.chuc_danh = req.chuc_danh;
     }
     delete user.mat_khau;
+    delete (user as any).mat_khau_hash;
+    delete (user as any).activeSessionId;
+    delete (user as any).lastLoginDevice;
+    delete (user as any).lastActiveAt;
     user.updated_at = new Date().toISOString();
     saveMockDb(db);
     await centralDataService.saveDoc('users', user.id, sanitizeUserForCloud(user));

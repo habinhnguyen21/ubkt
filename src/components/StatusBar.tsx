@@ -1,7 +1,6 @@
-import React from 'react';
-import { Database, RefreshCw, Wifi, Clock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Database, RefreshCw, Wifi, WifiOff, Clock } from 'lucide-react';
 import type { AppInfo } from '../types';
-
 
 interface StatusBarProps {
   appInfo: AppInfo | null;
@@ -10,41 +9,84 @@ interface StatusBarProps {
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({ appInfo, onRefresh, isSyncing }) => {
-  const [time, setTime] = React.useState(new Date().toLocaleTimeString('vi-VN'));
+  const [time, setTime] = useState(new Date().toLocaleTimeString('vi-VN'));
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [isSaving, setIsSaving] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const timer = setInterval(() => {
       setTime(new Date().toLocaleTimeString('vi-VN'));
     }, 1000);
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    const handleSavingStart = () => setIsSaving(true);
+    const handleSavingEnd = () => setIsSaving(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('ubkt_saving_start', handleSavingStart);
+    window.addEventListener('ubkt_saving_end', handleSavingEnd);
+    window.addEventListener('ubkt_silent_sync_start', handleSavingStart);
+    window.addEventListener('ubkt_silent_sync_end', handleSavingEnd);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('ubkt_saving_start', handleSavingStart);
+      window.removeEventListener('ubkt_saving_end', handleSavingEnd);
+      window.removeEventListener('ubkt_silent_sync_start', handleSavingStart);
+      window.removeEventListener('ubkt_silent_sync_end', handleSavingEnd);
+    };
+  }, []);
+
+  const isBusy = isSyncing || isSaving;
+
   return (
     <footer className="fixed bottom-0 left-0 right-0 h-8 bg-slate-900 border-t border-slate-700 text-slate-300 text-xs px-4 flex items-center justify-between select-none z-40">
       <div className="flex items-center space-x-4">
-        {/* Chế độ Trực tuyến Full Online */}
-        <div className="flex items-center space-x-1.5 text-emerald-400 font-medium">
-          <Database className="w-3.5 h-3.5" />
-          <span>Hệ thống Trực tuyến (Online Server)</span>
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block ml-1 shadow-[0_0_8px_#34d399]"></span>
-        </div>
+        {/* Trạng thái đồng bộ thời gian thực theo yêu cầu */}
+        {!isOnline ? (
+          <div className="flex items-center space-x-1.5 text-rose-400 font-medium">
+            <WifiOff className="w-3.5 h-3.5 text-rose-400" />
+            <span>Mất kết nối mạng</span>
+            <span className="w-2 h-2 rounded-full bg-rose-500 inline-block ml-1"></span>
+          </div>
+        ) : isBusy ? (
+          <div className="flex items-center space-x-1.5 text-amber-400 font-medium">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+            <span>Đang lưu thay đổi...</span>
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse inline-block ml-1"></span>
+          </div>
+        ) : (
+          <div className="flex items-center space-x-1.5 text-emerald-400 font-medium">
+            <Database className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Trực tuyến - Đồng bộ tức thì</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block ml-1 shadow-[0_0_8px_#34d399]"></span>
+          </div>
+        )}
 
         <span className="text-slate-600">|</span>
 
-        {/* Trạng thái kết nối máy chủ */}
-        <div className="flex items-center space-x-1.5">
-          <Wifi className="w-3.5 h-3.5 text-sky-400" />
-          <span>Kết nối máy chủ:</span>
-          <span className="text-emerald-300 font-semibold">Trực tuyến 100%</span>
+        {/* Trạng thái mạng */}
+        <div className="flex items-center space-x-1.5 text-slate-400">
+          <Wifi className={`w-3.5 h-3.5 ${isOnline ? 'text-sky-400' : 'text-slate-500'}`} />
+          <span>Máy chủ:</span>
+          <span className={isOnline ? 'text-emerald-300 font-semibold' : 'text-rose-400 font-semibold'}>
+            {isOnline ? 'Đã kết nối' : 'Ngoại tuyến'}
+          </span>
         </div>
 
         <button
           onClick={onRefresh}
-          disabled={isSyncing}
+          disabled={isBusy}
           className="flex items-center space-x-1 text-slate-300 hover:text-white hover:bg-slate-800 px-2 py-0.5 rounded transition"
           title="Kiểm tra và nạp lại dữ liệu"
         >
-          <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-amber-400' : ''}`} />
+          <RefreshCw className={`w-3 h-3 ${isBusy ? 'animate-spin text-amber-400' : ''}`} />
           <span>Làm mới</span>
         </button>
       </div>

@@ -1,4 +1,5 @@
 import type { User } from '../types';
+import { stripSecretsFromUser } from './passwordCrypto';
 
 /**
  * Hằng số cấu hình thời gian tự động khóa phiên làm việc khi không có thao tác (15 phút).
@@ -79,7 +80,8 @@ export function getCurrentUser(): User | null {
  */
 export function setCurrentUser(user: User): void {
   if (typeof window === 'undefined') return;
-  const str = JSON.stringify(user);
+  const cleanUser = stripSecretsFromUser(user);
+  const str = JSON.stringify(cleanUser);
   try {
     if (sessionStorage.getItem(SESSION_KEYS.USER)) {
       sessionStorage.setItem(SESSION_KEYS.USER, str);
@@ -178,7 +180,8 @@ export function setSessionId(sessionId: string): void {
 export function saveSession(user: User, token: string, rememberMe: boolean, sessionId?: string): void {
   if (typeof window === 'undefined') return;
   const now = Date.now().toString();
-  const userStr = JSON.stringify(user);
+  const cleanUser = stripSecretsFromUser(user);
+  const userStr = JSON.stringify(cleanUser);
   const sId = sessionId || generateSessionId();
   lastRecordedActivityTime = Date.now();
 
