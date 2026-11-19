@@ -3,6 +3,9 @@ import { api } from '../services/api';
 import { validatePasswordPolicy } from '../utils/passwordCrypto';
 import type { User } from '../types';
 import { KeyRound, ShieldCheck, AlertCircle, X } from 'lucide-react';
+import { auth, usernameToAuthEmail } from '../services/firebase';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { sessionStore } from '../utils/sessionStore';
 
 
 interface ChangePasswordModalProps {
@@ -42,11 +45,37 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     setLoading(true);
 
     try {
+      // Trước khi đổi mật khẩu: nếu auth.currentUser đang null, tự động xác thực / tạo phiên Firebase Auth
+      if (!auth.currentUser && user?.ten_dang_nhap) {
+        const authEmail = usernameToAuthEmail(user.ten_dang_nhap);
+        try {
+          await signInWithEmailAndPassword(auth, authEmail, oldPassword);
+        } catch (signInErr: any) {
+          const code = signInErr?.code || '';
+          if (code === 'auth/user-not-found' || code === 'auth/invalid-credential') {
+            try {
+              await createUserWithEmailAndPassword(auth, authEmail, oldPassword);
+            } catch (createErr: any) {
+              if (createErr?.code === 'auth/email-already-in-use') {
+                throw new Error('Mật khẩu hiện tại không chính xác');
+              }
+            }
+          }
+        }
+      }
+
       await api.changePassword({
         user_id: user.id,
         mat_khau_cu: oldPassword,
         mat_khau_moi: newPassword,
       });
+
+      const updatedUser: User = {
+        ...user,
+        must_change_password: false,
+      };
+      sessionStore.setCurrentUser(updatedUser);
+
       onSuccess();
     } catch (err: unknown) {
       if (err instanceof Error) {

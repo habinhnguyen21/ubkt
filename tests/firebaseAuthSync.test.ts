@@ -100,4 +100,12 @@ describe('Firebase Auth Synchronization & Mobile Fallback Handling', () => {
     });
     expect(summary.authReady).toBe(false);
   });
+
+  it('5. usernameToAuthEmail chuẩn hóa username và mapping sang email @ubkt.local chính xác', async () => {
+    const { usernameToAuthEmail } = await import('../src/services/firebase');
+    expect(usernameToAuthEmail('admin')).toBe('admin@ubkt.local');
+    expect(usernameToAuthEmail('  HaHoangBinhNguyen ')).toBe('hahoangbinhnguyen@ubkt.local');
+    expect(usernameToAuthEmail('user@gmail.com')).toBe('user@gmail.com');
+    expect(usernameToAuthEmail('')).toBe('');
+  });
 });

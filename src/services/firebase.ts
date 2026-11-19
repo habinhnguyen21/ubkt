@@ -1,7 +1,7 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getAnalytics, isSupported as isAnalyticsSupported, type Analytics } from 'firebase/analytics';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth, setPersistence, browserLocalPersistence, type Auth } from 'firebase/auth';
+import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence, type Auth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 import { getFunctions, type Functions } from 'firebase/functions';
 
@@ -100,7 +100,11 @@ const SECONDARY_APP_NAME = 'SecondaryAdminAuthApp';
 export function getSecondaryAuth(): Auth {
   const existing = getApps().find((a) => a.name === SECONDARY_APP_NAME);
   const secondaryApp = existing || initializeApp(firebaseConfig, SECONDARY_APP_NAME);
-  return getAuth(secondaryApp);
+  const secAuth = getAuth(secondaryApp);
+  if (typeof window !== 'undefined') {
+    setPersistence(secAuth, inMemoryPersistence).catch(() => {});
+  }
+  return secAuth;
 }
 
 // Analytics (Chỉ kích hoạt trên trình duyệt hỗ trợ)

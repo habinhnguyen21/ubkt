@@ -68,12 +68,11 @@ registerMockCommands({
         code === 'auth/invalid-credential' ||
         code === 'auth/invalid-login-credentials';
 
-      if (isNotFoundOrInvalid && legacyUser) {
+      if (isNotFoundOrInvalid) {
         let isLegacyValid = false;
-        if (legacyUser.mat_khau_hash) {
+        if (legacyUser?.mat_khau_hash) {
           isLegacyValid = await verifyPasswordClient(req.mat_khau, legacyUser.mat_khau_hash);
-        }
-        if (!isLegacyValid && legacyUser.mat_khau) {
+        } else if (legacyUser?.mat_khau) {
           const legacyVal = String(legacyUser.mat_khau);
           if (
             legacyVal.startsWith('$2a$') ||
@@ -85,15 +84,17 @@ registerMockCommands({
           } else if (legacyVal === req.mat_khau) {
             isLegacyValid = true;
           }
-        }
-        if (
-          !isLegacyValid &&
-          legacyUser.ten_dang_nhap.toLowerCase() === 'admin' &&
+        } else if (
+          legacyUser?.ten_dang_nhap.toLowerCase() === 'admin' &&
           legacyUser.must_change_password &&
           !legacyUser.mat_khau_hash &&
           !legacyUser.mat_khau
         ) {
           isLegacyValid = await verifyPasswordClient(req.mat_khau, INITIAL_SEED_ADMIN_HASH);
+        } else {
+          // Người dùng trong hệ thống nhưng chưa được tạo trên Firebase Auth:
+          // Thử tự động tạo tài khoản trên Firebase Auth với mật khẩu người dùng vừa nhập
+          isLegacyValid = true;
         }
 
         if (isLegacyValid) {
@@ -104,8 +105,16 @@ registerMockCommands({
               req.mat_khau
             );
             firebaseUser = createdCred.user;
-          } catch {
-            throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
+          } catch (createErr: any) {
+            const createCode = createErr?.code || '';
+            if (createCode === 'auth/email-already-in-use') {
+              // Tài khoản đã có trên Firebase Auth nhưng đăng nhập thất bại -> sai mật khẩu
+              throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
+            }
+            if (createCode === 'auth/weak-password') {
+              throw new Error('Mật khẩu quá ngắn (yêu cầu tối thiểu 6 ký tự trên Firebase Auth)');
+            }
+            console.warn('[Auth] Không thể tạo tài khoản tự động trên Firebase Auth:', createErr);
           }
         }
       }
@@ -231,7 +240,34 @@ registerMockCommands({
       throw new Error(policyError);
     }
 
-    const currentAuthUser = auth.currentUser;
+    let currentAuthUser = auth.currentUser;
+    // Nếu auth.currentUser đang null hoặc chưa có email, tự động khôi phục xác thực bằng mat_khau_cu
+    if (!currentAuthUser || !currentAuthUser.email) {
+      const userObj = db.users.find((u) => u.id === req.user_id) || db.users.find((u) => u.id === auth.currentUser?.uid);
+      const username = userObj?.ten_dang_nhap || sessionStore.getCurrentUser()?.ten_dang_nhap;
+      if (username) {
+        const authEmail = usernameToAuthEmail(username);
+        try {
+          const cred = await signInWithEmailAndPassword(auth, authEmail, req.mat_khau_cu);
+          currentAuthUser = cred.user;
+        } catch (signInErr: any) {
+          const code = signInErr?.code || '';
+          if (code === 'auth/user-not-found' || code === 'auth/invalid-credential') {
+            try {
+              const createdCred = await createUserWithEmailAndPassword(auth, authEmail, req.mat_khau_cu);
+              currentAuthUser = createdCred.user;
+            } catch (createErr: any) {
+              if (createErr?.code === 'auth/email-already-in-use') {
+                throw new Error('Mật khẩu hiện tại không chính xác');
+              }
+            }
+          } else {
+            throw new Error('Mật khẩu hiện tại không chính xác');
+          }
+        }
+      }
+    }
+
     if (!currentAuthUser || !currentAuthUser.email) {
       throw new Error('Phiên đăng nhập Firebase Auth không hợp lệ. Vui lòng đăng nhập lại.');
     }
@@ -253,6 +289,7 @@ registerMockCommands({
       user.must_change_password = false;
       user.updated_at = new Date().toISOString();
       saveMockDb(db);
+      sessionStore.setCurrentUser(user);
       await centralDataService
         .saveDoc('users', user.id, sanitizeUserForCloud(user))
         .catch(() => {});
