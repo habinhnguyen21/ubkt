@@ -1,10 +1,10 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   setDoc,
   deleteDoc,
-  deleteField,
   onSnapshot,
   writeBatch,
   runTransaction,
@@ -340,6 +340,59 @@ export const centralDataService = {
     currentListeningUid = null;
   },
 
+  /**
+   * Đảm bảo hồ sơ người dùng users/{uid} luôn tồn tại trên Cloud Firestore.
+   * Nếu chưa có (tài khoản mới tạo hoặc di trú từ phiên cũ), tự động khởi tạo ngay để
+   * Firestore Rules không từ chối các thao tác đọc/ghi.
+   */
+  async ensureCurrentUserDoc(): Promise<boolean> {
+    const currentAuth = auth.currentUser;
+    if (!currentAuth) return false;
+    const uid = currentAuth.uid;
+    try {
+      const snap = await getDoc(doc(firestoreDb, 'users', uid));
+      if (!snap.exists()) {
+        console.warn(`[CentralData] Chưa tìm thấy users/${uid} trên Firestore. Tự động khởi tạo từ phiên hiện tại...`);
+        const currentUser = sessionStore.getCurrentUser();
+        const now = new Date().toISOString();
+        const newProfile: User = {
+          id: uid,
+          ten_dang_nhap: currentUser?.ten_dang_nhap || currentAuth.email?.split('@')[0] || uid,
+          ho_ten: currentUser?.ho_ten || 'Cán bộ UBKT',
+          vai_tro: currentUser?.vai_tro || 'BIEN_TAP',
+          chuc_danh: currentUser?.chuc_danh || 'Chuyên viên UBKT',
+          trang_thai: 1,
+          must_change_password: currentUser?.must_change_password ?? false,
+          don_vi_id: currentUser?.don_vi_id || null,
+          pham_vi_quan_ly: currentUser?.pham_vi_quan_ly || null,
+          created_at: currentUser?.created_at || now,
+          updated_at: now,
+        };
+        const currentSessionId = sessionStore.getSessionId();
+        await setDoc(
+          doc(firestoreDb, 'users', uid),
+          {
+            ...sanitizeUserForCloud(newProfile),
+            ...(currentSessionId ? { activeSessionId: currentSessionId } : {}),
+          },
+          { merge: true }
+        );
+        console.info(`[CentralData] Đã tự động khởi tạo document users/${uid} thành công.`);
+      }
+      return true;
+    } catch (err: any) {
+      console.warn(`[CentralData] Lỗi khi kiểm tra/khởi tạo document users/${uid}:`, err);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('ubkt_sync_error', {
+            detail: { message: `Lỗi đồng bộ hồ sơ (${err?.message || 'Quyền bị từ chối'})` },
+          })
+        );
+      }
+      return false;
+    }
+  },
+
   // ── 1. KẾT NỐI REAL-TIME FIRESTORE (onSnapshot cho tất cả bảng) ──────────────
   initRealtimeSync(): () => void {
     if (!auth.currentUser) {
@@ -354,6 +407,9 @@ export const centralDataService = {
     isListening = true;
     currentListeningUid = auth.currentUser.uid;
 
+    // Đảm bảo document users/{uid} đã có sẵn trên Cloud
+    this.ensureCurrentUserDoc().catch(() => {});
+
     const registerOnce = (key: string, subscribeFn: () => Unsubscribe) => {
       const existing = activeListeners.get(key);
       if (existing) {
@@ -362,6 +418,39 @@ export const centralDataService = {
         } catch {}
       }
       activeListeners.set(key, subscribeFn());
+    };
+
+    const handleSnapshotError = async (collectionKey: string, err: any) => {
+      console.warn(`[Realtime] Lỗi lắng nghe ${collectionKey}:`, err);
+      const errMsg = err?.message || String(err);
+      if (cloudSyncService.isPermissionDeniedError(err)) {
+        if (auth.currentUser?.uid) {
+          const recovered = await this.ensureCurrentUserDoc();
+          if (recovered) {
+            console.info(`[Realtime] Đã phục hồi users/${auth.currentUser.uid}, tiếp tục đồng bộ...`);
+            return;
+          }
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('ubkt_sync_error', {
+              detail: {
+                message: `Quyền truy cập bị từ chối trên bảng "${collectionKey}". Vui lòng kiểm tra phân quyền.`,
+              },
+            })
+          );
+        }
+      } else {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('ubkt_sync_error', {
+              detail: {
+                message: `Lỗi kết nối thời gian thực "${collectionKey}": ${errMsg.slice(0, 80)}`,
+              },
+            })
+          );
+        }
+      }
     };
 
     console.log('[CentralData] Khởi động Realtime Firestore Listeners (1 listener/collection)...');
@@ -383,7 +472,7 @@ export const centralDataService = {
             persistCacheToLocalStorage();
           }
         },
-        (err) => console.warn('[Realtime] Lỗi lắng nghe tombstones:', err)
+        (err) => handleSnapshotError('tombstones', err)
       )
     );
 
@@ -410,7 +499,7 @@ export const centralDataService = {
           window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
           restoreActiveInput(activeSnap);
         },
-        (err) => console.warn('[Realtime] Lỗi lắng nghe don_vi:', err)
+        (err) => handleSnapshotError('don_vi', err)
       )
     );
 
@@ -434,7 +523,7 @@ export const centralDataService = {
           window.dispatchEvent(new CustomEvent('ubkt_data_synced'));
           restoreActiveInput(activeSnap);
         },
-        (err) => console.warn('[Realtime] Lỗi lắng nghe chuong_trinh:', err)
+        (err) => handleSnapshotError('chuong_trinh', err)
       )
     );
 
@@ -457,7 +546,7 @@ export const centralDataService = {
           window.dispatchEvent(new CustomEvent('ubkt_diaban_records_updated'));
           restoreActiveInput(activeSnap);
         },
-        (err) => console.warn('[Realtime] Lỗi lắng nghe ho_so_dia_ban_records:', err)
+        (err) => handleSnapshotError('ho_so_dia_ban_records', err)
       )
     );
 
@@ -481,7 +570,7 @@ export const centralDataService = {
           window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
           restoreActiveInput(activeSnap);
         },
-        (err) => console.warn('[Realtime] Lỗi lắng nghe ho_so_dia_ban_files:', err)
+        (err) => handleSnapshotError('ho_so_dia_ban_files', err)
       )
     );
 
@@ -505,7 +594,7 @@ export const centralDataService = {
           window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
           restoreActiveInput(activeSnap);
         },
-        (err) => console.warn('[Realtime] Lỗi lắng nghe bao_cao_thang:', err)
+        (err) => handleSnapshotError('bao_cao_thang', err)
       )
     );
 
@@ -528,7 +617,7 @@ export const centralDataService = {
           window.dispatchEvent(new CustomEvent('ubkt_kho_du_lieu_updated'));
           restoreActiveInput(activeSnap);
         },
-        (err) => console.warn('[Realtime] Lỗi lắng nghe pdf_files:', err)
+        (err) => handleSnapshotError('pdf_files', err)
       )
     );
 
@@ -551,102 +640,55 @@ export const centralDataService = {
           window.dispatchEvent(new CustomEvent('ubkt_don_thu_updated'));
           restoreActiveInput(activeSnap);
         },
-        (err) => console.warn('[Realtime] Lỗi lắng nghe don_thu:', err)
+        (err) => handleSnapshotError('don_thu', err)
       )
     );
 
-    // Lắng nghe Users (ADMIN đọc tất cả; người dùng khác chỉ đọc hồ sơ của chính mình; không có trường mật khẩu)
-    if (isCurrentUserAdmin()) {
-      registerOnce('users', () =>
-        onSnapshot(
-          collection(firestoreDb, 'users'),
-          (snap) => {
-            if (snap.metadata.hasPendingWrites) return;
-            const items: User[] = [];
-            snap.docs.forEach((d) => {
-              if (!memoryCache.tombstones.has(d.id)) {
-                const rawData = d.data() as Record<string, any>;
-                if ('mat_khau' in rawData || 'mat_khau_hash' in rawData) {
-                  setDoc(
-                    d.ref,
-                    { mat_khau: deleteField(), mat_khau_hash: deleteField() },
-                    { merge: true }
-                  ).catch(() => {});
-                }
-                const cleanUser = sanitizeUserForCloud(rawData) as User;
-                items.push({ ...cleanUser, id: d.id });
-              }
-            });
-            const myUid = auth.currentUser?.uid;
-            if (myUid) {
-              const myDoc = snap.docs.find((d) => d.id === myUid);
-              if (myDoc) {
-                const myData = myDoc.data();
-                const cloudReadIds = myData?.readNotificationIds || myData?.dismissed_reminders;
-                if (Array.isArray(cloudReadIds)) {
-                  const cur = sessionStore.getCurrentUser();
-                  if (cur && cur.id === myUid) {
-                    cur.readNotificationIds = cloudReadIds;
-                    cur.dismissed_reminders = cloudReadIds;
-                    sessionStore.setCurrentUser(cur);
-                    try {
-                      localStorage.setItem(`ubkt_dismissed_reminders_${myUid}`, JSON.stringify(cloudReadIds));
-                    } catch {}
-                    window.dispatchEvent(new CustomEvent('ubkt_reminders_sync'));
-                  }
+    // Lắng nghe Users (Mọi người dùng đã đăng nhập đều đồng bộ danh sách users)
+    registerOnce('users', () =>
+      onSnapshot(
+        collection(firestoreDb, 'users'),
+        (snap) => {
+          if (snap.metadata.hasPendingWrites) return;
+          const items: User[] = [];
+          snap.docs.forEach((d) => {
+            if (!memoryCache.tombstones.has(d.id)) {
+              const rawData = d.data() as Record<string, any>;
+              const cleanUser = sanitizeUserForCloud(rawData) as User;
+              items.push({ ...cleanUser, id: d.id });
+            }
+          });
+          const myUid = auth.currentUser?.uid;
+          if (myUid) {
+            const myDoc = snap.docs.find((d) => d.id === myUid);
+            if (myDoc) {
+              const myData = myDoc.data();
+              const cloudReadIds = myData?.readNotificationIds || myData?.dismissed_reminders;
+              if (Array.isArray(cloudReadIds)) {
+                const cur = sessionStore.getCurrentUser();
+                if (cur && cur.id === myUid) {
+                  cur.readNotificationIds = cloudReadIds;
+                  cur.dismissed_reminders = cloudReadIds;
+                  sessionStore.setCurrentUser(cur);
+                  try {
+                    localStorage.setItem(`ubkt_dismissed_reminders_${myUid}`, JSON.stringify(cloudReadIds));
+                  } catch {}
+                  window.dispatchEvent(new CustomEvent('ubkt_reminders_sync'));
                 }
               }
             }
+          }
 
-            if (isSameData(memoryCache.users, items)) return;
-            memoryCache.users = items;
-            persistCacheToLocalStorage();
-            const activeSnap = captureActiveInput();
-            window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
-            restoreActiveInput(activeSnap);
-          },
-          (err) => console.warn('[Realtime] Lỗi lắng nghe users:', err)
-        )
-      );
-    } else if (auth.currentUser?.uid) {
-      const currentUid = auth.currentUser.uid;
-      registerOnce('users_self', () =>
-        onSnapshot(
-          doc(firestoreDb, 'users', currentUid),
-          (docSnap) => {
-            if (docSnap.metadata.hasPendingWrites) return;
-            if (!docSnap.exists()) return;
-            const selfData = docSnap.data();
-            const cloudReadIds = selfData?.readNotificationIds || selfData?.dismissed_reminders;
-            if (Array.isArray(cloudReadIds)) {
-              const cur = sessionStore.getCurrentUser();
-              if (cur && cur.id === currentUid) {
-                cur.readNotificationIds = cloudReadIds;
-                cur.dismissed_reminders = cloudReadIds;
-                sessionStore.setCurrentUser(cur);
-                try {
-                  localStorage.setItem(`ubkt_dismissed_reminders_${currentUid}`, JSON.stringify(cloudReadIds));
-                } catch {}
-                window.dispatchEvent(new CustomEvent('ubkt_reminders_sync'));
-              }
-            }
-
-            const cleanUser = sanitizeUserForCloud(selfData as Record<string, any>) as User;
-            const selfItem = { ...cleanUser, id: docSnap.id };
-            const idx = memoryCache.users.findIndex((u) => u.id === selfItem.id);
-            if (idx !== -1) {
-              if (isSameData(memoryCache.users[idx], selfItem)) return;
-              memoryCache.users[idx] = selfItem;
-            } else {
-              memoryCache.users.push(selfItem);
-            }
-            persistCacheToLocalStorage();
-            window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
-          },
-          (err) => console.warn('[Realtime] Lỗi lắng nghe hồ sơ cá nhân:', err)
-        )
-      );
-    }
+          if (isSameData(memoryCache.users, items)) return;
+          memoryCache.users = items;
+          persistCacheToLocalStorage();
+          const activeSnap = captureActiveInput();
+          window.dispatchEvent(new CustomEvent('ubkt_users_updated'));
+          restoreActiveInput(activeSnap);
+        },
+        (err) => handleSnapshotError('users', err)
+      )
+    );
 
     // Lắng nghe Phân công địa bàn
     registerOnce('phan_cong_dia_ban', () =>
@@ -667,7 +709,7 @@ export const centralDataService = {
           window.dispatchEvent(new CustomEvent('ubkt_assignments_updated'));
           restoreActiveInput(activeSnap);
         },
-        (err) => console.warn('[Realtime] Lỗi lắng nghe phan_cong_dia_ban:', err)
+        (err) => handleSnapshotError('phan_cong_dia_ban', err)
       )
     );
 
@@ -731,8 +773,6 @@ export const centralDataService = {
       delete firestorePayload.activeSessionId;
       delete firestorePayload.lastLoginDevice;
       delete firestorePayload.lastActiveAt;
-      firestorePayload.mat_khau = deleteField();
-      firestorePayload.mat_khau_hash = deleteField();
     }
 
     // Đính kèm sessionId hiện tại để Firestore Rules kiểm tra phiên hợp lệ (Single-Session guard)

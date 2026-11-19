@@ -161,6 +161,8 @@ registerMockCommands({
         chuc_danh:
           legacyUser?.chuc_danh ||
           (normalizedU === 'admin' ? 'Chủ nhiệm UBKT' : 'Chuyên viên UBKT'),
+        don_vi_id: legacyUser?.don_vi_id || null,
+        pham_vi_quan_ly: legacyUser?.pham_vi_quan_ly || null,
         trang_thai: legacyUser?.trang_thai ?? 1,
         must_change_password: legacyUser?.must_change_password ?? false,
         created_at: legacyUser?.created_at || now,
@@ -168,7 +170,7 @@ registerMockCommands({
       };
 
       try {
-        await setDoc(doc(firestoreDb, 'users', uid), sanitizeUserForCloud(userProfile));
+        await setDoc(doc(firestoreDb, 'users', uid), sanitizeUserForCloud(userProfile), { merge: true });
         if (oldId && oldId !== uid) {
           const oldPcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(
             () => null
@@ -216,6 +218,7 @@ registerMockCommands({
       await setDoc(
         doc(firestoreDb, 'users', uid),
         {
+          ...sanitizeUserForCloud(userProfile),
           activeSessionId: sessionId,
           lastLoginDevice: userAgent,
           lastActiveAt: serverTimestamp(),
@@ -375,7 +378,12 @@ registerMockCommands({
     };
     db.users.push(newUser);
     saveMockDb(db);
-    await centralDataService.saveDoc('users', newUser.id, sanitizeUserForCloud(newUser));
+    try {
+      await setDoc(doc(firestoreDb, 'users', newUid), sanitizeUserForCloud(newUser));
+    } catch (saveErr) {
+      console.warn('[Auth] Không thể lưu trực tiếp users/{newUid} lên Firestore:', saveErr);
+    }
+    await centralDataService.saveDoc('users', newUser.id, sanitizeUserForCloud(newUser)).catch(() => {});
     const cleanUser = stripSecretsFromUser(newUser);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('ubkt_users_updated', { detail: cleanUser }));

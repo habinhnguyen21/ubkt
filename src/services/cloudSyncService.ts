@@ -151,6 +151,47 @@ export const cloudSyncService = {
     }
   },
 
+  /**
+   * Đảm bảo hồ sơ users/{uid} đã tồn tại trên Firestore
+   */
+  async ensureCurrentUserDoc(): Promise<boolean> {
+    const currentAuth = auth.currentUser;
+    if (!currentAuth) return false;
+    const uid = currentAuth.uid;
+    try {
+      const snap = await getDoc(doc(firestoreDb, 'users', uid));
+      if (!snap.exists()) {
+        const currentUser = sessionStore.getCurrentUser();
+        const now = new Date().toISOString();
+        const newProfile: User = {
+          id: uid,
+          ten_dang_nhap: currentUser?.ten_dang_nhap || currentAuth.email?.split('@')[0] || uid,
+          ho_ten: currentUser?.ho_ten || 'Cán bộ UBKT',
+          vai_tro: currentUser?.vai_tro || 'BIEN_TAP',
+          chuc_danh: currentUser?.chuc_danh || 'Chuyên viên UBKT',
+          trang_thai: 1,
+          must_change_password: currentUser?.must_change_password ?? false,
+          don_vi_id: currentUser?.don_vi_id || null,
+          pham_vi_quan_ly: currentUser?.pham_vi_quan_ly || null,
+          created_at: currentUser?.created_at || now,
+          updated_at: now,
+        };
+        const currentSessionId = sessionStore.getSessionId();
+        await setDoc(
+          doc(firestoreDb, 'users', uid),
+          {
+            ...sanitizeUserForCloud(newProfile),
+            ...(currentSessionId ? { activeSessionId: currentSessionId } : {}),
+          },
+          { merge: true }
+        );
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
   // Chỉ đẩy các bản ghi có thay đổi local (dirty flag) lên Cloud, KHÔNG đọc lại toàn bộ 11 collection
   async flushDirtyChanges(): Promise<{ pushed: number }> {
     this._loadDirtyQueue();
@@ -912,6 +953,9 @@ export const cloudSyncService = {
 
       const isAdminSync = sessionStore.getCurrentUser()?.vai_tro === 'ADMIN';
 
+      // Đảm bảo document users/{uid} đã có sẵn trên Cloud để quy tắc bảo mật không chặn
+      await this.ensureCurrentUserDoc().catch(() => {});
+
       const [
         donViSnap,
         ctSnap,
@@ -932,9 +976,11 @@ export const cloudSyncService = {
         getDocs(collection(firestoreDb, 'bao_cao_thang')),
         getDocs(collection(firestoreDb, 'pdf_files')),
         getDocs(collection(firestoreDb, 'don_thu')),
-        isAdminSync
-          ? getDocs(collection(firestoreDb, 'users')).then((s) => s.docs)
-          : getDoc(doc(firestoreDb, 'users', currentAuth.uid)).then((d) => (d.exists() ? [d] : [])),
+        getDocs(collection(firestoreDb, 'users'))
+          .then((s) => s.docs)
+          .catch(() =>
+            getDoc(doc(firestoreDb, 'users', currentAuth.uid)).then((d) => (d.exists() ? [d] : []))
+          ),
         getDocs(collection(firestoreDb, 'phan_cong_dia_ban')),
         getDoc(doc(firestoreDb, 'system_config', 'google_drive')),
         getDocs(collection(firestoreDb, 'tombstones')),
@@ -1469,8 +1515,18 @@ export const cloudSyncService = {
         },
       };
     } catch (err: any) {
-      if (!silent) {
-        console.error('[CloudSync] Lỗi đồng bộ 2 chiều:', err);
+      console.error('[CloudSync] Lỗi đồng bộ 2 chiều:', err);
+      const isPerm = this.isPermissionDeniedError(err);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('ubkt_sync_error', {
+            detail: {
+              message: isPerm
+                ? 'Lỗi quyền truy cập Firestore. Vui lòng kiểm tra trạng thái tài khoản.'
+                : `Lỗi đồng bộ dữ liệu: ${err?.message || String(err)}`,
+            },
+          })
+        );
       }
       return {
         success: false,

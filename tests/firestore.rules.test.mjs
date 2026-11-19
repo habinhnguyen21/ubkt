@@ -160,7 +160,7 @@ describe('Firestore Security Rules (firestore.rules)', () => {
       })
     );
 
-    // 2.3. BIEN_TAP bị từ chối ghi vào don_vi, phan_cong_dia_ban, users và bị từ chối đọc hồ sơ của người khác
+    // 2.3. BIEN_TAP bị từ chối ghi vào don_vi, phan_cong_dia_ban, không được xóa users khác nhưng ĐƯỢC đọc users để hiển thị & đồng bộ
     await assertFails(
       setDoc(doc(bienTapDb, 'don_vi', 'dv-moi'), {
         id: 'dv-moi',
@@ -168,8 +168,10 @@ describe('Firestore Security Rules (firestore.rules)', () => {
         loai: 'CHI_BO',
       })
     );
-    await assertFails(getDoc(doc(bienTapDb, 'users', ADMIN_UID)));
+    await assertSucceeds(getDoc(doc(bienTapDb, 'users', ADMIN_UID)));
     await assertSucceeds(getDoc(doc(bienTapDb, 'users', BIEN_TAP_UID)));
+    await assertSucceeds(getDocs(collection(bienTapDb, 'users')));
+    await assertFails(deleteDoc(doc(bienTapDb, 'users', ADMIN_UID)));
   });
 
   // ── TRƯỜNG HỢP 3: ADMIN GHI BÌNH THƯỜNG & CHẶN LƯU MẬT KHẨU TRONG FIRESTORE ──

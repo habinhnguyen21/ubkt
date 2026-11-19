@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Database, RefreshCw, Wifi, WifiOff, Clock } from 'lucide-react';
+import { Database, RefreshCw, Wifi, WifiOff, Clock, AlertTriangle } from 'lucide-react';
 import type { AppInfo } from '../types';
 
 interface StatusBarProps {
@@ -12,6 +12,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({ appInfo, onRefresh, isSync
   const [time, setTime] = useState(new Date().toLocaleTimeString('vi-VN'));
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [isSaving, setIsSaving] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -25,6 +26,11 @@ export const StatusBar: React.FC<StatusBarProps> = ({ appInfo, onRefresh, isSync
     const handleOffline = () => setIsOnline(false);
     const handleSavingStart = () => setIsSaving(true);
     const handleSavingEnd = () => setIsSaving(false);
+    const handleSyncError = (e: any) => {
+      const msg = e.detail?.message || 'Lỗi đồng bộ dữ liệu';
+      setSyncError(msg);
+      setTimeout(() => setSyncError(null), 12000);
+    };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -32,6 +38,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({ appInfo, onRefresh, isSync
     window.addEventListener('ubkt_saving_end', handleSavingEnd);
     window.addEventListener('ubkt_silent_sync_start', handleSavingStart);
     window.addEventListener('ubkt_silent_sync_end', handleSavingEnd);
+    window.addEventListener('ubkt_sync_error', handleSyncError);
 
     return () => {
       window.removeEventListener('online', handleOnline);
@@ -40,6 +47,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({ appInfo, onRefresh, isSync
       window.removeEventListener('ubkt_saving_end', handleSavingEnd);
       window.removeEventListener('ubkt_silent_sync_start', handleSavingStart);
       window.removeEventListener('ubkt_silent_sync_end', handleSavingEnd);
+      window.removeEventListener('ubkt_sync_error', handleSyncError);
     };
   }, []);
 
@@ -49,7 +57,18 @@ export const StatusBar: React.FC<StatusBarProps> = ({ appInfo, onRefresh, isSync
     <footer className="fixed bottom-0 left-0 right-0 h-8 bg-slate-900 border-t border-slate-700 text-slate-300 text-xs px-4 flex items-center justify-between select-none z-40">
       <div className="flex items-center space-x-4">
         {/* Trạng thái đồng bộ thời gian thực theo yêu cầu */}
-        {!isOnline ? (
+        {syncError ? (
+          <div className="flex items-center space-x-1.5 text-rose-400 font-medium" title={syncError}>
+            <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+            <span className="truncate max-w-sm">{syncError}</span>
+            <button
+              onClick={() => setSyncError(null)}
+              className="text-[10px] text-rose-300 hover:text-white px-1.5 py-0.2 bg-rose-950/60 rounded border border-rose-800 ml-1 transition"
+            >
+              Đóng
+            </button>
+          </div>
+        ) : !isOnline ? (
           <div className="flex items-center space-x-1.5 text-rose-400 font-medium">
             <WifiOff className="w-3.5 h-3.5 text-rose-400" />
             <span>Mất kết nối mạng</span>

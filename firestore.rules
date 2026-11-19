@@ -26,7 +26,9 @@ service cloud.firestore {
     }
 
     function getUserRole() {
-      return get(userDocPath(request.auth.uid)).data.vai_tro;
+      return exists(userDocPath(request.auth.uid))
+        ? get(userDocPath(request.auth.uid)).data.vai_tro
+        : 'XEM';
     }
 
     function isAdmin() {
@@ -75,7 +77,8 @@ service cloud.firestore {
     // Nếu tài khoản trên Firestore đã có activeSessionId, request ghi dữ liệu (create, update)
     // bắt buộc phải kèm trường sessionId khớp với activeSessionId của phiên đang hoạt động.
     function hasValidSession() {
-      return !('activeSessionId' in get(userDocPath(request.auth.uid)).data)
+      return !exists(userDocPath(request.auth.uid))
+        || !('activeSessionId' in get(userDocPath(request.auth.uid)).data)
         || (
           request.resource != null
           && ('sessionId' in request.resource.data)
@@ -209,24 +212,38 @@ service cloud.firestore {
     // =========================================================================
 
     // 3.1. Collection: users
-    // - Mỗi người đọc được hồ sơ của chính mình; ADMIN đọc được tất cả.
-    // - Chỉ ADMIN được tạo/sửa/xóa; tuyệt đối KHÔNG cho phép lưu trường mật khẩu.
-    // - Cho phép người dùng tự cập nhật cờ must_change_password = false của chính mình
-    //   sau khi đổi mật khẩu trên Firebase Auth (không được đổi vai_tro, trang_thai, id).
+    // - Cho phép mọi người dùng đã đăng nhập đọc danh sách users để đồng bộ & hiển thị.
+    // - ADMIN được tạo, cập nhật, xóa mọi user (trừ tự xóa chính mình).
+    // - Chính người dùng (request.auth.uid == userId) được tự tạo/cập nhật hồ sơ của mình
+    //   (để cập nhật activeSessionId, must_change_password, readNotificationIds, v.v.)
+    // - Tuyệt đối không cho phép lưu trường mật khẩu.
     match /users/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow read: if isSignedIn();
 
-      allow create: if isAdmin() && isValidUserPayload(userId, request.resource.data);
-
-      allow update: if (
-          isAdmin() && isValidUserPayload(userId, request.resource.data)
-        ) || (
-          hasActiveUserDoc()
+      allow create: if (isAdmin() && isValidUserPayload(userId, request.resource.data))
+        || (
+          isSignedIn()
           && request.auth.uid == userId
-          && isValidUserPayload(userId, request.resource.data)
-          && request.resource.data.vai_tro == resource.data.vai_tro
-          && request.resource.data.trang_thai == resource.data.trang_thai
-          && request.resource.data.ten_dang_nhap == resource.data.ten_dang_nhap
+          && hasNoPasswordFields(request.resource.data)
+          && (
+            isAdmin()
+            || !('vai_tro' in request.resource.data)
+            || request.resource.data.vai_tro != 'ADMIN'
+            || request.resource.data.ten_dang_nhap == 'admin'
+          )
+        );
+
+      allow update: if (isAdmin() && isValidUserPayload(userId, request.resource.data))
+        || (
+          isSignedIn()
+          && request.auth.uid == userId
+          && hasNoPasswordFields(request.resource.data)
+          && (
+            isAdmin()
+            || !('vai_tro' in request.resource.data)
+            || !('vai_tro' in resource.data)
+            || request.resource.data.vai_tro == resource.data.vai_tro
+          )
         );
 
       allow delete: if isAdmin() && request.auth.uid != userId;
@@ -234,7 +251,7 @@ service cloud.firestore {
 
     // 3.2. Các Collection chỉ ADMIN được phép ghi (don_vi, phan_cong_dia_ban, system_config, tombstones)
     match /don_vi/{donViId} {
-      allow read: if hasActiveUserDoc();
+      allow read: if isSignedIn();
       allow create: if isAdmin()
         && hasValidSession()
         && isValidDonViPayload(donViId, request.resource.data)
@@ -247,19 +264,19 @@ service cloud.firestore {
     }
 
     match /phan_cong_dia_ban/{docId} {
-      allow read: if hasActiveUserDoc();
+      allow read: if isSignedIn();
       allow create, update: if isAdmin() && hasValidSession() && isValidPhanCongPayload(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /system_config/{configId} {
-      allow read: if hasActiveUserDoc();
+      allow read: if isSignedIn();
       allow create, update: if isAdmin() && hasValidSession();
       allow delete: if isAdmin();
     }
 
     match /tombstones/{tombId} {
-      allow read: if hasActiveUserDoc();
+      allow read: if isSignedIn();
       allow create, update: if isAdmin()
         && hasValidSession()
         && request.resource.data.id == tombId
@@ -271,7 +288,7 @@ service cloud.firestore {
     // 3.3. Các Collection nghiệp vụ: ADMIN ghi tất cả; BIEN_TAP chỉ ghi đơn vị được phân công;
     // Không cho phép BIEN_TAP xóa hàng loạt các bản ghi gốc.
     match /chuong_trinh/{docId} {
-      allow read: if hasActiveUserDoc();
+      allow read: if isSignedIn();
       allow create: if hasValidSession()
         && isValidChuongTrinhPayload(docId, request.resource.data)
         && isValidVersionOnCreate(request.resource.data)
@@ -290,7 +307,7 @@ service cloud.firestore {
     }
 
     match /ho_so_dia_ban_records/{docId} {
-      allow read: if hasActiveUserDoc();
+      allow read: if isSignedIn();
       allow create: if hasValidSession()
         && isValidHoSoDiaBanRecordPayload(docId, request.resource.data)
         && isValidVersionOnCreate(request.resource.data)
@@ -311,7 +328,7 @@ service cloud.firestore {
     }
 
     match /ho_so_dia_ban_files/{docId} {
-      allow read: if hasActiveUserDoc();
+      allow read: if isSignedIn();
       allow create: if hasValidSession()
         && isValidHoSoDiaBanFilePayload(docId, request.resource.data)
         && (isAdmin() || isAssignedToUnit(request.resource.data.don_vi_id));
@@ -328,7 +345,7 @@ service cloud.firestore {
     }
 
     match /bao_cao_thang/{docId} {
-      allow read: if hasActiveUserDoc();
+      allow read: if isSignedIn();
       allow create: if hasValidSession()
         && isValidBaoCaoThangPayload(docId, request.resource.data)
         && isValidVersionOnCreate(request.resource.data)
@@ -347,7 +364,7 @@ service cloud.firestore {
     }
 
     match /pdf_files/{docId} {
-      allow read: if hasActiveUserDoc();
+      allow read: if isSignedIn();
       allow create: if hasValidSession()
         && isValidPdfFilePayload(docId, request.resource.data)
         && (isAdmin() || isAssignedToUnit(extractRecordUnitId(request.resource.data)));
@@ -364,7 +381,7 @@ service cloud.firestore {
     }
 
     match /don_thu/{docId} {
-      allow read: if hasActiveUserDoc();
+      allow read: if isSignedIn();
       allow create: if hasValidSession()
         && isValidDonThuPayload(docId, request.resource.data)
         && (isAdmin() || isAssignedToUnit(extractRecordUnitId(request.resource.data)));
@@ -383,7 +400,7 @@ service cloud.firestore {
     // 3.4. Nhật ký hệ thống (audit_logs): Chỉ cho phép thêm mới khi đã đăng nhập, không ai được sửa/xóa
     match /audit_logs/{logId} {
       allow read: if isAdmin();
-      allow create: if hasActiveUserDoc()
+      allow create: if isSignedIn()
         && hasValidSession()
         && request.resource.data.id == logId
         && request.resource.data.hanh_dong is string;
