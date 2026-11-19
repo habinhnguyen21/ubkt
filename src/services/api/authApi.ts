@@ -402,7 +402,7 @@ registerMockCommands({
     if (!user) throw new Error('Người dùng không tồn tại');
 
     const normalizedU = user.ten_dang_nhap.trim().toLowerCase();
-    let resolvedUid = user.firebaseUid || (user.id.length >= 20 ? user.id : '');
+    let resolvedUid = '';
 
     // 1. Thử gọi Cloud Function adminResetPassword nếu đã cấu hình
     let cloudFnSuccess = false;
@@ -509,7 +509,7 @@ registerMockCommands({
 
     const normalizedU = user.ten_dang_nhap.trim().toLowerCase();
     const tempPassword = password || 'Ubkt@2026!';
-    let resolvedUid = user.firebaseUid || (user.id.length >= 20 ? user.id : '');
+    let resolvedUid = '';
 
     // 1. Thử gọi Cloud Function adminSyncUserUid nếu có
     if (IS_CLOUD_FUNCTIONS_ENABLED) {
@@ -611,7 +611,14 @@ registerMockCommands({
 
   update_user: async (db, args) => {
     const { req } = args as {
-      req: { user_id: string; ho_ten: string; vai_tro: string; trang_thai: number; chuc_danh?: string };
+      req: {
+        user_id: string;
+        ho_ten: string;
+        vai_tro: string;
+        trang_thai: number;
+        chuc_danh?: string;
+        firebaseUid?: string;
+      };
     };
     const user = db.users.find((u) => u.id === req.user_id) as
       | (User & { mat_khau?: string; mat_khau_hash?: string })
@@ -623,6 +630,32 @@ registerMockCommands({
     if (req.chuc_danh !== undefined) {
       user.chuc_danh = req.chuc_danh;
     }
+    const oldId = user.id;
+
+    // Nếu Admin chỉ định hoặc cập nhật trực tiếp Firebase UID (ví dụ dán mã từ Firebase Console)
+    if (req.firebaseUid && req.firebaseUid.trim().length >= 20) {
+      const explicitUid = req.firebaseUid.trim();
+      user.firebaseUid = explicitUid;
+      user.id = explicitUid;
+      if (oldId && oldId !== explicitUid) {
+        try {
+          const oldPcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => null);
+          if (oldPcSnap && oldPcSnap.exists()) {
+            await setDoc(doc(firestoreDb, 'phan_cong_dia_ban', explicitUid), {
+              ...oldPcSnap.data(),
+              id: explicitUid,
+              user_id: explicitUid,
+              updated_at: new Date().toISOString(),
+            }, { merge: true });
+            await deleteDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => {});
+          }
+          await deleteDoc(doc(firestoreDb, 'users', oldId)).catch(() => {});
+        } catch (e) {
+          console.warn('[Auth] Di trú ID sang UID chỉ định khi sửa tài khoản:', e);
+        }
+      }
+    }
+
     delete user.mat_khau;
     delete (user as any).mat_khau_hash;
     delete (user as any).activeSessionId;
@@ -648,12 +681,12 @@ registerMockCommands({
         } catch {}
       }
       if (resolvedUid) {
-        const oldId = user.id;
+        const prevId = user.id;
         user.firebaseUid = resolvedUid;
         user.id = resolvedUid;
-        if (oldId && oldId !== resolvedUid) {
+        if (prevId && prevId !== resolvedUid) {
           try {
-            const oldPcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => null);
+            const oldPcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', prevId)).catch(() => null);
             if (oldPcSnap && oldPcSnap.exists()) {
               await setDoc(doc(firestoreDb, 'phan_cong_dia_ban', resolvedUid), {
                 ...oldPcSnap.data(),
@@ -661,9 +694,9 @@ registerMockCommands({
                 user_id: resolvedUid,
                 updated_at: user.updated_at,
               }, { merge: true });
-              await deleteDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => {});
+              await deleteDoc(doc(firestoreDb, 'phan_cong_dia_ban', prevId)).catch(() => {});
             }
-            await deleteDoc(doc(firestoreDb, 'users', oldId)).catch(() => {});
+            await deleteDoc(doc(firestoreDb, 'users', prevId)).catch(() => {});
           } catch (e) {
             console.warn('[Auth] Di trú ID cũ sang UID khi sửa tài khoản:', e);
           }
@@ -831,7 +864,14 @@ export const authApi = {
   ) => mockInvoke<void>('reset_user_password', { req, actor_id, actor_name }),
 
   updateUser: (
-    req: { user_id: string; ho_ten: string; vai_tro: string; trang_thai: number; chuc_danh?: string },
+    req: {
+      user_id: string;
+      ho_ten: string;
+      vai_tro: string;
+      trang_thai: number;
+      chuc_danh?: string;
+      firebaseUid?: string;
+    },
     actor_id: string,
     actor_name: string
   ) => mockInvoke<void>('update_user', { req, actor_id, actor_name }),

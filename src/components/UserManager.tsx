@@ -57,6 +57,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
   const [showPw, setShowPw] = useState(false);
   const [showPw2, setShowPw2] = useState(false);
   const [copiedPw, setCopiedPw] = useState(false);
+  const [formFirebaseUid, setFormFirebaseUid] = useState('');
 
   // Danh sách đơn vị bị ảnh hưởng khi xóa tài khoản
   const [deleteImpactUnits, setDeleteImpactUnits] = useState<DonVi[]>([]);
@@ -147,6 +148,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
     setFormVaiTro(u.vai_tro as string);
     setFormChucDanh(u.chuc_danh || 'Chuyên viên UBKT');
     setFormTrangThai(u.trang_thai);
+    setFormFirebaseUid(u.firebaseUid || (u.id.length >= 20 ? u.id : ''));
     setModalMode('edit');
     setError('');
   };
@@ -231,6 +233,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
           vai_tro: formVaiTro,
           trang_thai: formTrangThai,
           chuc_danh: formChucDanh,
+          firebaseUid: formFirebaseUid.trim() || undefined,
         },
         currentUser.id,
         currentUser.ho_ten,
@@ -731,6 +734,47 @@ export default function UserManager({ currentUser, onClose }: Props) {
             </select>
             {selectedUser.id === currentUser.id && <div style={styles.hint}>Không thể thay đổi vai trò/trạng thái của chính mình</div>}
           </FormField>
+          {isAdmin && (
+            <FormField label="Firebase Auth UID">
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input
+                  id="input-edit-firebase-uid"
+                  style={{ ...styles.input, fontFamily: 'monospace', fontSize: 12, flex: 1 }}
+                  value={formFirebaseUid}
+                  onChange={(e) => setFormFirebaseUid(e.target.value.trim())}
+                  placeholder="Dán mã UID từ Firebase Console (ví dụ: 3cOokZCt...)"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const text = await navigator.clipboard.readText();
+                      if (text && text.trim().length >= 20) {
+                        setFormFirebaseUid(text.trim());
+                      }
+                    } catch {}
+                  }}
+                  style={{
+                    padding: '8px 12px',
+                    background: '#334155',
+                    color: '#93c5fd',
+                    border: '1px solid #475569',
+                    borderRadius: 6,
+                    fontSize: 11,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    fontWeight: 600,
+                  }}
+                  title="Dán mã UID từ bộ nhớ tạm"
+                >
+                  📋 Dán
+                </button>
+              </div>
+              <div style={styles.hint}>
+                Mã User UID thực tế trên Firebase Authentication. Nếu mã trên ứng dụng bị lệch với Firebase Console, hãy sao chép mã từ Firebase Console dán vào đây và bấm "Lưu thay đổi".
+              </div>
+            </FormField>
+          )}
         </ModalBox>
       )}
 
