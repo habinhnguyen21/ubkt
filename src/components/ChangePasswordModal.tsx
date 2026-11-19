@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { api } from '../services/api';
 import { validatePasswordPolicy } from '../utils/passwordCrypto';
 import type { User } from '../types';
-import { KeyRound, ShieldCheck, AlertCircle, X } from 'lucide-react';
+import { KeyRound, ShieldCheck, AlertCircle, X, Eye, EyeOff } from 'lucide-react';
 import { auth, usernameToAuthEmail } from '../services/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { sessionStore } from '../utils/sessionStore';
@@ -24,6 +24,9 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showOldPw, setShowOldPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -133,42 +136,75 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
             <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
               Mật khẩu hiện tại
             </label>
-            <input
-              type="password"
-              required
-              value={oldPassword}
-              onChange={(e) => setOldPassword(e.target.value)}
-              placeholder="Nhập mật khẩu hiện tại"
-              className="w-full px-3.5 py-2.5 min-h-[44px] rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 text-base sm:text-sm"
-            />
+            <div className="relative">
+              <input
+                type={showOldPw ? 'text' : 'password'}
+                required
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                placeholder="Nhập mật khẩu hiện tại"
+                className="w-full px-3.5 py-2.5 pr-10 min-h-[44px] rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 text-base sm:text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowOldPw(!showOldPw)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition cursor-pointer p-1"
+                title={showOldPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                aria-label={showOldPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              >
+                {showOldPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
               Mật khẩu mới
             </label>
-            <input
-              type="password"
-              required
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="Tối thiểu 8 ký tự, có chữ hoa, chữ thường, số"
-              className="w-full px-3.5 py-2.5 min-h-[44px] rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 text-base sm:text-sm"
-            />
+            <div className="relative">
+              <input
+                type={showNewPw ? 'text' : 'password'}
+                required
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Tối thiểu 8 ký tự, có chữ hoa, chữ thường, số"
+                className="w-full px-3.5 py-2.5 pr-10 min-h-[44px] rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 text-base sm:text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPw(!showNewPw)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition cursor-pointer p-1"
+                title={showNewPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                aria-label={showNewPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              >
+                {showNewPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
               Xác nhận mật khẩu mới
             </label>
-            <input
-              type="password"
-              required
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Nhập lại mật khẩu mới"
-              className="w-full px-3.5 py-2.5 min-h-[44px] rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 text-base sm:text-sm"
-            />
+            <div className="relative">
+              <input
+                type={showConfirmPw ? 'text' : 'password'}
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Nhập lại mật khẩu mới"
+                className="w-full px-3.5 py-2.5 pr-10 min-h-[44px] rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 text-base sm:text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPw(!showConfirmPw)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition cursor-pointer p-1"
+                title={showConfirmPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                aria-label={showConfirmPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              >
+                {showConfirmPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
 
           <div className="pt-3 flex items-center justify-end space-x-3 sticky bottom-0 bg-white py-2 border-t border-slate-100 z-10">

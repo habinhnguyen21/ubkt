@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { api } from '../services/api';
 import type { User } from '../types';
-import { Lock, ShieldAlert, LogOut, ArrowRight } from 'lucide-react';
+import { Lock, ShieldAlert, LogOut, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { sessionStore } from '../utils/sessionStore';
 
 
@@ -13,6 +13,7 @@ interface LockScreenProps {
 
 export const LockScreen: React.FC<LockScreenProps> = ({ user, onUnlock, onLogout }) => {
   const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -84,16 +85,25 @@ export const LockScreen: React.FC<LockScreenProps> = ({ user, onUnlock, onLogout
             </div>
           )}
 
-          <div>
+          <div className="relative">
             <input
-              type="password"
+              type={showPw ? 'text' : 'password'}
               autoFocus
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Nhập mật khẩu để mở khóa"
-              className="w-full px-4 py-2.5 min-h-[44px] bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent text-center"
+              className="w-full px-4 py-2.5 pr-10 min-h-[44px] bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent text-center"
             />
+            <button
+              type="button"
+              onClick={() => setShowPw(!showPw)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition cursor-pointer p-1"
+              title={showPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              aria-label={showPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+            >
+              {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
           </div>
 
           <button

@@ -4,6 +4,7 @@ import type { User } from '../types';
 import logoUbkt from '../assets/logo-ubkt.jpg';
 import loginBg from '../assets/login-bg.webp';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { Eye, EyeOff } from 'lucide-react';
 
 // Font chuyên nghiệp từ Google Fonts
 if (typeof document !== 'undefined' && !document.getElementById('gfont-bevietnam')) {
@@ -281,11 +282,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, kickReas
                   e.target.style.boxShadow = 'none';
                 }}
               />
-              {/* Icon mắt SVG */}
+              {/* Nút hiện / ẩn mật khẩu */}
               <button
                 type="button"
                 onClick={() => setShowPw(!showPw)}
                 title={showPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                aria-label={showPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                 style={{
                   position: 'absolute',
                   right: 0,
@@ -300,20 +302,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, kickReas
                   alignItems: 'center',
                   justifyContent: 'center',
                   color: '#9ca3af',
+                  transition: 'color 0.15s',
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.color = '#4b5563';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.color = '#9ca3af';
                 }}
               >
-                {showPw ? (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                    <line x1="1" y1="1" x2="23" y2="23"/>
-                  </svg>
-                ) : (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                    <circle cx="12" cy="12" r="3"/>
-                  </svg>
-                )}
+                {showPw ? <EyeOff size={20} /> : <Eye size={20} />}
               </button>
             </div>
           </div>

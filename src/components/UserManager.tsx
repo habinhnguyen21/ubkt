@@ -6,6 +6,7 @@ import { getUserAssignmentImpact } from '../utils/diaBanSync';
 import type { User, DonVi } from '../types';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { UserMobileList } from './user/UserMobileList';
+import { Eye, EyeOff } from 'lucide-react';
 
 interface Props {
   currentUser: User;
@@ -54,6 +55,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
   const [formNewPw, setFormNewPw] = useState('');
   const [formNewPw2, setFormNewPw2] = useState('');
   const [showPw, setShowPw] = useState(false);
+  const [showPw2, setShowPw2] = useState(false);
   const [copiedPw, setCopiedPw] = useState(false);
 
   // Danh sách đơn vị bị ảnh hưởng khi xóa tài khoản
@@ -101,6 +103,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
     setFormNewPw('');
     setFormNewPw2('');
     setShowPw(false);
+    setShowPw2(false);
     setCopiedPw(false);
     setModalMode('create');
     setError('');
@@ -121,6 +124,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
     setFormNewPw('');
     setFormNewPw2('');
     setShowPw(false);
+    setShowPw2(false);
     setModalMode('reset_password');
     setError('');
   };
@@ -535,9 +539,10 @@ export default function UserManager({ currentUser, onClose }: Props) {
                   type="button"
                   style={styles.eyeBtnSimple}
                   title={showPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  aria-label={showPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                   onClick={() => setShowPw(!showPw)}
                 >
-                  {showPw ? '🙈' : '👁️'}
+                  {showPw ? <EyeOff size={16} color="#64748b" /> : <Eye size={16} color="#64748b" />}
                 </button>
                 <button
                   type="button"
@@ -678,9 +683,10 @@ export default function UserManager({ currentUser, onClose }: Props) {
                     type="button"
                     style={styles.eyeBtnSimple}
                     title={showPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                    aria-label={showPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                     onClick={() => setShowPw(!showPw)}
                   >
-                    {showPw ? '🙈' : '👁️'}
+                    {showPw ? <EyeOff size={16} color="#64748b" /> : <Eye size={16} color="#64748b" />}
                   </button>
                   <button
                     type="button"
@@ -712,14 +718,31 @@ export default function UserManager({ currentUser, onClose }: Props) {
               {copiedPw && <div style={{ fontSize: 12, color: '#4ade80', fontWeight: 600, marginTop: 4 }}>Đã sao chép!</div>}
             </FormField>
             <FormField label="Xác nhận mật khẩu mới *">
-              <input
-                id="input-reset-pw2"
-                style={{ ...styles.input, borderColor: formNewPw2 && formNewPw !== formNewPw2 ? '#ef4444' : undefined }}
-                type="password"
-                value={formNewPw2}
-                onChange={(e) => setFormNewPw2(e.target.value)}
-                placeholder="Nhập lại mật khẩu mới"
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  id="input-reset-pw2"
+                  style={{ ...styles.input, paddingRight: 40, borderColor: formNewPw2 && formNewPw !== formNewPw2 ? '#ef4444' : undefined }}
+                  type={showPw2 ? 'text' : 'password'}
+                  value={formNewPw2}
+                  onChange={(e) => setFormNewPw2(e.target.value)}
+                  placeholder="Nhập lại mật khẩu mới"
+                />
+                <button
+                  type="button"
+                  style={{
+                    position: 'absolute',
+                    right: 8,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    ...styles.eyeBtnSimple,
+                  }}
+                  title={showPw2 ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  aria-label={showPw2 ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  onClick={() => setShowPw2(!showPw2)}
+                >
+                  {showPw2 ? <EyeOff size={16} color="#64748b" /> : <Eye size={16} color="#64748b" />}
+                </button>
+              </div>
             </FormField>
           </ModalBox>
         ) : (

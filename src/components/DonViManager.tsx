@@ -1462,6 +1462,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
                       type="button"
                       onClick={() => setShowNewPw(!showNewPw)}
                       title={showNewPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                      aria-label={showNewPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                       className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
                     >
                       {showNewPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
