@@ -1,7 +1,7 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getAnalytics, isSupported as isAnalyticsSupported, type Analytics } from 'firebase/analytics';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth, type Auth } from 'firebase/auth';
+import { getAuth, setPersistence, browserLocalPersistence, type Auth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 import { getFunctions, type Functions } from 'firebase/functions';
 
@@ -38,6 +38,50 @@ export const app: FirebaseApp = !getApps().length ? initializeApp(firebaseConfig
 
 // Khởi tạo các dịch vụ chính
 export const auth: Auth = getAuth(app);
+
+// Đảm bảo phiên đăng nhập Firebase Auth luôn lưu vào localStorage ổn định trên trình duyệt di động (iOS Safari / Chrome)
+if (typeof window !== 'undefined') {
+  setPersistence(auth, browserLocalPersistence).catch((err) => {
+    console.warn('[Firebase Auth] Lỗi thiết lập browserLocalPersistence:', err);
+  });
+}
+
+/**
+ * Đợi Firebase Auth hoàn tất khôi phục trạng thái xác thực từ bộ nhớ trình duyệt (IndexedDB / localStorage).
+ * Tránh lỗi auth.currentUser bị null khi mới tải trang hoặc ngay sau khi đăng nhập trên mobile (Safari / Chrome).
+ */
+export async function ensureFirebaseAuthReady(timeoutMs = 4000): Promise<import('firebase/auth').User | null> {
+  if (auth.currentUser) return auth.currentUser;
+  if (typeof (auth as any).authStateReady === 'function') {
+    try {
+      await Promise.race([
+        (auth as any).authStateReady(),
+        new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+      ]);
+      if (auth.currentUser) return auth.currentUser;
+    } catch (err) {
+      console.warn('[Firebase Auth] Lỗi chờ authStateReady:', err);
+    }
+  }
+  return new Promise((resolve) => {
+    let resolved = false;
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        unsub();
+        resolve(auth.currentUser || null);
+      }
+    }, timeoutMs);
+    const unsub = auth.onAuthStateChanged((user) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        unsub();
+        resolve(user);
+      }
+    });
+  });
+}
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const functions: Functions = getFunctions(app, 'asia-southeast1');

@@ -8,7 +8,7 @@ import {
   getDoc,
   writeBatch,
 } from 'firebase/firestore';
-import { db as firestoreDb, auth } from './firebase';
+import { db as firestoreDb, auth, ensureFirebaseAuthReady } from './firebase';
 import { isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import { sanitizeUserForCloud } from '../utils/passwordCrypto';
 import { sessionStore } from '../utils/sessionStore';
@@ -154,7 +154,8 @@ export const cloudSyncService = {
   async flushDirtyChanges(): Promise<{ pushed: number }> {
     this._loadDirtyQueue();
     if (this._dirtyMap.size === 0) return { pushed: 0 };
-    if (!auth.currentUser) return { pushed: 0 };
+    const currentAuth = await ensureFirebaseAuthReady(2500);
+    if (!currentAuth) return { pushed: 0 };
     if (typeof navigator !== 'undefined' && !navigator.onLine) return { pushed: 0 };
     if (this._isSyncing) return { pushed: 0 };
 
@@ -296,6 +297,17 @@ export const cloudSyncService = {
   // ── ĐẨY TOÀN BỘ DỮ LIỆU TỪ MÁY NÀY LÊN CLOUD ──────────────────────────────
   async pushAllToCloud(onProgress?: (msg: string) => void): Promise<{ success: boolean; error?: string; counts: any }> {
     try {
+      const currentAuth = await ensureFirebaseAuthReady(4000);
+      if (!currentAuth) {
+        const stored = sessionStore.getCurrentUser();
+        return {
+          success: false,
+          error: stored
+            ? 'Phiên xác thực Firebase Auth chưa sẵn sàng hoặc đã hết hạn. Vui lòng đăng nhập lại để tiếp tục đồng bộ.'
+            : 'Vui lòng đăng nhập trước khi đồng bộ dữ liệu với Cloud.',
+          counts: { donVi: 0, chuongTrinh: 0, hoSoDiaBan: 0, hoSoFiles: 0, baoCaoThang: 0, pdfFiles: 0, donThu: 0, users: 0 },
+        };
+      }
       onProgress?.('Đang nạp dữ liệu cục bộ...');
       // 1. Nạp từ ubkt_mock_db
       let mockDb: any = {};
@@ -471,10 +483,14 @@ export const cloudSyncService = {
   // ── KÉO TOÀN BỘ DỮ LIỆU TỪ CLOUD VỀ MÁY NÀY ──────────────────────────────
   async pullAllFromCloud(onProgress?: (msg: string) => void): Promise<{ success: boolean; error?: string; counts: any }> {
     try {
-      if (!auth.currentUser) {
+      const currentAuth = await ensureFirebaseAuthReady(4000);
+      if (!currentAuth) {
+        const stored = sessionStore.getCurrentUser();
         return {
           success: false,
-          error: 'Vui lòng đăng nhập trước khi đồng bộ dữ liệu với Cloud.',
+          error: stored
+            ? 'Phiên xác thực Firebase Auth chưa sẵn sàng hoặc đã hết hạn. Vui lòng thử lại hoặc đăng nhập lại.'
+            : 'Vui lòng đăng nhập trước khi đồng bộ dữ liệu với Cloud.',
           counts: { donVi: 0, chuongTrinh: 0, hoSoDiaBan: 0, hoSoFiles: 0, baoCaoThang: 0, pdfFiles: 0, donThu: 0, users: 0 },
         };
       }
@@ -503,7 +519,7 @@ export const cloudSyncService = {
         getDocs(collection(firestoreDb, 'don_thu')),
         isAdminPull
           ? getDocs(collection(firestoreDb, 'users')).then((s) => s.docs)
-          : getDoc(doc(firestoreDb, 'users', auth.currentUser.uid)).then((d) => (d.exists() ? [d] : [])),
+          : getDoc(doc(firestoreDb, 'users', currentAuth.uid)).then((d) => (d.exists() ? [d] : [])),
         getDocs(collection(firestoreDb, 'phan_cong_dia_ban')),
         getDoc(doc(firestoreDb, 'system_config', 'google_drive')),
       ]);
@@ -570,7 +586,7 @@ export const cloudSyncService = {
         currentMockDb.users = cloudUsers;
 
         // Đồng bộ readNotificationIds / dismissed_reminders của người dùng hiện tại về thiết bị này
-        const currentUid = auth.currentUser?.uid;
+        const currentUid = currentAuth.uid;
         if (currentUid) {
           const myUserDoc = cloudUsers.find((u) => u.id === currentUid);
           if (myUserDoc) {
@@ -871,7 +887,8 @@ export const cloudSyncService = {
     if (this._isSyncing) {
       return { success: true, action: 'merged', counts: {} };
     }
-    if (!auth.currentUser) {
+    const currentAuth = await ensureFirebaseAuthReady(4000);
+    if (!currentAuth) {
       return { success: false, error: 'Chưa đăng nhập Firebase Auth', action: 'merged', counts: {} };
     }
     if (silent && typeof document !== 'undefined' && document.hidden) {
@@ -910,7 +927,7 @@ export const cloudSyncService = {
         getDocs(collection(firestoreDb, 'don_thu')),
         isAdminSync
           ? getDocs(collection(firestoreDb, 'users')).then((s) => s.docs)
-          : getDoc(doc(firestoreDb, 'users', auth.currentUser.uid)).then((d) => (d.exists() ? [d] : [])),
+          : getDoc(doc(firestoreDb, 'users', currentAuth.uid)).then((d) => (d.exists() ? [d] : [])),
         getDocs(collection(firestoreDb, 'phan_cong_dia_ban')),
         getDoc(doc(firestoreDb, 'system_config', 'google_drive')),
         getDocs(collection(firestoreDb, 'tombstones')),
@@ -1299,7 +1316,7 @@ export const cloudSyncService = {
       currentMockDb.users = Array.from(userMap.values());
 
       // Đồng bộ readNotificationIds / dismissed_reminders của người dùng hiện tại về thiết bị này
-      const currentUidInSync = auth.currentUser?.uid;
+      const currentUidInSync = currentAuth.uid;
       if (currentUidInSync) {
         const myUserDoc = cloudUsers.find((u) => u.id === currentUidInSync);
         if (myUserDoc) {
@@ -1388,7 +1405,7 @@ export const cloudSyncService = {
         if (adminOnlyColls.has(item.collection)) return false;
 
         // Với BIEN_TAP: chỉ đẩy các bản ghi thuộc đơn vị được phân công
-        const myUid = auth.currentUser?.uid;
+        const myUid = currentAuth.uid;
         const myAssign = mergedPhanCong.find((p) => (p.user_id || p.id) === myUid);
         const myUnitIds = new Set<string>(myAssign?.don_vi_ids || []);
         if (myUnitIds.size === 0) return false;
@@ -1503,8 +1520,27 @@ export const cloudSyncService = {
   },
 
   // Lấy tóm tắt số lượng bản ghi hiện có trên Cloud
-  async getCloudSummary(): Promise<{ isOnline: boolean; counts: any; lastMeta?: any }> {
+  async getCloudSummary(): Promise<{
+    isOnline: boolean;
+    counts: any;
+    lastMeta?: any;
+    authEmail?: string | null;
+    authUid?: string | null;
+    authReady?: boolean;
+  }> {
     try {
+      const currentAuth = await ensureFirebaseAuthReady(4000);
+      if (!currentAuth) {
+        console.warn('[CloudSync] Chưa có phiên Firebase Auth hợp lệ khi lấy số liệu Cloud.');
+        return {
+          isOnline: false,
+          counts: { donVi: 0, chuongTrinh: 0, hoSoDiaBan: 0, hoSoFiles: 0, baoCaoThang: 0, pdfFiles: 0 },
+          authEmail: null,
+          authUid: null,
+          authReady: false,
+        };
+      }
+
       const [donViSnap, ctSnap, diaBanSnap, filesSnap, bcSnap, pdfSnap, metaDoc] = await Promise.all([
         getDocs(collection(firestoreDb, 'don_vi')),
         getDocs(collection(firestoreDb, 'chuong_trinh')),
@@ -1526,14 +1562,28 @@ export const cloudSyncService = {
           pdfFiles: pdfSnap.size,
         },
         lastMeta: metaDoc.exists() ? metaDoc.data() : null,
+        authEmail: currentAuth.email,
+        authUid: currentAuth.uid,
+        authReady: true,
       };
     } catch (err) {
       console.warn('[CloudSync] Không kết nối được Cloud:', err);
       return {
         isOnline: false,
         counts: { donVi: 0, chuongTrinh: 0, hoSoDiaBan: 0, hoSoFiles: 0, baoCaoThang: 0, pdfFiles: 0 },
+        authEmail: auth.currentUser?.email || null,
+        authUid: auth.currentUser?.uid || null,
+        authReady: !!auth.currentUser,
       };
     }
+  },
+
+  getFirebaseAuthUser(): import('firebase/auth').User | null {
+    return auth.currentUser;
+  },
+
+  async ensureFirebaseAuthReady(timeoutMs = 4000): Promise<import('firebase/auth').User | null> {
+    return ensureFirebaseAuthReady(timeoutMs);
   },
 
   // ── SAO LƯU & KHÔI PHỤC DỮ LIỆU TOÀN HỆ THỐNG (JSON) ─────────────────────

@@ -18,7 +18,6 @@ import {
   EmailAuthProvider,
   reauthenticateWithCredential,
   setPersistence,
-  browserSessionPersistence,
   browserLocalPersistence,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
@@ -42,10 +41,9 @@ registerMockCommands({
 
     if (typeof window !== 'undefined') {
       try {
-        const persistence = req.ghi_nho ? browserLocalPersistence : browserSessionPersistence;
-        await setPersistence(auth, persistence);
+        await setPersistence(auth, browserLocalPersistence);
       } catch (pErr) {
-        console.warn('[Auth] Không thể thiết lập persistence cho Firebase Auth:', pErr);
+        console.warn('[Auth] Không thể thiết lập browserLocalPersistence cho Firebase Auth:', pErr);
       }
     }
 
@@ -213,6 +211,10 @@ registerMockCommands({
       );
     } catch (sessionErr) {
       console.warn('[Auth] Không thể cập nhật activeSessionId lên Firestore (chế độ offline):', sessionErr);
+    }
+
+    if (typeof (auth as any).authStateReady === 'function') {
+      await (auth as any).authStateReady().catch(() => {});
     }
 
     return {

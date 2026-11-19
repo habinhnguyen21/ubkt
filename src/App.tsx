@@ -210,7 +210,21 @@ export function App() {
         }
 
         // 2. Không tin riêng dữ liệu trong storage: Firebase UID phải khớp với ID bản ghi trong storage
-        const storedUser = sessionStore.getCurrentUser();
+        let storedUser = sessionStore.getCurrentUser();
+        if (!storedUser || storedUser.id !== firebaseUser.uid) {
+          try {
+            const userDocSnap = await getDoc(doc(firestoreDb, 'users', firebaseUser.uid));
+            if (userDocSnap.exists()) {
+              const cloudUser = userDocSnap.data() as User;
+              storedUser = { ...cloudUser, id: firebaseUser.uid };
+              const idToken = await firebaseUser.getIdToken();
+              sessionStore.saveSession(storedUser, idToken, true, cloudUser.activeSessionId || undefined);
+            }
+          } catch (restoreErr) {
+            console.warn('[App] Lỗi khôi phục hồ sơ người dùng từ Firestore:', restoreErr);
+          }
+        }
+
         if (!storedUser || storedUser.id !== firebaseUser.uid) {
           console.warn('[App] Không tìm thấy phiên hoặc Firebase UID không khớp với tài khoản trong storage! Buộc đăng xuất.');
           sessionStore.clearSession();

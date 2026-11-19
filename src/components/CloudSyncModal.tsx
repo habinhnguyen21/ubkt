@@ -28,6 +28,11 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
   const [progressMsg, setProgressMsg] = useState('');
   const [lastSynced, setLastSynced] = useState<string | null>(null);
   const [cloudSummary, setCloudSummary] = useState<any>(null);
+  const [authInfo, setAuthInfo] = useState<{ email: string | null; uid: string | null; isReady: boolean }>({
+    email: null,
+    uid: null,
+    isReady: false,
+  });
   const [localCounts, setLocalCounts] = useState<any>({
     donVi: 0,
     chuongTrinh: 0,
@@ -90,7 +95,19 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
     try {
       const summary = await cloudSyncService.getCloudSummary();
       setCloudSummary(summary);
-    } catch {}
+      setAuthInfo({
+        email: summary.authEmail || null,
+        uid: summary.authUid || null,
+        isReady: !!summary.authReady,
+      });
+    } catch {
+      const fbUser = cloudSyncService.getFirebaseAuthUser();
+      setAuthInfo({
+        email: fbUser?.email || null,
+        uid: fbUser?.uid || null,
+        isReady: !!fbUser,
+      });
+    }
   };
 
   const handleToggleAutoSync = (enabled: boolean) => {
@@ -322,16 +339,38 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
         {/* Modal Scrollable Body */}
         <div className="p-4 sm:p-6 pt-3 sm:pt-4 space-y-4 sm:space-y-5 overflow-y-auto flex-1">
 
-        {/* Trạng thái kết nối Cloud */}
-        <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 text-xs space-y-2">
-          <div className="flex items-center justify-between">
+        {/* Trạng thái kết nối Cloud & Xác thực Firebase Auth */}
+        <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 text-xs space-y-2.5">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center space-x-2 font-semibold text-slate-700">
-              <Server className="w-4 h-4 text-emerald-600" />
+              <Server className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>Dự án Cloud: <strong className="font-mono text-emerald-700">ubkt-bf611 (Firestore)</strong></span>
             </div>
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-              ● Đã kết nối Cloud
-            </span>
+            {authInfo.isReady ? (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                ● Đã kết nối Firebase Auth
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                ⚠ Đang chờ xác thực Firebase
+              </span>
+            )}
+          </div>
+
+          {/* Chi tiết tài khoản Firebase Auth đang kết nối */}
+          <div className="bg-white/90 rounded-lg p-2.5 border border-slate-200/80 space-y-1.5 text-[11px]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-500 font-medium">Tài khoản kết nối:</span>
+              <span className="font-semibold text-slate-800 truncate text-right" title={authInfo.email || ''}>
+                {authInfo.email || (sessionStore.getCurrentUser()?.ten_dang_nhap ? `@${sessionStore.getCurrentUser()?.ten_dang_nhap}` : 'Chưa kết nối')}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-500 font-medium">Firebase UID:</span>
+              <span className="font-mono text-[10px] text-slate-600 truncate text-right" title={authInfo.uid || ''}>
+                {authInfo.uid ? (authInfo.uid.length > 20 ? `${authInfo.uid.slice(0, 10)}...${authInfo.uid.slice(-6)}` : authInfo.uid) : 'Đang đồng bộ...'}
+              </span>
+            </div>
           </div>
 
           <div className="text-slate-500 flex items-center justify-between pt-1 border-t border-slate-200/60 text-[11px]">
