@@ -259,7 +259,7 @@ export function resolveParentUnit(
   if (matchByName) return { isRoot: false, matchedUnit: matchByName };
 
   // 4. Nếu người dùng copy từ UI hoặc file: "DU-01 (Tên tổ chức)" hoặc "DU-01 - Tên tổ chức" hoặc "DU-01: Tên"
-  const bracketMatch = raw.match(/^([a-zA-Z0-9_\-\.]+)\s*[\(\-–—:]\s*(.*?)\)?$/);
+  const bracketMatch = raw.match(/^([a-zA-Z0-9_\-.]+)\s*[(-–—:]\s*(.*?)\)?$/);
   if (bracketMatch) {
     const extractedCode = normalizeOrgSearchText(bracketMatch[1]);
     const extractedName = normalizeOrgSearchText(bracketMatch[2]);

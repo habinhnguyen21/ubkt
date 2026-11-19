@@ -203,7 +203,7 @@ exports.adminCreateUser = onCall({ cors: true, region: 'asia-southeast1' }, asyn
  * Cloud Function v2 (onCall): Kích hoạt / Đồng bộ Firebase Auth UID cho một tài khoản
  */
 exports.adminSyncUserUid = onCall({ cors: true, region: 'asia-southeast1' }, async (request) => {
-  const { callerUid, callerData } = await assertCallerIsAdmin(request);
+  await assertCallerIsAdmin(request);
   const payload = request.data || {};
   const tenDangNhap = String(payload.ten_dang_nhap || '').trim().toLowerCase();
   const hoTen = String(payload.ho_ten || '').trim() || tenDangNhap;
@@ -287,7 +287,7 @@ exports.adminSyncUserUid = onCall({ cors: true, region: 'asia-southeast1' }, asy
  * Cloud Function v2 (onCall): Đồng bộ Firebase Auth UID cho toàn bộ tài khoản
  */
 exports.adminSyncAllUsersUid = onCall({ cors: true, region: 'asia-southeast1' }, async (request) => {
-  const { callerUid, callerData } = await assertCallerIsAdmin(request);
+  await assertCallerIsAdmin(request);
   const payload = request.data || {};
   const usersList = Array.isArray(payload.users) ? payload.users : [];
   const defaultPassword = String(payload.default_password || 'Ubkt@2026!');
