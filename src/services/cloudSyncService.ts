@@ -8,6 +8,7 @@ import {
   getDoc,
   writeBatch,
 } from 'firebase/firestore';
+import type { QuerySnapshot, DocumentData } from 'firebase/firestore';
 import { db as firestoreDb, auth, ensureFirebaseAuthReady } from './firebase';
 import { isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import { sanitizeUserForCloud } from '../utils/passwordCrypto';
@@ -591,7 +592,7 @@ export const cloudSyncService = {
         getDocs(collection(firestoreDb, 'ho_so_dia_ban_records')),
         getDocs(collection(firestoreDb, 'ho_so_dia_ban_files')),
         getDocs(collection(firestoreDb, 'bao_cao_thang')),
-        getDocs(collection(firestoreDb, 'pdf_files')),
+        getDocs(collection(firestoreDb, 'pdf_files')).catch(() => ({ docs: [], size: 0 }) as unknown as QuerySnapshot<DocumentData>),
         getDocs(collection(firestoreDb, 'don_thu')),
         getDocs(collection(firestoreDb, 'users'))
           .then((s) => s.docs)
@@ -1024,7 +1025,7 @@ export const cloudSyncService = {
         getDocs(collection(firestoreDb, 'ho_so_dia_ban_records')),
         getDocs(collection(firestoreDb, 'ho_so_dia_ban_files')),
         getDocs(collection(firestoreDb, 'bao_cao_thang')),
-        getDocs(collection(firestoreDb, 'pdf_files')),
+        getDocs(collection(firestoreDb, 'pdf_files')).catch(() => ({ docs: [], size: 0 }) as unknown as QuerySnapshot<DocumentData>),
         getDocs(collection(firestoreDb, 'don_thu')),
         getDocs(collection(firestoreDb, 'users'))
           .then((s) => s.docs)
@@ -1642,7 +1643,7 @@ export const cloudSyncService = {
         getDocs(collection(firestoreDb, 'ho_so_dia_ban_records')),
         getDocs(collection(firestoreDb, 'ho_so_dia_ban_files')),
         getDocs(collection(firestoreDb, 'bao_cao_thang')),
-        getDocs(collection(firestoreDb, 'pdf_files')),
+        getDocs(collection(firestoreDb, 'pdf_files')).catch(() => ({ docs: [], size: 0 }) as unknown as QuerySnapshot<DocumentData>),
         getDoc(doc(firestoreDb, 'system_config', 'sync_meta')),
       ]);
 

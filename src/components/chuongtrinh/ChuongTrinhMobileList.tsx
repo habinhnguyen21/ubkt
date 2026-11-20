@@ -412,7 +412,7 @@ export const ChuongTrinhMobileList: React.FC<ChuongTrinhMobileListProps> = ({
                     <strong className="text-slate-800">{renderThoiGian(item)}</strong>
                   </div>
 
-                  {isAdmin && renderAssignedOfficers && (
+                  {renderAssignedOfficers && (
                     <div className="flex items-start gap-1.5 text-slate-700 pt-0.5">
                       <UserIcon className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
                       <span className="shrink-0">Phụ trách:</span>

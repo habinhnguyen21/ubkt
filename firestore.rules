@@ -378,8 +378,14 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // pdf_files: Tệp đính kèm của chương trình KT-GS / lịch tháng / hồ sơ địa bàn.
+    // Mọi tài khoản đã đăng nhập được ĐỌC (để Biên tập viên xem đầy đủ văn bản chương trình như Admin);
+    // giao diện Kho dữ liệu điện tử vẫn chỉ hiển thị cho Admin.
     match /pdf_files/{docId} {
-      allow read, write: if isAdmin();
+      allow read: if isSignedIn();
+      allow create, update: if hasValidSession()
+        && (isAdmin() || isAssignedToUnit(extractRecordUnitId(request.resource.data)));
+      allow delete: if isAdmin();
     }
 
     match /kho_pdf/{docId} {

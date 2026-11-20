@@ -224,10 +224,6 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       (item.chu_the || item.co_quan_ban_hanh || item.ten_don_vi || item.ten_chi_dang_bo || item.doi_tuong || item.chu_the_ap_dung || '').trim() ||
       'Chưa rõ cơ quan';
 
-    if (!isAdmin) {
-      return { officers: [], matchedUnits: [], lookupAgencyName, status: 'NO_UNIT' };
-    }
-
     const matchedUnits: DonVi[] = [];
 
     // 1. Đối chiếu theo ID đơn vị đã lưu (bỏ qua đơn vị có deleted_at)
@@ -1401,7 +1397,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         const matchSoVB = Boolean(item.so_van_ban && item.so_van_ban.toLowerCase().includes(q));
         const matchChuThe = Boolean(item.chu_the && item.chu_the.toLowerCase().includes(q));
         const matchLinhVuc = Boolean(item.linh_vuc && item.linh_vuc.toLowerCase().includes(q));
-        const matchCanBo = Boolean(isAdmin && getAssignedOfficers(item).some((cb) => cb.toLowerCase().includes(q)));
+        const matchCanBo = getAssignedOfficers(item).some((cb) => cb.toLowerCase().includes(q));
         if (
           !matchTitle &&
           !matchDoiTuong &&
@@ -2962,9 +2958,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                 <th className="py-3 px-3 w-36">SỐ HIỆU VĂN BẢN</th>
                 <th className="py-3 px-3 w-40">CƠ QUAN BAN HÀNH</th>
                 <th className="py-3 px-3 w-36">CHỦ THỂ ÁP DỤNG</th>
-                {isAdmin && (
-                  <th className="py-3 px-3 w-44">CÁN BỘ ĐƯỢC PHÂN CÔNG</th>
-                )}
+                <th className="py-3 px-3 w-44">CÁN BỘ ĐƯỢC PHÂN CÔNG</th>
                 <th className="py-3 px-3 w-44 text-center">THAY ĐỔI, BỔ SUNG & ĐỐI CHIẾU</th>
                 <th className="py-3 px-4 min-w-[220px]">NỘI DUNG KIỂM TRA, GIÁM SÁT</th>
                 <th className="py-3 px-3 w-32">THỜI GIAN</th>
@@ -2976,14 +2970,14 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={isAdmin ? 12 : 11} className="py-12 text-center text-slate-400">
+                  <td colSpan={12} className="py-12 text-center text-slate-400">
                     <span className="inline-block animate-spin mr-2">⟳</span>
                     Đang nạp dữ liệu chương trình...
                   </td>
                 </tr>
               ) : filteredList.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin ? 12 : 11} className="py-12 text-center text-slate-400">
+                  <td colSpan={12} className="py-12 text-center text-slate-400">
                     Không tìm thấy chương trình phù hợp với bộ lọc hiện tại.
                   </td>
                 </tr>
@@ -3073,11 +3067,9 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                         </td>
 
                         {/* BỔ SUNG CỘT CÁN BỘ ĐƯỢC PHÂN CÔNG (CHỈ DÀNH CHO ADMIN) */}
-                        {isAdmin && (
-                          <td className="py-3.5 px-3">
-                            {renderAssignedOfficers(item)}
-                          </td>
-                        )}
+                        <td className="py-3.5 px-3">
+                          {renderAssignedOfficers(item)}
+                        </td>
 
                         {/* 6. THAY ĐỔI, BỔ SUNG & ĐỐI CHIẾU */}
                         <td className="py-3.5 px-3 text-center">
@@ -5126,9 +5118,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                         <th className="py-3 px-3 w-40">CƠ QUAN BAN HÀNH</th>
                         <th className="py-3 px-2 w-28 text-center">LOẠI HÌNH</th>
                         <th className="py-3 px-3 w-48">ĐỐI TƯỢNG KT-GS</th>
-                        {isAdmin && (
-                          <th className="py-3 px-3 w-48">CÁN BỘ ĐƯỢC PHÂN CÔNG</th>
-                        )}
+                        <th className="py-3 px-3 w-48">CÁN BỘ ĐƯỢC PHÂN CÔNG</th>
                         <th className="py-3 px-4 min-w-[220px]">NỘI DUNG KIỂM TRA, GIÁM SÁT</th>
                         <th className="py-3 px-3 w-32">THỜI GIAN</th>
                         <th className="py-3 px-3 w-32 text-center">TRẠNG THÁI</th>
@@ -5139,14 +5129,14 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                     <tbody className="divide-y divide-slate-100">
                       {loading ? (
                         <tr>
-                          <td colSpan={isAdmin ? 11 : 10} className="py-12 text-center text-slate-400">
+                          <td colSpan={11} className="py-12 text-center text-slate-400">
                             <span className="inline-block animate-spin mr-2">⟳</span>
                             Đang nạp dữ liệu chương trình kiểm tra, giám sát...
                           </td>
                         </tr>
                       ) : filteredHangNamList.length === 0 ? (
                         <tr>
-                          <td colSpan={isAdmin ? 11 : 10} className="py-12 text-center text-slate-400">
+                          <td colSpan={11} className="py-12 text-center text-slate-400">
                             Không tìm thấy chương trình nào phù hợp với bộ lọc hiện tại. Vui lòng bấm &quot;Xóa toàn bộ lọc&quot; để hiển thị lại.
                           </td>
                         </tr>
@@ -5220,11 +5210,9 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                                 </td>
 
                                 {/* BỔ SUNG CỘT CÁN BỘ ĐƯỢC PHÂN CÔNG (CHỈ DÀNH CHO ADMIN) */}
-                                {isAdmin && (
-                                  <td className="py-3.5 px-3">
-                                    {renderAssignedOfficers(item)}
-                                  </td>
-                                )}
+                                <td className="py-3.5 px-3">
+                                  {renderAssignedOfficers(item)}
+                                </td>
 
                                 {/* 6. NỘI DUNG KIỂM TRA, GIÁM SÁT */}
                                 <td className="py-3.5 px-4 text-xs text-slate-700 leading-relaxed">
