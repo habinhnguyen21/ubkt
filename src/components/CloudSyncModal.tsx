@@ -58,25 +58,25 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
     try {
       const raw = localStorage.getItem('ubkt_mock_db');
       if (raw) mockDb = JSON.parse(raw);
-    } catch {}
+    } catch { }
 
     let diaBan: any[] = [];
     try {
       const raw = localStorage.getItem('ubkt_ho_so_dia_ban_records');
       if (raw) diaBan = JSON.parse(raw);
-    } catch {}
+    } catch { }
 
     let files: any[] = [];
     try {
       const raw = localStorage.getItem('ubkt_ho_so_dia_ban_files');
       if (raw) files = JSON.parse(raw);
-    } catch {}
+    } catch { }
 
     let bcs: any[] = [];
     try {
       const raw = localStorage.getItem('ubkt_bao_cao_thang');
       if (raw) bcs = JSON.parse(raw);
-    } catch {}
+    } catch { }
 
     setLocalCounts({
       donVi: mockDb.donViList?.length || 0,
@@ -93,19 +93,21 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
     setAutoSyncEnabled(cloudSyncService.isAutoSyncEnabled());
     setAutoSyncInterval(cloudSyncService.getAutoSyncInterval());
     calculateLocalCounts();
+    const currentUser = sessionStore.getCurrentUser();
+    const fbUser = cloudSyncService.getFirebaseAuthUser();
     try {
       const summary = await cloudSyncService.getCloudSummary();
       setCloudSummary(summary);
+      const isAuthReady = !!summary.authReady || !!fbUser;
       setAuthInfo({
-        email: summary.authEmail || null,
-        uid: summary.authUid || null,
-        isReady: !!summary.authReady,
+        email: summary.authEmail || fbUser?.email || (currentUser?.ten_dang_nhap ? `@${currentUser.ten_dang_nhap}` : null),
+        uid: summary.authUid || fbUser?.uid || currentUser?.firebaseUid || null,
+        isReady: isAuthReady,
       });
     } catch {
-      const fbUser = cloudSyncService.getFirebaseAuthUser();
       setAuthInfo({
-        email: fbUser?.email || null,
-        uid: fbUser?.uid || null,
+        email: fbUser?.email || (currentUser?.ten_dang_nhap ? `@${currentUser.ten_dang_nhap}` : null),
+        uid: fbUser?.uid || currentUser?.firebaseUid || null,
         isReady: !!fbUser,
       });
     }
@@ -364,370 +366,371 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
         {/* Modal Scrollable Body */}
         <div className="p-4 sm:p-6 pt-3 sm:pt-4 space-y-4 sm:space-y-5 overflow-y-auto flex-1">
 
-        {/* Trạng thái kết nối Cloud & Xác thực Firebase Auth */}
-        <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 text-xs space-y-2.5">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center space-x-2 font-semibold text-slate-700">
-              <Server className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>Dự án Cloud: <strong className="font-mono text-emerald-700">ubkt-bf611 (Firestore)</strong></span>
-            </div>
-            {authInfo.isReady ? (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                ● Đã kết nối Firebase Auth
-              </span>
-            ) : authCheckingTimedOut ? (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
-                ● Chưa liên kết phiên Firebase Auth
-              </span>
-            ) : (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">
-                ⚠ Đang kiểm tra Firebase Auth...
-              </span>
-            )}
-          </div>
-
-          {/* Chi tiết tài khoản Firebase Auth đang kết nối */}
-          <div className="bg-white/90 rounded-lg p-2.5 border border-slate-200/80 space-y-1.5 text-[11px]">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-slate-500 font-medium">Tài khoản kết nối:</span>
-              <span className="font-semibold text-slate-800 truncate text-right" title={authInfo.email || ''}>
-                {authInfo.email || (sessionStore.getCurrentUser()?.ten_dang_nhap ? `@${sessionStore.getCurrentUser()?.ten_dang_nhap}` : 'Chưa kết nối')}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-slate-500 font-medium">Firebase UID:</span>
-              <span className="font-mono text-[10px] text-slate-600 truncate text-right" title={authInfo.uid || ''}>
-                {authInfo.uid
-                  ? (authInfo.uid.length > 20 ? `${authInfo.uid.slice(0, 10)}...${authInfo.uid.slice(-6)}` : authInfo.uid)
-                  : authCheckingTimedOut
-                  ? <span className="text-rose-600 font-semibold">Chưa có UID</span>
-                  : 'Đang kiểm tra...'}
-              </span>
-            </div>
-          </div>
-
-          {authCheckingTimedOut && !authInfo.isReady && (
-            <div className="bg-rose-50 border border-rose-200 rounded-lg p-2.5 flex items-center justify-between gap-2 text-rose-700 text-[11px]">
-              <div>
-                <p className="font-semibold">Phiên đăng nhập chưa được liên kết Firebase Auth.</p>
-                <p className="text-rose-600 text-[10px]">Vui lòng đăng nhập lại để hệ thống cấp Firebase UID và cho phép đồng bộ Cloud.</p>
+          {/* Trạng thái kết nối Cloud & Xác thực Firebase Auth */}
+          <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 text-xs space-y-2.5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center space-x-2 font-semibold text-slate-700">
+                <Server className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Dự án Cloud: <strong className="font-mono text-emerald-700">ubkt-bf611 (Firestore)</strong></span>
               </div>
-              <button
-                type="button"
-                onClick={handleRelogin}
-                className="shrink-0 px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded text-[11px] font-medium transition cursor-pointer"
-              >
-                Đăng nhập lại
-              </button>
+              {authInfo.isReady ? (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  ● Đã kết nối Firebase Auth
+                </span>
+              ) : authCheckingTimedOut ? (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                  ● Chưa liên kết phiên Firebase Auth
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">
+                  ⚠ Đang kiểm tra Firebase Auth...
+                </span>
+              )}
             </div>
-          )}
 
-          <div className="text-slate-500 flex items-center justify-between pt-1 border-t border-slate-200/60 text-[11px]">
-            <span>Đồng bộ gần nhất: <strong>{lastSynced || 'Chưa thực hiện trên thiết bị này'}</strong></span>
-            <button
-              type="button"
-              onClick={loadCloudInfo}
-              className="text-blue-600 hover:underline flex items-center space-x-1 cursor-pointer font-medium"
-            >
-              <RefreshCw className="w-3 h-3" />
-              <span>Làm mới số liệu</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Khối Cấu hình Tự động đồng bộ ẩn 2 chiều định kỳ 30s */}
-        <div className="bg-gradient-to-r from-blue-50/80 via-indigo-50/70 to-slate-50 border border-blue-200/80 rounded-xl p-3.5 flex items-center justify-between shadow-xs">
-          <div className="flex items-center space-x-3">
-            <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-white transition ${autoSyncEnabled ? 'bg-blue-600 shadow-xs' : 'bg-slate-400'}`}>
-              <RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-xs text-slate-800">Tự động đồng bộ 2 chiều ẩn</span>
-                <span className={`px-2 py-0.5 text-[10px] rounded-full font-bold border ${autoSyncEnabled ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-slate-200 text-slate-600 border-slate-300'}`}>
-                  {autoSyncEnabled ? `Mỗi ${autoSyncInterval} giây` : 'Đang tắt'}
+            {/* Chi tiết tài khoản Firebase Auth đang kết nối */}
+            <div className="bg-white/90 rounded-lg p-2.5 border border-slate-200/80 space-y-1.5 text-[11px]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-500 font-medium">Tài khoản kết nối:</span>
+                <span className="font-semibold text-slate-800 truncate text-right" title={authInfo.email || ''}>
+                  {authInfo.email || (sessionStore.getCurrentUser()?.ten_dang_nhap ? `@${sessionStore.getCurrentUser()?.ten_dang_nhap}` : 'Chưa kết nối')}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                Hệ thống tự động đồng bộ ngầm mọi thay đổi giữa máy tính này và Cloud định kỳ 30s mà không gián đoạn công việc.
-              </p>
-            </div>
-          </div>
-
-          <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
-            <input
-              type="checkbox"
-              checked={autoSyncEnabled}
-              onChange={(e) => handleToggleAutoSync(e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-          </label>
-        </div>
-
-        {/* Bảng so sánh dữ liệu: Máy này vs Cloud */}
-        <div className="space-y-1.5">
-          <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-            Đối chiếu số lượng dữ liệu
-          </div>
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            {/* Cột Máy này */}
-            <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl space-y-1.5">
-              <div className="font-bold text-blue-900 flex items-center justify-between border-b border-blue-200/60 pb-1">
-                <span>💻 Trên máy tính này</span>
-                <span className="text-[11px] font-normal text-blue-600">Bộ nhớ máy</span>
-              </div>
-              <div className="space-y-1 text-slate-700 text-[11px]">
-                <div className="flex justify-between">
-                  <span>Cơ cấu tổ chức:</span>
-                  <span className="font-bold font-mono">{localCounts.donVi}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Chương trình KT-GS:</span>
-                  <span className="font-bold font-mono">{localCounts.chuongTrinh}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Hồ sơ địa bàn:</span>
-                  <span className="font-bold font-mono">{localCounts.hoSoDiaBan}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Tài liệu hồ sơ:</span>
-                  <span className="font-bold font-mono">{localCounts.hoSoFiles}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Báo cáo tháng:</span>
-                  <span className="font-bold font-mono">{localCounts.baoCaoThang}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Kho dữ liệu điện tử:</span>
-                  <span className="font-bold font-mono">{localCounts.pdfFiles}</span>
-                </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-500 font-medium">Firebase UID:</span>
+                <span className="font-mono text-[10px] text-slate-600 truncate text-right" title={authInfo.uid || ''}>
+                  {authInfo.uid ? (
+                    authInfo.uid.length > 20 ? `${authInfo.uid.slice(0, 10)}...${authInfo.uid.slice(-6)}` : authInfo.uid
+                  ) : authCheckingTimedOut ? (
+                    <span className="text-rose-600 font-semibold">Chưa có UID</span>
+                  ) : (
+                    'Đang kiểm tra...'
+                  )}
+                </span>
               </div>
             </div>
 
-            {/* Cột Cloud */}
-            <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-1.5">
-              <div className="font-bold text-emerald-900 flex items-center justify-between border-b border-emerald-200/60 pb-1">
-                <span>☁️ Trên Đám mây Cloud</span>
-                <span className="text-[11px] font-normal text-emerald-600">Dữ liệu chung</span>
+            {authCheckingTimedOut && !authInfo.isReady && (
+              <div className="bg-rose-50 border border-rose-200 rounded-lg p-2.5 flex items-center justify-between gap-2 text-rose-700 text-[11px]">
+                <div>
+                  <p className="font-semibold">Phiên đăng nhập chưa được liên kết Firebase Auth.</p>
+                  <p className="text-rose-600 text-[10px]">Vui lòng đăng nhập lại để hệ thống cấp Firebase UID và cho phép đồng bộ Cloud.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRelogin}
+                  className="shrink-0 px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded text-[11px] font-medium transition cursor-pointer"
+                >
+                  Đăng nhập lại
+                </button>
               </div>
-              <div className="space-y-1 text-slate-700 text-[11px]">
-                <div className="flex justify-between">
-                  <span>Cơ cấu tổ chức:</span>
-                  <span className="font-bold font-mono text-emerald-800">{cloudSummary?.counts?.donVi ?? '—'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Chương trình KT-GS:</span>
-                  <span className="font-bold font-mono text-emerald-800">{cloudSummary?.counts?.chuongTrinh ?? '—'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Hồ sơ địa bàn:</span>
-                  <span className="font-bold font-mono text-emerald-800">{cloudSummary?.counts?.hoSoDiaBan ?? '—'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Tài liệu hồ sơ:</span>
-                  <span className="font-bold font-mono text-emerald-800">{cloudSummary?.counts?.hoSoFiles ?? '—'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Báo cáo tháng:</span>
-                  <span className="font-bold font-mono text-emerald-800">{cloudSummary?.counts?.baoCaoThang ?? '—'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Kho dữ liệu điện tử:</span>
-                  <span className="font-bold font-mono text-emerald-800">{cloudSummary?.counts?.pdfFiles ?? '—'}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Thông báo tiến trình hoặc lỗi */}
-        {isProcessing && (
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center space-x-2">
-            <RefreshCw className="w-4 h-4 text-amber-600 animate-spin shrink-0" />
-            <span className="font-medium">{progressMsg || 'Đang thực hiện đồng bộ... Vui lòng chờ giây lát.'}</span>
-          </div>
-        )}
-
-        {statusAlert && (
-          <div
-            className={`p-3 rounded-xl text-xs flex items-start space-x-2.5 ${
-              statusAlert.type === 'success'
-                ? 'bg-emerald-50 border border-emerald-300 text-emerald-900'
-                : 'bg-rose-50 border border-rose-300 text-rose-900'
-            }`}
-          >
-            {statusAlert.type === 'success' ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-            ) : (
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
             )}
-            <div className="whitespace-pre-line leading-relaxed font-medium">{statusAlert.message}</div>
+
+            <div className="text-slate-500 flex items-center justify-between pt-1 border-t border-slate-200/60 text-[11px]">
+              <span>Đồng bộ gần nhất: <strong>{lastSynced || 'Chưa thực hiện trên thiết bị này'}</strong></span>
+              <button
+                type="button"
+                onClick={loadCloudInfo}
+                className="text-blue-600 hover:underline flex items-center space-x-1 cursor-pointer font-medium"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Làm mới số liệu</span>
+              </button>
+            </div>
           </div>
-        )}
 
-        {/* Khối hướng dẫn ngắn gọn */}
-        <div className="p-3 bg-slate-50 rounded-xl text-[11px] text-slate-600 leading-relaxed border border-slate-200">
-          💡 <strong>Hướng dẫn sử dụng đa thiết bị:</strong>
-          <ul className="list-disc pl-4 mt-1 space-y-0.5">
-            <li><strong>Trên máy đã nhập dữ liệu:</strong> Nhấn <strong>"Đẩy toàn bộ lên Cloud"</strong> một lần để tải toàn bộ dữ liệu lên máy chủ đám mây.</li>
-            <li><strong>Trên máy tính khác hoặc điện thoại:</strong> Mở trang web và nhấn <strong>"Tải từ Cloud về máy"</strong> để lấy đầy đủ toàn bộ dữ liệu.</li>
-          </ul>
-        </div>
-
-        {/* Các nút hành động chính */}
-        <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-slate-100">
-          <button
-            type="button"
-            onClick={handlePushAll}
-            disabled={isProcessing}
-            className="flex-1 inline-flex items-center justify-center space-x-1.5 px-3 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
-            title="Đẩy toàn bộ dữ liệu hiện có từ máy tính này lên Cloud để máy khác có thể xem được"
-          >
-            <CloudUpload className="w-4 h-4" />
-            <span>Đẩy dữ liệu máy này lên Cloud</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handlePullAll}
-            disabled={isProcessing}
-            className="flex-1 inline-flex items-center justify-center space-x-1.5 px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
-            title="Tải toàn bộ dữ liệu mới nhất từ Cloud về máy này"
-          >
-            <CloudDownload className="w-4 h-4" />
-            <span>Tải từ Cloud về máy này</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleSmartSync}
-            disabled={isProcessing}
-            className="inline-flex items-center justify-center space-x-1.5 px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
-            title="Tự động kiểm tra và đồng bộ hợp nhất 2 chiều"
-          >
-            <Zap className="w-4 h-4 text-amber-300" />
-            <span>Đồng bộ 2 chiều</span>
-          </button>
-        </div>
-
-        {/* Khối Sao lưu & Khôi phục toàn bộ dữ liệu (JSON) - Chỉ dành cho ADMIN */}
-        {isAdmin && (
-          <div className="pt-3 border-t border-slate-200 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                Sao lưu & Khôi phục dữ liệu (ADMIN)
-              </span>
-              <span className="text-[10px] font-semibold text-slate-500">
-                Đã tự động loại bỏ mật khẩu/token
+      {/* Khối Cấu hình Tự động đồng bộ ẩn 2 chiều định kỳ 30s */}
+      <div className="bg-gradient-to-r from-blue-50/80 via-indigo-50/70 to-slate-50 border border-blue-200/80 rounded-xl p-3.5 flex items-center justify-between shadow-xs">
+        <div className="flex items-center space-x-3">
+          <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-white transition ${autoSyncEnabled ? 'bg-blue-600 shadow-xs' : 'bg-slate-400'}`}>
+            <RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-xs text-slate-800">Tự động đồng bộ 2 chiều ẩn</span>
+              <span className={`px-2 py-0.5 text-[10px] rounded-full font-bold border ${autoSyncEnabled ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-slate-200 text-slate-600 border-slate-300'}`}>
+                {autoSyncEnabled ? `Mỗi ${autoSyncInterval} giây` : 'Đang tắt'}
               </span>
             </div>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Hệ thống tự động đồng bộ ngầm mọi thay đổi giữa máy tính này và Cloud định kỳ 30s mà không gián đoạn công việc.
+            </p>
+          </div>
+        </div>
 
-            <div className="flex flex-col sm:flex-row gap-2">
-              <button
-                type="button"
-                onClick={handleExportFullBackup}
-                disabled={isProcessing}
-                className="flex-1 inline-flex items-center justify-center space-x-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
-              >
-                <Download className="w-4 h-4" />
-                <span>Xuất toàn bộ dữ liệu (JSON)</span>
-              </button>
+        <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
+          <input
+            type="checkbox"
+            checked={autoSyncEnabled}
+            onChange={(e) => handleToggleAutoSync(e.target.checked)}
+            className="sr-only peer"
+          />
+          <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+        </label>
+      </div>
 
-              <input
-                ref={restoreFileInputRef}
-                type="file"
-                accept=".json,application/json"
-                onChange={handleSelectRestoreFile}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => restoreFileInputRef.current?.click()}
-                disabled={isProcessing}
-                className="flex-1 inline-flex items-center justify-center space-x-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
-              >
-                <Upload className="w-4 h-4" />
-                <span>Khôi phục từ file</span>
-              </button>
+      {/* Bảng so sánh dữ liệu: Máy này vs Cloud */}
+      <div className="space-y-1.5">
+        <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+          Đối chiếu số lượng dữ liệu
+        </div>
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          {/* Cột Máy này */}
+          <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl space-y-1.5">
+            <div className="font-bold text-blue-900 flex items-center justify-between border-b border-blue-200/60 pb-1">
+              <span>💻 Trên máy tính này</span>
+              <span className="text-[11px] font-normal text-blue-600">Bộ nhớ máy</span>
             </div>
+            <div className="space-y-1 text-slate-700 text-[11px]">
+              <div className="flex justify-between">
+                <span>Cơ cấu tổ chức:</span>
+                <span className="font-bold font-mono">{localCounts.donVi}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Chương trình KT-GS:</span>
+                <span className="font-bold font-mono">{localCounts.chuongTrinh}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Hồ sơ địa bàn:</span>
+                <span className="font-bold font-mono">{localCounts.hoSoDiaBan}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Tài liệu hồ sơ:</span>
+                <span className="font-bold font-mono">{localCounts.hoSoFiles}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Báo cáo tháng:</span>
+                <span className="font-bold font-mono">{localCounts.baoCaoThang}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Kho dữ liệu điện tử:</span>
+                <span className="font-bold font-mono">{localCounts.pdfFiles}</span>
+              </div>
+            </div>
+          </div>
 
-            {/* Xác nhận 2 bước khi Khôi phục từ file */}
-            {pendingRestoreData && restoreStep > 0 && (
-              <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl space-y-2 text-xs text-amber-950">
-                <div className="flex items-start space-x-2">
-                  <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <div className="font-bold">
-                      Xác nhận khôi phục ({restoreStep}/2): {pendingRestoreFilename}
-                    </div>
-                    <p className="text-[11px] text-amber-800 mt-0.5">
-                      Dữ liệu trong file: {(pendingRestoreData.collections?.don_vi || pendingRestoreData.don_vi || []).length} đơn vị,{' '}
-                      {(pendingRestoreData.collections?.chuong_trinh || pendingRestoreData.chuong_trinh || []).length} chương trình,{' '}
-                      {(pendingRestoreData.collections?.ho_so_dia_ban_records || pendingRestoreData.ho_so_dia_ban_records || []).length} hồ sơ địa bàn.
-                    </p>
+          {/* Cột Cloud */}
+          <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-1.5">
+            <div className="font-bold text-emerald-900 flex items-center justify-between border-b border-emerald-200/60 pb-1">
+              <span>☁️ Trên Đám mây Cloud</span>
+              <span className="text-[11px] font-normal text-emerald-600">Dữ liệu chung</span>
+            </div>
+            <div className="space-y-1 text-slate-700 text-[11px]">
+              <div className="flex justify-between">
+                <span>Cơ cấu tổ chức:</span>
+                <span className="font-bold font-mono text-emerald-800">{cloudSummary?.counts?.donVi ?? '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Chương trình KT-GS:</span>
+                <span className="font-bold font-mono text-emerald-800">{cloudSummary?.counts?.chuongTrinh ?? '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Hồ sơ địa bàn:</span>
+                <span className="font-bold font-mono text-emerald-800">{cloudSummary?.counts?.hoSoDiaBan ?? '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Tài liệu hồ sơ:</span>
+                <span className="font-bold font-mono text-emerald-800">{cloudSummary?.counts?.hoSoFiles ?? '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Báo cáo tháng:</span>
+                <span className="font-bold font-mono text-emerald-800">{cloudSummary?.counts?.baoCaoThang ?? '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Kho dữ liệu điện tử:</span>
+                <span className="font-bold font-mono text-emerald-800">{cloudSummary?.counts?.pdfFiles ?? '—'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Thông báo tiến trình hoặc lỗi */}
+      {isProcessing && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center space-x-2">
+          <RefreshCw className="w-4 h-4 text-amber-600 animate-spin shrink-0" />
+          <span className="font-medium">{progressMsg || 'Đang thực hiện đồng bộ... Vui lòng chờ giây lát.'}</span>
+        </div>
+      )}
+
+      {statusAlert && (
+        <div
+          className={`p-3 rounded-xl text-xs flex items-start space-x-2.5 ${statusAlert.type === 'success'
+            ? 'bg-emerald-50 border border-emerald-300 text-emerald-900'
+            : 'bg-rose-50 border border-rose-300 text-rose-900'
+            }`}
+        >
+          {statusAlert.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+          ) : (
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+          )}
+          <div className="whitespace-pre-line leading-relaxed font-medium">{statusAlert.message}</div>
+        </div>
+      )}
+
+      {/* Khối hướng dẫn ngắn gọn */}
+      <div className="p-3 bg-slate-50 rounded-xl text-[11px] text-slate-600 leading-relaxed border border-slate-200">
+        💡 <strong>Hướng dẫn sử dụng đa thiết bị:</strong>
+        <ul className="list-disc pl-4 mt-1 space-y-0.5">
+          <li><strong>Trên máy đã nhập dữ liệu:</strong> Nhấn <strong>"Đẩy toàn bộ lên Cloud"</strong> một lần để tải toàn bộ dữ liệu lên máy chủ đám mây.</li>
+          <li><strong>Trên máy tính khác hoặc điện thoại:</strong> Mở trang web và nhấn <strong>"Tải từ Cloud về máy"</strong> để lấy đầy đủ toàn bộ dữ liệu.</li>
+        </ul>
+      </div>
+
+      {/* Các nút hành động chính */}
+      <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-slate-100">
+        <button
+          type="button"
+          onClick={handlePushAll}
+          disabled={isProcessing}
+          className="flex-1 inline-flex items-center justify-center space-x-1.5 px-3 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
+          title="Đẩy toàn bộ dữ liệu hiện có từ máy tính này lên Cloud để máy khác có thể xem được"
+        >
+          <CloudUpload className="w-4 h-4" />
+          <span>Đẩy dữ liệu máy này lên Cloud</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handlePullAll}
+          disabled={isProcessing}
+          className="flex-1 inline-flex items-center justify-center space-x-1.5 px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
+          title="Tải toàn bộ dữ liệu mới nhất từ Cloud về máy này"
+        >
+          <CloudDownload className="w-4 h-4" />
+          <span>Tải từ Cloud về máy này</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleSmartSync}
+          disabled={isProcessing}
+          className="inline-flex items-center justify-center space-x-1.5 px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
+          title="Tự động kiểm tra và đồng bộ hợp nhất 2 chiều"
+        >
+          <Zap className="w-4 h-4 text-amber-300" />
+          <span>Đồng bộ 2 chiều</span>
+        </button>
+      </div>
+
+      {/* Khối Sao lưu & Khôi phục toàn bộ dữ liệu (JSON) - Chỉ dành cho ADMIN */}
+      {isAdmin && (
+        <div className="pt-3 border-t border-slate-200 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Sao lưu & Khôi phục dữ liệu (ADMIN)
+            </span>
+            <span className="text-[10px] font-semibold text-slate-500">
+              Đã tự động loại bỏ mật khẩu/token
+            </span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
+              onClick={handleExportFullBackup}
+              disabled={isProcessing}
+              className="flex-1 inline-flex items-center justify-center space-x-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" />
+              <span>Xuất toàn bộ dữ liệu (JSON)</span>
+            </button>
+
+            <input
+              ref={restoreFileInputRef}
+              type="file"
+              accept=".json,application/json"
+              onChange={handleSelectRestoreFile}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => restoreFileInputRef.current?.click()}
+              disabled={isProcessing}
+              className="flex-1 inline-flex items-center justify-center space-x-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Khôi phục từ file</span>
+            </button>
+          </div>
+
+          {/* Xác nhận 2 bước khi Khôi phục từ file */}
+          {pendingRestoreData && restoreStep > 0 && (
+            <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl space-y-2 text-xs text-amber-950">
+              <div className="flex items-start space-x-2">
+                <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <div className="font-bold">
+                    Xác nhận khôi phục ({restoreStep}/2): {pendingRestoreFilename}
                   </div>
+                  <p className="text-[11px] text-amber-800 mt-0.5">
+                    Dữ liệu trong file: {(pendingRestoreData.collections?.don_vi || pendingRestoreData.don_vi || []).length} đơn vị,{' '}
+                    {(pendingRestoreData.collections?.chuong_trinh || pendingRestoreData.chuong_trinh || []).length} chương trình,{' '}
+                    {(pendingRestoreData.collections?.ho_so_dia_ban_records || pendingRestoreData.ho_so_dia_ban_records || []).length} hồ sơ địa bàn.
+                  </p>
                 </div>
+              </div>
 
-                {restoreStep === 1 ? (
-                  <div className="flex items-center justify-end gap-2 pt-1">
+              {restoreStep === 1 ? (
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingRestoreData(null);
+                      setRestoreStep(0);
+                    }}
+                    className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-700 font-semibold cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRestoreStep(2)}
+                    className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer"
+                  >
+                    Bước 1/2: Tiếp tục xác nhận
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2 pt-1">
+                  <label className="block text-[11px] font-semibold text-rose-800">
+                    Bước 2/2: Nhập chữ <code className="font-mono font-bold bg-white px-1 py-0.5 rounded border border-rose-300">KHOI PHUC</code> để xác nhận ghi đè dữ liệu:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={restoreConfirmText}
+                      onChange={(e) => setRestoreConfirmText(e.target.value)}
+                      placeholder="Nhập KHOI PHUC"
+                      className="flex-1 px-3 py-2 min-h-[44px] rounded-lg border border-rose-300 bg-white text-base sm:text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                    />
                     <button
                       type="button"
                       onClick={() => {
                         setPendingRestoreData(null);
                         setRestoreStep(0);
+                        setRestoreConfirmText('');
                       }}
-                      className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-700 font-semibold cursor-pointer"
+                      className="px-3 py-2 min-h-[44px] rounded-lg border border-slate-300 bg-white text-slate-700 font-semibold cursor-pointer"
                     >
                       Hủy
                     </button>
                     <button
                       type="button"
-                      onClick={() => setRestoreStep(2)}
-                      className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer"
+                      onClick={handleExecuteRestore}
+                      disabled={isProcessing || restoreConfirmText.trim().toUpperCase() !== 'KHOI PHUC'}
+                      className="px-3 py-2 min-h-[44px] rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer disabled:opacity-50"
                     >
-                      Bước 1/2: Tiếp tục xác nhận
+                      Xác nhận Khôi phục
                     </button>
                   </div>
-                ) : (
-                  <div className="space-y-2 pt-1">
-                    <label className="block text-[11px] font-semibold text-rose-800">
-                      Bước 2/2: Nhập chữ <code className="font-mono font-bold bg-white px-1 py-0.5 rounded border border-rose-300">KHOI PHUC</code> để xác nhận ghi đè dữ liệu:
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={restoreConfirmText}
-                        onChange={(e) => setRestoreConfirmText(e.target.value)}
-                        placeholder="Nhập KHOI PHUC"
-                        className="flex-1 px-3 py-2 min-h-[44px] rounded-lg border border-rose-300 bg-white text-base sm:text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-rose-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPendingRestoreData(null);
-                          setRestoreStep(0);
-                          setRestoreConfirmText('');
-                        }}
-                        className="px-3 py-2 min-h-[44px] rounded-lg border border-slate-300 bg-white text-slate-700 font-semibold cursor-pointer"
-                      >
-                        Hủy
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleExecuteRestore}
-                        disabled={isProcessing || restoreConfirmText.trim().toUpperCase() !== 'KHOI PHUC'}
-                        className="px-3 py-2 min-h-[44px] rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer disabled:opacity-50"
-                      >
-                        Xác nhận Khôi phục
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
         </div>
       </div>
     </div>
