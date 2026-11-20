@@ -186,8 +186,8 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
   const [userError, setUserError] = useState<string | null>(null);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
 
-  // Quyền thao tác
-  const canEdit = user.vai_tro === 'ADMIN' || user.vai_tro === 'BIEN_TAP';
+  // Quyền thao tác (Chỉ Admin mới có quyền thêm, sửa, xóa, chuyển cấp, nhập excel)
+  const canEdit = user.vai_tro === 'ADMIN';
 
   // ──────────────────────────────────────────────────────────────────────────
   // Nạp dữ liệu
@@ -357,6 +357,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
   // ──────────────────────────────────────────────────────────────────────────
   // 1. Thêm mới tổ chức
   const handleOpenAdd = (parentId: string | null = null) => {
+    if (!canEdit) return;
     setFormEditingUnit(null);
     setFormDefaultParentId(parentId || selectedUnitId);
     setIsFormModalOpen(true);
@@ -364,6 +365,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
 
   // 2. Chỉnh sửa tổ chức
   const handleOpenEdit = (target: DonVi) => {
+    if (!canEdit) return;
     setFormEditingUnit(target);
     setFormDefaultParentId(target.don_vi_cha_id);
     setIsFormModalOpen(true);
@@ -371,6 +373,7 @@ export const DonViManager: React.FC<DonViManagerProps> = ({ user, onDataChanged,
 
   // 3. Đổi cấp trên trực tiếp
   const handleOpenChangeParent = (target: DonVi) => {
+    if (!canEdit) return;
     setChangeParentUnit(target);
     setIsChangeParentModalOpen(true);
   };

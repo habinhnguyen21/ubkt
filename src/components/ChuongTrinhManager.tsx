@@ -15,6 +15,7 @@ import type {
   PhanCongDiaBan,
   DiaBanRecord,
 } from '../types';
+import { filterVisibleItemsForUser } from '../utils/permissionScope';
 import {
   isGoogleDriveConfigured,
   getGoogleDriveConfig,
@@ -161,6 +162,13 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       return [];
     }
   });
+
+  // Lọc tập dữ liệu hiển thị theo phân quyền người dùng:
+  // - Admin: 100% dữ liệu
+  // - Biên tập viên: Nhiệm vụ chung (BTV, BCH, UBKT Đảng ủy phường) + Nhiệm vụ cá nhân / địa bàn phụ trách
+  const scopedList = useMemo(() => {
+    return filterVisibleItemsForUser(list, user, undefined, assignments);
+  }, [list, user, assignments]);
 
   const [diaBanRecords, setDiaBanRecords] = useState<DiaBanRecord[]>(() => {
     try {
@@ -583,23 +591,23 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
   // Danh sách các chương trình chưa thực hiện thuộc năm đang lọc
   const pendingPrograms = useMemo(() => {
-    return list.filter((item) => {
+    return scopedList.filter((item) => {
       const isHangNam = (item.loai_chuong_trinh || 'HANG_NAM') === 'HANG_NAM';
       if (!isHangNam) return false;
       if (filterNam !== 'ALL' && item.nam !== Number(filterNam)) return false;
       return item.trang_thai === 'CHUA_THUC_HIEN';
     });
-  }, [list, filterNam]);
+  }, [scopedList, filterNam]);
 
   const dueThisMonthPrograms = useMemo(() => {
-    return list.filter((item) => {
+    return scopedList.filter((item) => {
       const isHangNam = (item.loai_chuong_trinh || 'HANG_NAM') === 'HANG_NAM';
       if (!isHangNam) return false;
       if (item.trang_thai !== 'CHUA_THUC_HIEN') return false;
       if (filterNam !== 'ALL' && item.nam !== Number(filterNam)) return false;
       return isScheduledThisMonth(item);
     });
-  }, [list, filterNam, currentMonth, currentYear]);
+  }, [scopedList, filterNam, currentMonth, currentYear]);
 
   const handleQuickSetDangThucHien = async (item: ChuongTrinhKtGs) => {
     try {
@@ -670,13 +678,13 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   };
 
   const overduePrograms = useMemo(() => {
-    return list.filter((item) => {
+    return scopedList.filter((item) => {
       const isHangNam = (item.loai_chuong_trinh || 'HANG_NAM') === 'HANG_NAM';
       if (!isHangNam) return false;
       if (filterNam !== 'ALL' && item.nam !== Number(filterNam)) return false;
       return isProgramOverdue(item);
     });
-  }, [list, filterNam]);
+  }, [scopedList, filterNam]);
 
   const handleQuickSetHoanThanh = async (item: ChuongTrinhKtGs) => {
     try {
@@ -761,21 +769,19 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
         });
       }
 
-      if (isAdmin) {
-        const [savedAssignments, savedUsers, savedDiaBan] = await Promise.all([
-          api.getPhanCongDiaBan().catch(() => null),
-          api.getAllUsers().catch(() => null),
-          api.getDiaBanRecords().catch(() => null),
-        ]);
-        if (Array.isArray(savedAssignments)) {
-          setAssignments((prev) => reconcileById(prev, savedAssignments, (a) => a.user_id));
-        }
-        if (Array.isArray(savedUsers)) {
-          setUsersList((prev) => reconcileById(prev, savedUsers, (u) => u.id));
-        }
-        if (Array.isArray(savedDiaBan)) {
-          setDiaBanRecords((prev) => reconcileById(prev, savedDiaBan, (r) => r.id));
-        }
+      const [savedAssignments, savedUsers, savedDiaBan] = await Promise.all([
+        api.getPhanCongDiaBan().catch(() => null),
+        api.getAllUsers().catch(() => null),
+        api.getDiaBanRecords().catch(() => null),
+      ]);
+      if (Array.isArray(savedAssignments)) {
+        setAssignments((prev) => reconcileById(prev, savedAssignments, (a) => a.user_id));
+      }
+      if (Array.isArray(savedUsers)) {
+        setUsersList((prev) => reconcileById(prev, savedUsers, (u) => u.id));
+      }
+      if (Array.isArray(savedDiaBan)) {
+        setDiaBanRecords((prev) => reconcileById(prev, savedDiaBan, (r) => r.id));
       }
       hasInitialLoadedRef.current = true;
       restoreActiveInput(activeInputSnap);
@@ -888,7 +894,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   const availableNhiemKyList = useMemo(() => {
     const standardTerms = ['2025 – 2030', '2020 – 2025', '2015 – 2020', '2030 – 2035'];
     const nks = new Set<string>(standardTerms);
-    list.forEach((item) => {
+    scopedList.forEach((item) => {
       if (item.nhiem_ky && !item.nhiem_ky.includes('2027')) {
         const parts = item.nhiem_ky.split(/[-–]/).map((p) => parseInt(p.trim(), 10));
         if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
@@ -905,34 +911,34 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       const yB = parseInt(b.slice(0, 4), 10) || 0;
       return yB - yA;
     });
-  }, [list]);
+  }, [scopedList]);
 
   // Đếm số lượng theo 2 mục lớn
   const countNhiemKy = useMemo(
     () =>
-      list.filter(
+      scopedList.filter(
         (i) =>
           (i.loai_chuong_trinh || 'HANG_NAM') === 'NHIEM_KY' ||
           Boolean(i.nhiem_ky) ||
           Boolean(i.has_nhiem_ky)
       ).length,
-    [list]
+    [scopedList]
   );
   const countHangNam = useMemo(
-    () => list.filter((i) => (i.loai_chuong_trinh || 'HANG_NAM') === 'HANG_NAM').length,
-    [list]
+    () => scopedList.filter((i) => (i.loai_chuong_trinh || 'HANG_NAM') === 'HANG_NAM').length,
+    [scopedList]
   );
 
   // Danh sách các năm có trong hệ thống (cho mục Hàng năm)
   const availableYears = useMemo(() => {
     const years = new Set<number>();
-    list.forEach((i) => {
+    scopedList.forEach((i) => {
       if (i.nam) years.add(i.nam);
     });
     years.add(2026);
     years.add(2025);
     return Array.from(years).sort((a, b) => b - a);
-  }, [list]);
+  }, [scopedList]);
 
   // Helper phân loại chi tiết tiến độ thực hiện (Phần E)
   const isChuaTrienKhai = (item: ChuongTrinhKtGs): boolean => {
@@ -1146,7 +1152,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
   // Thống kê toàn diện cho Chương trình Hàng năm (Phần A & B & E)
   const statsHangNam = useMemo(() => {
-    const hnItems = list.filter((i) => (i.loai_chuong_trinh || 'HANG_NAM') === 'HANG_NAM');
+    const hnItems = scopedList.filter((i) => (i.loai_chuong_trinh || 'HANG_NAM') === 'HANG_NAM');
     const filteredByYear =
       filterNam === 'ALL' ? hnItems : hnItems.filter((i) => i.nam === Number(filterNam));
 
@@ -1345,12 +1351,12 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
       tienDoThang,
       tienDoChiTiet,
     };
-  }, [list, filterNam, currentMonth, currentYear, customCoQuanList, allDonVi]);
+  }, [scopedList, filterNam, currentMonth, currentYear, customCoQuanList, allDonVi]);
 
   // Danh sách Hàng năm đã lọc theo Năm, Loại hình, Chủ thể, Lĩnh vực, Đơn vị, Trạng thái, Cảnh báo tiến độ E, Tìm kiếm D
   const filteredHangNamList = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    return list.filter((item) => {
+    return scopedList.filter((item) => {
       if ((item.loai_chuong_trinh || 'HANG_NAM') !== 'HANG_NAM') return false;
       if (filterNam !== 'ALL' && item.nam !== Number(filterNam)) return false;
       if (filterHnChuThe !== 'ALL' && !matchProgramWithAgency(item, filterHnChuThe, customCoQuanList, allDonVi)) return false;
@@ -1851,7 +1857,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   // Danh sách đã lọc theo các tiêu chí ở thanh công cụ (Phần Nhiệm kỳ)
   const filteredList = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    return list.filter((item) => {
+    return scopedList.filter((item) => {
       // Chỉ lấy chương trình toàn khóa / nhiệm kỳ cho bảng này
       const isNhiemKy = (item.loai_chuong_trinh || 'HANG_NAM') === 'NHIEM_KY' || Boolean(item.nhiem_ky) || Boolean(item.has_nhiem_ky);
       if (!isNhiemKy) return false;
@@ -2704,7 +2710,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
               </button>
             </>
           )}
-          <span className="hidden xl:inline">Tổng số: <strong className="text-slate-800">{list.length}</strong></span>
+          <span className="hidden xl:inline">Tổng số: <strong className="text-slate-800">{scopedList.length}</strong></span>
           <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-amber-50 text-amber-900 border border-amber-200 font-semibold">
             <Sparkles className="w-3.5 h-3.5 text-amber-600" />
             <span>Năm công tác: <strong>{filterNam === 'ALL' ? new Date().getFullYear() : filterNam}</strong></span>

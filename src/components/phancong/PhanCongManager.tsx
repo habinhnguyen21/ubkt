@@ -87,17 +87,22 @@ export const PhanCongManager: React.FC<PhanCongManagerProps> = ({
   // 1. Chế độ xem: 'GIAO_VIEC' (Mặc định) | 'BANG_PHAN_CONG' | 'THEO_DONG_CHI'
   const [viewMode, setViewMode] = useState<'GIAO_VIEC' | 'BANG_PHAN_CONG' | 'THEO_DONG_CHI'>('GIAO_VIEC');
 
-  // 2. Cán bộ đang được chọn ở cột trái
+  // 2. Cán bộ đang được chọn ở cột trái (với Biên tập viên mặc định là chính mình)
   const [selectedUserId, setSelectedUserId] = useState<string>(() => {
+    if (!isAdmin && currentUser?.id) return currentUser.id;
     return usersList[0]?.id || '';
   });
 
   // Tự động chọn cán bộ đầu tiên nếu chưa chọn
   useEffect(() => {
+    if (!isAdmin && currentUser?.id) {
+      setSelectedUserId(currentUser.id);
+      return;
+    }
     if (!selectedUserId && usersList.length > 0) {
       setSelectedUserId(usersList[0].id);
     }
-  }, [selectedUserId, usersList]);
+  }, [selectedUserId, usersList, isAdmin, currentUser?.id]);
 
   // 3. Multi-select các đơn vị trong danh sách chờ giao
   const [selectedWaitingUnitIds, setSelectedWaitingUnitIds] = useState<Set<string>>(new Set());

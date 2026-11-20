@@ -13,6 +13,7 @@ import type {
   TrangThaiDonThu,
   User,
 } from '../types';
+import { filterVisibleItemsForUser } from '../utils/permissionScope';
 import {
   Inbox,
   AlertTriangle,
@@ -116,6 +117,11 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
   const isMobile = useIsMobile();
   const [dataList, setDataList] = useState<DonThu[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Lọc dữ liệu theo phân quyền người dùng (Nhiệm vụ chung + Nhiệm vụ cá nhân)
+  const visibleDataList = useMemo(() => {
+    return filterVisibleItemsForUser(dataList, user);
+  }, [dataList, user]);
 
   // Bộ lọc danh sách
   const [searchQuery, setSearchQuery] = useState('');
@@ -284,13 +290,13 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
 
   // ── PHẦN A: TỔNG QUAN TIẾN ĐỘ XỬ LÝ (4 KPI CARDS) ──────────────────────────
   const kpiStats = useMemo(() => {
-    const tongSoDon = dataList.length;
-    const trongKy = dataList.filter((d) => d.trong_ky !== false).length;
-    const dangXuLy = dataList.filter((d) => d.trang_thai !== 'Đã hoàn thành').length;
-    const daHoanThanh = dataList.filter((d) => d.trang_thai === 'Đã hoàn thành').length;
+    const tongSoDon = visibleDataList.length;
+    const trongKy = visibleDataList.filter((d) => d.trong_ky !== false).length;
+    const dangXuLy = visibleDataList.filter((d) => d.trang_thai !== 'Đã hoàn thành').length;
+    const daHoanThanh = visibleDataList.filter((d) => d.trang_thai === 'Đã hoàn thành').length;
 
     // Đơn quá hạn cần chú ý: trạng thái chưa hoàn thành và đã vượt quá thời hạn quy định
-    const quaHan = dataList.filter((d) => {
+    const quaHan = visibleDataList.filter((d) => {
       if (d.trang_thai === 'Đã hoàn thành') return false;
       const { isOverdue } = getDeadlineInfo(d);
       return isOverdue || d.trang_thai === 'Quá hạn';
@@ -303,7 +309,7 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
       daHoanThanh,
       quaHan,
     };
-  }, [dataList]);
+  }, [visibleDataList]);
 
   // ── PHẦN B: THỐNG KÊ THEO CÁC TIÊU CHÍ ─────────────────────────────────────
   // 1. Thống kê theo Loại đơn
@@ -315,11 +321,11 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
       'Phản ánh': 0,
       'Đơn khác': 0,
     };
-    dataList.forEach((d) => {
+    visibleDataList.forEach((d) => {
       counts[d.loai_don] = (counts[d.loai_don] || 0) + 1;
     });
     return counts;
-  }, [dataList]);
+  }, [visibleDataList]);
 
   // 2. Thống kê theo Lĩnh vực
   const theoLinhVuc = useMemo(() => {
@@ -330,11 +336,11 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
       'Quản lý kinh tế': 0,
       'Khác': 0,
     };
-    dataList.forEach((d) => {
+    visibleDataList.forEach((d) => {
       counts[d.linh_vuc] = (counts[d.linh_vuc] || 0) + 1;
     });
     return counts;
-  }, [dataList]);
+  }, [visibleDataList]);
 
   // 3. Thống kê theo Hướng xử lý
   const theoHuongXuLy = useMemo(() => {
@@ -343,11 +349,11 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
       'Chuyển cơ quan khác': 0,
       'Lưu đơn': 0,
     };
-    dataList.forEach((d) => {
+    visibleDataList.forEach((d) => {
       counts[d.huong_xu_ly] = (counts[d.huong_xu_ly] || 0) + 1;
     });
     return counts;
-  }, [dataList]);
+  }, [visibleDataList]);
 
   // 4. Thống kê theo Cán bộ phụ trách
   const theoCanBo = useMemo(() => {
@@ -355,7 +361,7 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
     customCanBoList.forEach((cb) => {
       counts[cb] = { total: 0, dangXuLy: 0, daXong: 0 };
     });
-    dataList.forEach((d) => {
+    visibleDataList.forEach((d) => {
       if (!counts[d.can_bo_phu_trach]) {
         counts[d.can_bo_phu_trach] = { total: 0, dangXuLy: 0, daXong: 0 };
       }
@@ -367,11 +373,11 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
       }
     });
     return counts;
-  }, [dataList, customCanBoList]);
+  }, [visibleDataList, customCanBoList]);
 
   // ── DANH SÁCH LỌC VÀ TÌM KIẾM ─────────────────────────────────────────────
   const filteredData = useMemo(() => {
-    return dataList.filter((item) => {
+    return visibleDataList.filter((item) => {
       // Bộ lọc từ KPI Cards
       if (kpiFilter === 'DANG_XU_LY' && item.trang_thai === 'Đã hoàn thành') return false;
       if (kpiFilter === 'DA_HOAN_THANH' && item.trang_thai !== 'Đã hoàn thành') return false;
@@ -405,7 +411,7 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
       return true;
     });
   }, [
-    dataList,
+    visibleDataList,
     kpiFilter,
     filterLoaiDon,
     filterLinhVuc,
@@ -1251,7 +1257,7 @@ export const DonThuManager: React.FC<DonThuManagerProps> = ({ user, onDataChange
             {/* Đếm số lượng kết quả & Nút Reset */}
             <div className="flex items-center gap-2 text-xs text-slate-600">
               <span className="font-semibold">
-                Hiển thị: <span className="text-blue-700 font-bold">{filteredData.length}</span> / {dataList.length} đơn
+                Hiển thị: <span className="text-blue-700 font-bold">{filteredData.length}</span> / {visibleDataList.length} đơn
               </span>
               {(filterLoaiDon !== 'ALL' ||
                 filterLinhVuc !== 'ALL' ||

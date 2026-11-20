@@ -74,7 +74,7 @@ describe('reportService - Kiểm tra tính đúng đắn của logic báo cáo t
     {
       id: 'ct-1',
       nam: 2026,
-      chu_the: 'UBKT Đảng ủy',
+      chu_the: 'Chi bộ 1',
       don_vi_id: 'dv-1',
       ten_don_vi: 'Chi bộ 1',
       loai_hinh: 'KIEM_TRA',
@@ -86,14 +86,14 @@ describe('reportService - Kiểm tra tính đúng đắn của logic báo cáo t
       file_pdf_ten: null,
       file_pdf_url: null,
       ghi_chu_pdf: null,
-      so_van_ban: '01-KH/UBKT',
+      so_van_ban: '01-KH/CB',
       created_at: '2026-01-10T00:00:00Z',
       updated_at: '2026-01-10T00:00:00Z',
     },
     {
       id: 'ct-2',
       nam: 2026,
-      chu_the: 'UBKT Đảng ủy',
+      chu_the: 'Chi bộ 2',
       don_vi_id: 'dv-2',
       ten_don_vi: 'Chi bộ 2',
       loai_hinh: 'GIAM_SAT',
@@ -105,18 +105,18 @@ describe('reportService - Kiểm tra tính đúng đắn của logic báo cáo t
       file_pdf_ten: null,
       file_pdf_url: null,
       ghi_chu_pdf: null,
-      so_van_ban: '02-KH/UBKT',
+      so_van_ban: '02-KH/CB',
       created_at: '2026-01-10T00:00:00Z',
       updated_at: '2026-01-10T00:00:00Z',
     },
     {
       id: 'ct-3',
       nam: 2026,
-      chu_the: 'UBKT Đảng ủy',
+      chu_the: 'Chi bộ cơ sở',
       don_vi_id: null, // Chưa gắn đơn vị
       ten_don_vi: null,
       loai_hinh: 'KIEM_TRA',
-      noi_dung: 'Kiểm tra dấu hiệu vi phạm',
+      noi_dung: 'Kiểm tra chấp hành nguyên tắc',
       ngay_bat_dau: '2026-03-31',
       ngay_ket_thuc: '2026-04-30',
       trang_thai: 'CHUA_THUC_HIEN',
@@ -124,14 +124,14 @@ describe('reportService - Kiểm tra tính đúng đắn của logic báo cáo t
       file_pdf_ten: null,
       file_pdf_url: null,
       ghi_chu_pdf: null,
-      so_van_ban: '03-KH/UBKT',
+      so_van_ban: '03-KH/CB',
       created_at: '2026-01-10T00:00:00Z',
       updated_at: '2026-01-10T00:00:00Z',
     },
     {
       id: 'ct-4-other-date',
       nam: 2026,
-      chu_the: 'UBKT Đảng ủy',
+      chu_the: 'Chi bộ 1',
       don_vi_id: 'dv-1',
       ten_don_vi: 'Chi bộ 1',
       loai_hinh: 'KIEM_TRA',
@@ -143,7 +143,7 @@ describe('reportService - Kiểm tra tính đúng đắn của logic báo cáo t
       file_pdf_ten: null,
       file_pdf_url: null,
       ghi_chu_pdf: null,
-      so_van_ban: '04-KH/UBKT',
+      so_van_ban: '04-KH/CB',
       created_at: '2026-01-10T00:00:00Z',
       updated_at: '2026-01-10T00:00:00Z',
     },
@@ -292,5 +292,37 @@ describe('reportService - Kiểm tra tính đúng đắn của logic báo cáo t
     // Chỉ thấy đơn thư giao cho chính mình: dt-1
     expect(bienTapReport.kpi.tongDonThu).toBe(1);
     expect(bienTapReport.filteredDonThu[0].id).toBe('dt-1');
+
+    // BIEN_TAP cũng được thấy nhiệm vụ chung của BTV, BCH, UBKT Đảng ủy phường
+    const mockWithCommon = [
+      ...mockChuongTrinh,
+      {
+        id: 'ct-common',
+        nam: 2026,
+        chu_the: 'UBKT Đảng ủy phường',
+        don_vi_id: 'dv-99',
+        ten_don_vi: 'Chi bộ khác',
+        loai_hinh: 'KIEM_TRA' as const,
+        noi_dung: 'Kiểm tra nhiệm vụ chung',
+        trang_thai: 'DANG_THUC_HIEN' as const,
+        linh_vuc: 'Công tác kiểm tra',
+        file_pdf_ten: null,
+        file_pdf_url: null,
+        ghi_chu_pdf: null,
+        so_van_ban: '99-KH/UBKT',
+        created_at: '2026-01-10T00:00:00Z',
+        updated_at: '2026-01-10T00:00:00Z',
+      },
+    ];
+    const reportWithCommon = generateComprehensiveReport({
+      chuongTrinhList: mockWithCommon,
+      donThuList: mockDonThu,
+      donViList: mockDonViList,
+      phanCongList: mockPhanCong,
+      userList: mockUsers,
+      currentUser: bienTapUser,
+      filters: { nam: 2026 },
+    });
+    expect(reportWithCommon.filteredChuongTrinh.map((c) => c.id)).toContain('ct-common');
   });
 });

@@ -55,6 +55,7 @@ export function AppLayout({
   children,
 }: LayoutProps) {
   const isMobile = useIsMobile();
+  const isAdmin = currentUser.vai_tro === 'ADMIN';
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -121,7 +122,6 @@ export function AppLayout({
           { key: 'lich_thang', icon: '📅', label: 'Lịch theo tháng' },
           { key: 'kho_pdf', icon: '🗄️', label: 'Kho dữ liệu' },
           { key: 'thong_ke', icon: '📊', label: 'Thống kê' },
-          { key: 'bao_cao', icon: '📄', label: 'Báo cáo' },
         ];
 
   const SIDEBAR_W = sidebarCollapsed ? 60 : 220;
@@ -540,45 +540,85 @@ export function AppLayout({
           </div>
 
           {/* Nút Đồng bộ Cloud Firebase */}
-          <button
-            type="button"
-            onClick={onOpenCloudSync}
-            title={`Đồng bộ Đám mây Realtime (onSnapshot) - Lần cuối: ${lastSyncTime || 'Chưa rõ'}`}
-            style={{
-              background: '#f8fafc',
-              border: '1px solid #cbd5e1',
-              borderRadius: 6,
-              padding: isMobile ? '0 10px' : '4px 10px',
-              height: isMobile ? 44 : undefined,
-              minHeight: isMobile ? 44 : undefined,
-              cursor: 'pointer',
-              color: '#334155',
-              fontSize: 12,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              fontWeight: 600,
-              minWidth: isMobile ? 44 : 175,
-              justifyContent: 'center',
-              flexShrink: 0,
-              transition: 'background 0.2s ease, border-color 0.2s ease',
-            }}
-          >
-            <span style={{ fontSize: isMobile ? 16 : 13, display: 'inline-block' }}>☁️</span>
-            <span
+          {isAdmin ? (
+            <button
+              type="button"
+              onClick={onOpenCloudSync}
+              title={`Đồng bộ Đám mây Realtime (onSnapshot) - Lần cuối: ${lastSyncTime || 'Chưa rõ'}`}
               style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: '#10b981',
-                boxShadow: '0 0 6px rgba(16,185,129,0.8)',
-                display: 'inline-block',
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: 6,
+                padding: isMobile ? '0 10px' : '4px 10px',
+                height: isMobile ? 44 : undefined,
+                minHeight: isMobile ? 44 : undefined,
+                cursor: 'pointer',
+                color: '#334155',
+                fontSize: 12,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontWeight: 600,
+                minWidth: isMobile ? 44 : 175,
+                justifyContent: 'center',
+                flexShrink: 0,
+                transition: 'background 0.2s ease, border-color 0.2s ease',
               }}
-            />
-            {!isMobile && (
-              <span>{lastSyncTime ? `Realtime Cloud · ${lastSyncTime}` : 'Realtime Cloud'}</span>
-            )}
-          </button>
+            >
+              <span style={{ fontSize: isMobile ? 16 : 13, display: 'inline-block' }}>☁️</span>
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: '#10b981',
+                  boxShadow: '0 0 6px rgba(16,185,129,0.8)',
+                  display: 'inline-block',
+                }}
+              />
+              {!isMobile && (
+                <span>{lastSyncTime ? `Realtime Cloud · ${lastSyncTime}` : 'Realtime Cloud'}</span>
+              )}
+            </button>
+          ) : (
+            <div
+              title={`Realtime Cloud - Lần cuối: ${lastSyncTime || 'Chưa rõ'}`}
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: 6,
+                padding: isMobile ? '0 10px' : '4px 10px',
+                height: isMobile ? 44 : undefined,
+                minHeight: isMobile ? 44 : undefined,
+                cursor: 'default',
+                color: '#334155',
+                fontSize: 12,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontWeight: 600,
+                minWidth: isMobile ? 44 : 175,
+                justifyContent: 'center',
+                flexShrink: 0,
+                userSelect: 'none',
+              }}
+            >
+              <span style={{ fontSize: isMobile ? 16 : 13, display: 'inline-block' }}>☁️</span>
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: '#10b981',
+                  boxShadow: '0 0 6px rgba(16,185,129,0.8)',
+                  display: 'inline-block',
+                }}
+              />
+              {!isMobile && (
+                <span>{lastSyncTime ? `Realtime Cloud · ${lastSyncTime}` : 'Realtime Cloud'}</span>
+              )}
+            </div>
+          )}
 
           {/* Trạng thái Trực tuyến / Nút Đồng bộ ngay */}
           <button

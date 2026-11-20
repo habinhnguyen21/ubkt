@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { reconcileById, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import type { ChuongTrinhKtGs, LoaiHinhKtGs, TrangThaiKtGs, User } from '../types';
+import { filterVisibleItemsForUser } from '../utils/permissionScope';
 import {
   Calendar,
   FileText,
@@ -16,13 +17,18 @@ interface LichThangManagerProps {
   onNavigateToProgram?: (programId: string) => void;
 }
 
-export const LichThangManager: React.FC<LichThangManagerProps> = ({ user: _user }) => {
+export const LichThangManager: React.FC<LichThangManagerProps> = ({ user }) => {
   const isMobile = useIsMobile();
   const [list, setList] = useState<ChuongTrinhKtGs[]>([]);
   const [_loading, setLoading] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const hasInitialLoadedRef = useRef(false);
+
+  // Lọc dữ liệu theo phân quyền người dùng
+  const visibleList = useMemo(() => {
+    return filterVisibleItemsForUser(list, user);
+  }, [list, user]);
 
   const loadData = async (silent = false) => {
     const showSpinner = !silent && !hasInitialLoadedRef.current;
@@ -63,9 +69,9 @@ export const LichThangManager: React.FC<LichThangManagerProps> = ({ user: _user 
     const years = new Set<number>();
     years.add(2026);
     years.add(new Date().getFullYear());
-    list.forEach((item) => years.add(item.nam));
+    visibleList.forEach((item) => years.add(item.nam));
     return Array.from(years).sort((a, b) => b - a);
-  }, [list]);
+  }, [visibleList]);
 
   // Kiểm tra xem một cuộc KT-GS có giao với tháng M trong năm được chọn hay không
   const isOverlappingMonth = (item: ChuongTrinhKtGs, month: number, year: number) => {
@@ -94,14 +100,14 @@ export const LichThangManager: React.FC<LichThangManagerProps> = ({ user: _user 
   const monthlyData = useMemo(() => {
     const months = Array.from({ length: 12 }, (_, i) => i + 1);
     return months.map((month) => {
-      const events = list.filter((item) => isOverlappingMonth(item, month, selectedYear));
+      const events = visibleList.filter((item) => isOverlappingMonth(item, month, selectedYear));
       return {
         month,
         count: events.length,
         events,
       };
     });
-  }, [list, selectedYear]);
+  }, [visibleList, selectedYear]);
 
   // Sự kiện của tháng đang chọn
   const activeMonthData = useMemo(() => {

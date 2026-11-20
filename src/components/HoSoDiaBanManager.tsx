@@ -26,6 +26,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { HoSoDiaBanMobileList } from './hosodiaban/HoSoDiaBanMobileList';
 import { reconcileById, isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import { deriveAllOfficerFields } from '../utils/diaBanSync';
+import { filterVisibleItemsForUser } from '../utils/permissionScope';
 import {
   MapPin,
   Building2,
@@ -934,9 +935,14 @@ export function HoSoDiaBanManager({ user }: Props) {
     return false;
   }, [user]);
 
+  // Lọc tập dữ liệu hiển thị theo phân quyền người dùng (Nhiệm vụ chung + Nhiệm vụ cá nhân)
+  const visibleRecords = useMemo(() => {
+    return filterVisibleItemsForUser(records, user);
+  }, [records, user]);
+
   // Lọc danh sách địa bàn
   const filteredRecords = useMemo(() => {
-    return (records || []).filter((r) => {
+    return (visibleRecords || []).filter((r) => {
       if (!r) return false;
       const q = (searchQuery || '').toLowerCase().trim();
       const matchQuery =
@@ -977,11 +983,11 @@ export function HoSoDiaBanManager({ user }: Props) {
 
       return matchQuery && matchCanBo && matchBaoCao && matchVanDe && matchTrangThai;
     });
-  }, [records, searchQuery, filterCanBo, filterBaoCao, filterVanDe, filterTrangThaiHoSo, user?.id]);
+  }, [visibleRecords, searchQuery, filterCanBo, filterBaoCao, filterVanDe, filterTrangThaiHoSo, user?.id]);
 
   // Thống kê nhanh
   const stats = useMemo(() => {
-    const list = Array.isArray(records) ? records.filter(Boolean) : [];
+    const list = Array.isArray(visibleRecords) ? visibleRecords.filter(Boolean) : [];
     const total = list.length;
     const dangTheoDoi = list.filter(
       (r) => (r.trang_thai_ho_so || 'DANG_THEO_DOI') === 'DANG_THEO_DOI'
@@ -2428,7 +2434,7 @@ export function HoSoDiaBanManager({ user }: Props) {
               <Users className={`w-5 h-5 ${subTab === 'danh_sach' ? 'text-[#133863]' : 'text-slate-600'}`} />
               <h3 className="text-sm font-bold text-slate-800">Phân công địa bàn</h3>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#133863] text-white">
-                {records.length}
+                {visibleRecords.length}
               </span>
             </div>
             {subTab === 'danh_sach' && (
@@ -2644,7 +2650,7 @@ export function HoSoDiaBanManager({ user }: Props) {
               </div>
 
               <div className="text-xs text-slate-500 font-medium whitespace-nowrap">
-                Tổng số: <strong>{filteredRecords.length}</strong> / {records.length} địa bàn
+                Tổng số: <strong>{filteredRecords.length}</strong> / {visibleRecords.length} địa bàn
               </div>
             </div>
 

@@ -82,14 +82,16 @@ export const Header: React.FC<HeaderProps> = ({
                   <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
                   <span>Hướng dẫn</span>
                 </button>
-                <button
-                  id="btn-open-user-manager"
-                  onClick={onOpenUserManager}
-                  title="Quản lý tài khoản"
-                  className="p-1.5 text-red-100 hover:text-amber-300 hover:bg-red-700/60 rounded-md transition cursor-pointer"
-                >
-                  <Users className="w-4 h-4" />
-                </button>
+                {user.vai_tro === 'ADMIN' && (
+                  <button
+                    id="btn-open-user-manager"
+                    onClick={onOpenUserManager}
+                    title="Quản lý tài khoản"
+                    className="p-1.5 text-red-100 hover:text-amber-300 hover:bg-red-700/60 rounded-md transition cursor-pointer"
+                  >
+                    <Users className="w-4 h-4" />
+                  </button>
+                )}
                 <button
                   onClick={onOpenAuditLogs}
                   title="Nhật ký hoạt động"

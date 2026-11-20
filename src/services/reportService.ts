@@ -8,6 +8,7 @@ import type {
 } from '../types';
 import { isTaskOverdue, computeDashboardStats } from './dashboardStats';
 import { getUserUnitIds, parseDateLoose } from '../utils/reminders';
+import { filterVisibleItemsForUser } from '../utils/permissionScope';
 
 export { isTaskOverdue, computeDashboardStats };
 
@@ -177,35 +178,17 @@ export function filterDataByPermission(
   allowedChuongTrinh: ChuongTrinhKtGs[];
   allowedDonThu: DonThu[];
 } {
-  if (!currentUser || currentUser.vai_tro === 'ADMIN' || currentUser.vai_tro === 'XEM') {
+  if (!currentUser || currentUser.vai_tro === 'ADMIN') {
     return {
       allowedChuongTrinh: chuongTrinhList || [],
       allowedDonThu: donThuList || [],
     };
   }
 
-  // BIEN_TAP: Lấy các đơn vị được phân công
+  // BIEN_TAP: Nhiệm vụ chung (BTV, BCH, UBKT Đảng ủy phường) + Nhiệm vụ cá nhân / địa bàn được phân công
   const assignedUnitIds = getUserUnitIds(currentUser, phanCongList || []);
-  const userNameLower = (currentUser.ho_ten || '').trim().toLowerCase();
-
-  const allowedChuongTrinh = (chuongTrinhList || []).filter((ct) => {
-    if (!ct) return false;
-    // Kiểm tra don_vi_id hoặc các trường ID liên kết
-    if (ct.don_vi_id && assignedUnitIds.has(ct.don_vi_id)) return true;
-    if (ct.chu_the_don_vi_id && assignedUnitIds.has(ct.chu_the_don_vi_id)) return true;
-    if (ct.chi_dang_bo_id && assignedUnitIds.has(ct.chi_dang_bo_id)) return true;
-    if (ct.doi_tuong_don_vi_id && assignedUnitIds.has(ct.doi_tuong_don_vi_id)) return true;
-    return false;
-  });
-
-  const allowedDonThu = (donThuList || []).filter((dt) => {
-    if (!dt) return false;
-    // Cán bộ phụ trách khớp tên
-    if (dt.can_bo_phu_trach && dt.can_bo_phu_trach.trim().toLowerCase().includes(userNameLower)) {
-      return true;
-    }
-    return false;
-  });
+  const allowedChuongTrinh = filterVisibleItemsForUser(chuongTrinhList, currentUser, assignedUnitIds, phanCongList);
+  const allowedDonThu = filterVisibleItemsForUser(donThuList, currentUser, assignedUnitIds, phanCongList);
 
   return { allowedChuongTrinh, allowedDonThu };
 }

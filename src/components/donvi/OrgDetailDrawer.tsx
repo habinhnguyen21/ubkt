@@ -99,7 +99,7 @@ export const OrgDetailDrawer: React.FC<OrgDetailDrawerProps> = ({
 
   const parentUnit = allUnits.find((u) => u.id === unit.don_vi_cha_id);
   const directChildren = allUnits.filter((u) => u.don_vi_cha_id === unit.id && !u.deleted_at);
-  const canEdit = currentUser.vai_tro === 'ADMIN' || currentUser.vai_tro === 'BIEN_TAP';
+  const canEdit = currentUser.vai_tro === 'ADMIN';
 
   const renderStatusBadge = () => {
     const status = unit.trang_thai || 'DANG_HOAT_DONG';

@@ -28,6 +28,17 @@ interface BaoCaoManagerProps {
 export const BaoCaoManager: React.FC<BaoCaoManagerProps> = ({ user }) => {
   const [activeTabId, setActiveTabId] = useState<string>(BAO_CAO_TABS[0]?.id || 'scan_ho_so');
 
+  if (user.vai_tro !== 'ADMIN') {
+    return (
+      <div className="max-w-xl mx-auto my-12 p-6 bg-white rounded-xl border border-slate-200 text-center shadow-xs">
+        <h3 className="text-base font-bold text-slate-800 mb-2">Giới hạn quyền truy cập</h3>
+        <p className="text-sm text-slate-600">
+          Chức năng Báo cáo chỉ dành cho quản trị viên (Admin). Vui lòng quay lại Tổng quan.
+        </p>
+      </div>
+    );
+  }
+
   const currentTab = BAO_CAO_TABS.find((t) => t.id === activeTabId) || BAO_CAO_TABS[0];
   const ActiveComponent = currentTab?.component;
 

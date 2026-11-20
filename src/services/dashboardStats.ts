@@ -1,4 +1,5 @@
 import type { ChuongTrinhKtGs, DonThu, DonVi, User } from '../types';
+import { filterVisibleItemsForUser, getAssignedUnitIds, isCommonTask } from '../utils/permissionScope';
 
 export interface DashboardFilterState {
   year: number | 'ALL';
@@ -118,21 +119,23 @@ export function computeDashboardStats(
     configuredRootName ||
     (rootUnit ? rootUnit.ten : 'Đảng ủy cơ sở');
 
-  // 2. Phạm vi đơn vị được phép truy cập theo tài khoản
+  // 2. Phạm vi đơn vị & dữ liệu được phép truy cập theo phân quyền tài khoản:
+  // - Admin: 100% dữ liệu
+  // - Biên tập viên: Nhiệm vụ chung (BTV, BCH, UBKT Đảng ủy phường) + Nhiệm vụ cá nhân / địa bàn phụ trách
+  const scopedChuongTrinh = filterVisibleItemsForUser(chuongTrinhList, currentUser);
+  const scopedDonThu = filterVisibleItemsForUser(donThuList, currentUser);
+
   let accessibleUnits = activeUnits;
-  if (currentUser && currentUser.vai_tro !== 'ADMIN' && currentUser.don_vi_id) {
-    const userDonViId = currentUser.don_vi_id;
-    const allowedIds = new Set<string>([userDonViId]);
-    if (currentUser.pham_vi_quan_ly && Array.isArray(currentUser.pham_vi_quan_ly)) {
-      currentUser.pham_vi_quan_ly.forEach((id) => allowedIds.add(id));
-    }
-    // Lấy thêm các chi bộ/đơn vị trực thuộc nếu đơn vị của user là cấp cha
-    activeUnits.forEach((u) => {
-      if (u.don_vi_cha_id && allowedIds.has(u.don_vi_cha_id)) {
-        allowedIds.add(u.id);
-      }
+  if (currentUser && currentUser.vai_tro !== 'ADMIN') {
+    const assignedIds = getAssignedUnitIds(currentUser);
+    accessibleUnits = activeUnits.filter((u) => {
+      // 1. Thuộc nhiệm vụ chung BTV, BCH, UBKT, Đảng ủy phường
+      if (isCommonTask(u)) return true;
+      // 2. Giao trực tiếp hoặc phụ trách
+      if (assignedIds.has(u.id)) return true;
+      if (u.don_vi_cha_id && assignedIds.has(u.don_vi_cha_id)) return true;
+      return false;
     });
-    accessibleUnits = activeUnits.filter((u) => allowedIds.has(u.id));
   }
 
   const accessibleUnitIds = new Set(accessibleUnits.map((u) => u.id));
@@ -141,7 +144,7 @@ export function computeDashboardStats(
   const yearsSet = new Set<number>();
   const currentYear = new Date().getFullYear();
   yearsSet.add(currentYear);
-  (chuongTrinhList || []).forEach((c) => {
+  (scopedChuongTrinh || []).forEach((c) => {
     if (c.nam && typeof c.nam === 'number') {
       yearsSet.add(c.nam);
     }
@@ -170,10 +173,10 @@ export function computeDashboardStats(
 
   // 5. Trích xuất danh mục lĩnh vực động
   const linhVucSet = new Set<string>();
-  (chuongTrinhList || []).forEach((c) => {
+  (scopedChuongTrinh || []).forEach((c) => {
     if (c.linh_vuc && c.linh_vuc.trim()) linhVucSet.add(c.linh_vuc.trim());
   });
-  (donThuList || []).forEach((d) => {
+  (scopedDonThu || []).forEach((d) => {
     if (d.linh_vuc && d.linh_vuc.trim()) linhVucSet.add(d.linh_vuc.trim());
   });
   const availableLinhVuc = Array.from(linhVucSet);
@@ -189,7 +192,7 @@ export function computeDashboardStats(
   const filteredUnitIds = new Set(filteredUnits.map((u) => u.id));
 
   // 7. Lọc danh sách chương trình KT-GS
-  let filteredTasks = (chuongTrinhList || []).filter((c) => {
+  let filteredTasks = (scopedChuongTrinh || []).filter((c) => {
     const targetUnitId = c.doi_tuong_don_vi_id || c.don_vi_id || c.chi_dang_bo_id;
     // Thuộc phạm vi quyền truy cập của người dùng
     if (targetUnitId && !accessibleUnitIds.has(targetUnitId) && c.don_vi_id && !accessibleUnitIds.has(c.don_vi_id)) {
@@ -318,7 +321,7 @@ export function computeDashboardStats(
 
   // 12. Điểm cần quan tâm
   // Đơn thư đang xử lý hoặc mới tiếp nhận
-  const activeDonThuCount = (donThuList || []).filter((d) => {
+  const activeDonThuCount = (scopedDonThu || []).filter((d) => {
     return (
       d.trang_thai === 'Đang xử lý' ||
       d.trang_thai === 'Mới tiếp nhận' ||

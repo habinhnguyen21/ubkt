@@ -95,6 +95,9 @@ export function App() {
   });
 
   const handleTabChange = useCallback((tab: TabKey) => {
+    if (tab === 'bao_cao' && currentUser?.vai_tro !== 'ADMIN') {
+      tab = 'tong_quan';
+    }
     setActiveTab(tab);
     localStorage.setItem('ubkt_active_tab', tab);
     const hashMap: Record<TabKey, string> = {
@@ -151,6 +154,29 @@ export function App() {
       return;
     }
 
+    const isRequestingBaoCao =
+      hash.includes('bao-cao') ||
+      hash.includes('bao_cao') ||
+      search.includes('tab=bao_cao') ||
+      search.includes('tab=bao-cao') ||
+      pathname.endsWith('/bao-cao') ||
+      pathname.endsWith('/bao_cao');
+
+    if (isRequestingBaoCao) {
+      if (!user) return;
+      if (user.vai_tro !== 'ADMIN') {
+        setActiveTab('tong_quan');
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, '', window.location.pathname + '#tong-quan');
+        } else {
+          window.location.hash = '#tong-quan';
+        }
+        setAccessDeniedMessage('Từ chối truy cập: Tài khoản Biên tập viên không có quyền truy cập phân hệ Báo cáo.');
+        setTimeout(() => setAccessDeniedMessage(null), 5000);
+        return;
+      }
+    }
+
     const targetTab = HASH_TO_TAB[hash];
     if (targetTab) {
       if (targetTab === 'phan_cong') {
@@ -159,6 +185,8 @@ export function App() {
         } else {
           setActiveTab('don_vi');
         }
+      } else if (targetTab === 'bao_cao' && user?.vai_tro !== 'ADMIN') {
+        setActiveTab('tong_quan');
       } else {
         setActiveTab(targetTab);
       }
@@ -644,6 +672,9 @@ export function App() {
           </Suspense>
         );
       case 'bao_cao':
+        if (currentUser.vai_tro !== 'ADMIN') {
+          return <Dashboard currentUser={currentUser} appInfo={appInfo} />;
+        }
         return (
           <Suspense
             fallback={
@@ -735,7 +766,7 @@ export function App() {
           onChangePassword={() => setShowChangePasswordModal(true)}
           onOpenAuditLogs={() => setShowAuditLogs(true)}
           onOpenUserManager={() => setShowUserManager(true)}
-          onOpenCloudSync={() => setShowCloudSyncModal(true)}
+          onOpenCloudSync={currentUser.vai_tro === 'ADMIN' ? () => setShowCloudSyncModal(true) : undefined}
           isSyncing={isSyncing}
           onRefresh={handleManualSync}
         >
