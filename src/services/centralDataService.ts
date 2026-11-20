@@ -357,6 +357,7 @@ export const centralDataService = {
         const now = new Date().toISOString();
         const newProfile: User = {
           id: uid,
+          firebaseUid: uid,
           ten_dang_nhap: currentUser?.ten_dang_nhap || currentAuth.email?.split('@')[0] || uid,
           ho_ten: currentUser?.ho_ten || 'Cán bộ UBKT',
           vai_tro: currentUser?.vai_tro || 'BIEN_TAP',
@@ -378,6 +379,37 @@ export const centralDataService = {
           { merge: true }
         );
         console.info(`[CentralData] Đã tự động khởi tạo document users/${uid} thành công.`);
+      }
+
+      // Đảm bảo document phan_cong_dia_ban/{uid} cũng tồn tại để quyền ghi hợp lệ
+      try {
+        const pcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', uid));
+        if (!pcSnap.exists()) {
+          const rawPc = typeof localStorage !== 'undefined' ? localStorage.getItem('ubkt_phan_cong_dia_ban') : null;
+          const pcList = rawPc ? JSON.parse(rawPc) : [];
+          const currentUser = sessionStore.getCurrentUser();
+          const normUsername = currentUser?.ten_dang_nhap?.toLowerCase();
+          const found = pcList.find(
+            (p: any) =>
+              p.user_id === uid ||
+              (normUsername && p.ten_dang_nhap?.toLowerCase() === normUsername) ||
+              (currentUser?.id && p.user_id === currentUser.id)
+          );
+          if (found && Array.isArray(found.don_vi_ids)) {
+            await setDoc(
+              doc(firestoreDb, 'phan_cong_dia_ban', uid),
+              {
+                ...found,
+                id: uid,
+                user_id: uid,
+                updated_at: new Date().toISOString(),
+              },
+              { merge: true }
+            );
+          }
+        }
+      } catch (pcErr) {
+        console.warn(`[CentralData] Không thể đồng bộ phan_cong_dia_ban/${uid}:`, pcErr);
       }
       return true;
     } catch (err: any) {

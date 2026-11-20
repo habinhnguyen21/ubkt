@@ -165,6 +165,7 @@ export const cloudSyncService = {
         const now = new Date().toISOString();
         const newProfile: User = {
           id: uid,
+          firebaseUid: uid,
           ten_dang_nhap: currentUser?.ten_dang_nhap || currentAuth.email?.split('@')[0] || uid,
           ho_ten: currentUser?.ho_ten || 'Cán bộ UBKT',
           vai_tro: currentUser?.vai_tro || 'BIEN_TAP',
@@ -186,6 +187,35 @@ export const cloudSyncService = {
           { merge: true }
         );
       }
+
+      // Đảm bảo phan_cong_dia_ban/{uid} cũng tồn tại
+      try {
+        const pcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', uid));
+        if (!pcSnap.exists()) {
+          const rawPc = typeof localStorage !== 'undefined' ? localStorage.getItem('ubkt_phan_cong_dia_ban') : null;
+          const pcList = rawPc ? JSON.parse(rawPc) : [];
+          const currentUser = sessionStore.getCurrentUser();
+          const normUsername = currentUser?.ten_dang_nhap?.toLowerCase();
+          const found = pcList.find(
+            (p: any) =>
+              p.user_id === uid ||
+              (normUsername && p.ten_dang_nhap?.toLowerCase() === normUsername) ||
+              (currentUser?.id && p.user_id === currentUser.id)
+          );
+          if (found && Array.isArray(found.don_vi_ids)) {
+            await setDoc(
+              doc(firestoreDb, 'phan_cong_dia_ban', uid),
+              {
+                ...found,
+                id: uid,
+                user_id: uid,
+                updated_at: new Date().toISOString(),
+              },
+              { merge: true }
+            );
+          }
+        }
+      } catch {}
       return true;
     } catch {
       return false;
@@ -544,8 +574,6 @@ export const cloudSyncService = {
       }
       onProgress?.('Đang kết nối Firestore Cloud...');
 
-      const isAdminPull = sessionStore.getCurrentUser()?.vai_tro === 'ADMIN';
-
       const [
         donViSnap,
         ctSnap,
@@ -565,9 +593,11 @@ export const cloudSyncService = {
         getDocs(collection(firestoreDb, 'bao_cao_thang')),
         getDocs(collection(firestoreDb, 'pdf_files')),
         getDocs(collection(firestoreDb, 'don_thu')),
-        isAdminPull
-          ? getDocs(collection(firestoreDb, 'users')).then((s) => s.docs)
-          : getDoc(doc(firestoreDb, 'users', currentAuth.uid)).then((d) => (d.exists() ? [d] : [])),
+        getDocs(collection(firestoreDb, 'users'))
+          .then((s) => s.docs)
+          .catch(() =>
+            getDoc(doc(firestoreDb, 'users', currentAuth.uid)).then((d) => (d.exists() ? [d] : []))
+          ),
         getDocs(collection(firestoreDb, 'phan_cong_dia_ban')),
         getDoc(doc(firestoreDb, 'system_config', 'google_drive')),
       ]);
@@ -630,8 +660,28 @@ export const cloudSyncService = {
         currentMockDb.donThuList = donThuSnap.docs.map((d) => d.data() as DonThu);
       }
       if (usersDocs.length > 0) {
-        const cloudUsers = usersDocs.map((d) => sanitizeUserForCloud(d.data() as User));
-        currentMockDb.users = cloudUsers;
+        const cloudUsers = usersDocs.map((d) => {
+          const uData = d.data() as User;
+          return sanitizeUserForCloud({
+            ...uData,
+            id: d.id,
+            firebaseUid: uData.firebaseUid || (d.id.length >= 20 ? d.id : undefined),
+          }) as User;
+        });
+        const existingUsers: User[] = currentMockDb.users || [];
+        const userMap = new Map<string, User>();
+        existingUsers.forEach((u) => {
+          const k = u.ten_dang_nhap?.toLowerCase() || u.id;
+          if (k) userMap.set(k, u);
+        });
+        cloudUsers.forEach((cu) => {
+          const k = cu.ten_dang_nhap?.toLowerCase() || cu.id;
+          if (k) {
+            const ex = userMap.get(k);
+            userMap.set(k, { ...(ex || {}), ...cu });
+          }
+        });
+        currentMockDb.users = Array.from(userMap.values());
 
         // Đồng bộ readNotificationIds / dismissed_reminders của người dùng hiện tại về thiết bị này
         const currentUid = currentAuth.uid;

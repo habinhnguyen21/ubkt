@@ -231,6 +231,23 @@ export function App() {
         );
 
         if (!storedUser || !localSessionId || !isMatchingUser) {
+          try {
+            const userSnap = await getDoc(doc(firestoreDb, 'users', firebaseUser.uid));
+            if (userSnap.exists()) {
+              const cloudUser = userSnap.data() as User;
+              const recoveredSessionId = sessionStore.generateSessionId();
+              sessionStore.setSessionId(recoveredSessionId);
+              storedUser = {
+                ...cloudUser,
+                id: firebaseUser.uid,
+                firebaseUid: firebaseUser.uid,
+              };
+              sessionStore.setCurrentUser(storedUser);
+            }
+          } catch {}
+        }
+
+        if (!storedUser || !sessionStore.getSessionId()) {
           console.warn('[App] Không tìm thấy phiên hợp lệ trên thiết bị hoặc Firebase UID không khớp. Buộc đăng xuất.');
           sessionStore.clearSession();
           await signOut(auth).catch(() => {});
@@ -277,13 +294,10 @@ export function App() {
             }
 
             if (storedUser.vai_tro !== cloudUser.vai_tro) {
-              console.warn('[App] Phát hiện sai lệch vai trò giữa storage và máy chủ! Buộc đăng xuất.');
-              sessionStore.clearSession();
-              await signOut(auth).catch(() => {});
-              setCurrentUser(null);
-              setIsSessionLocked(false);
-              setIsAuthChecking(false);
-              return;
+              console.info(
+                `[App] Đồng bộ vai trò người dùng từ Cloud: ${storedUser.vai_tro} -> ${cloudUser.vai_tro}`
+              );
+              storedUser.vai_tro = cloudUser.vai_tro;
             }
 
             // Kiểm tra Single-Session:

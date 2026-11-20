@@ -192,6 +192,17 @@ registerMockCommands({
           code === 'auth/invalid-login-credentials';
 
         if (isNotFoundOrInvalid) {
+          // Thử đăng nhập bằng mật khẩu khởi tạo tạm thời 'Ubkt@2026!' do Admin cấp sẵn
+          try {
+            const fallbackCred = await signInWithEmailAndPassword(auth, authEmail, 'Ubkt@2026!');
+            await updatePassword(fallbackCred.user, req.mat_khau).catch(() => {});
+            firebaseUser = fallbackCred.user;
+          } catch {
+            // Không phải mật khẩu mẫu, tiếp tục kiểm tra theo legacyUser
+          }
+        }
+
+        if (!firebaseUser && isNotFoundOrInvalid) {
           let isLegacyValid = false;
           if (legacyUser?.mat_khau_hash) {
             isLegacyValid = await verifyPasswordClient(req.mat_khau, legacyUser.mat_khau_hash);
@@ -231,13 +242,19 @@ registerMockCommands({
             } catch (createErr: any) {
               const createCode = createErr?.code || '';
               if (createCode === 'auth/email-already-in-use') {
-                // Tài khoản đã có trên Firebase Auth nhưng đăng nhập thất bại -> sai mật khẩu
-                throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
-              }
-              if (createCode === 'auth/weak-password') {
+                // Đã tồn tại trên Firebase Auth, thử lại một lần nữa với mật khẩu tạm 'Ubkt@2026!'
+                try {
+                  const fallbackCred = await signInWithEmailAndPassword(auth, authEmail, 'Ubkt@2026!');
+                  await updatePassword(fallbackCred.user, req.mat_khau).catch(() => {});
+                  firebaseUser = fallbackCred.user;
+                } catch {
+                  throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
+                }
+              } else if (createCode === 'auth/weak-password') {
                 throw new Error('Mật khẩu quá ngắn (yêu cầu tối thiểu 6 ký tự trên Firebase Auth)');
+              } else {
+                console.warn('[Auth] Không thể tạo tài khoản tự động trên Firebase Auth:', createErr);
               }
-              console.warn('[Auth] Không thể tạo tài khoản tự động trên Firebase Auth:', createErr);
             }
           }
         }
@@ -675,7 +692,12 @@ registerMockCommands({
       }
     }
 
-    // 2. Dùng provisionFirebaseUserForStaff để tạo hoặc liên kết tài khoản Firebase Auth
+    // 2. Kiểm tra nếu user đã có firebaseUid hợp lệ từ trước
+    if (!resolvedUid && user.firebaseUid && user.firebaseUid.length >= 20) {
+      resolvedUid = user.firebaseUid;
+    }
+
+    // 3. Dùng provisionFirebaseUserForStaff để tạo hoặc liên kết tài khoản Firebase Auth
     if (!resolvedUid || resolvedUid.length < 20) {
       try {
         const provRes = await provisionFirebaseUserForStaff(normalizedU, tempPassword);
@@ -703,6 +725,17 @@ registerMockCommands({
     user.id = resolvedUid;
     user.firebaseUid = resolvedUid;
     user.updated_at = now;
+
+    // Deduplicate db.users để chỉ giữ lại 1 bản ghi duy nhất cho tên đăng nhập này
+    db.users = db.users.filter(
+      (u) => u.id === resolvedUid || u.ten_dang_nhap.toLowerCase() !== normalizedU
+    );
+    const existingIdx = db.users.findIndex((u) => u.id === resolvedUid);
+    if (existingIdx !== -1) {
+      db.users[existingIdx] = user;
+    } else {
+      db.users.push(user);
+    }
     saveMockDb(db);
 
     const userPayload: any = {
@@ -741,7 +774,7 @@ registerMockCommands({
     let synced = 0;
     for (const u of users) {
       try {
-        await mockInvoke<User>('sync_user_uid', { user_id: u.id });
+        await mockInvoke<User>('sync_user_uid', { user_id: u.id, ten_dang_nhap: u.ten_dang_nhap });
         synced++;
       } catch (e) {
         console.warn(`[Auth] Không thể đồng bộ UID cho @${u.ten_dang_nhap}:`, e);
@@ -775,11 +808,9 @@ registerMockCommands({
     });
 
     let user: User & { mat_khau?: string; mat_khau_hash?: string };
-    let userIndex = -1;
 
     if (resolved) {
       user = resolved.user;
-      userIndex = resolved.userIndex;
     } else {
       console.warn(`[Auth] Không tìm thấy user với id=${req.user_id}, khôi phục tạo mới từ dữ liệu cập nhật`);
       const now = new Date().toISOString();
@@ -797,7 +828,6 @@ registerMockCommands({
         updated_at: now,
       };
       db.users.push(user);
-      userIndex = db.users.length - 1;
     }
 
     const oldId = user.id;
@@ -867,8 +897,14 @@ registerMockCommands({
     }
 
     // 3) Cập nhật lại id của user trong bộ nhớ cục bộ (indexedDbStorage, sessionStore, localStorage, centralDataService)
-    if (userIndex !== -1) {
-      db.users[userIndex] = user;
+    db.users = db.users.filter(
+      (u) => u.id === user.id || u.ten_dang_nhap.toLowerCase() !== user.ten_dang_nhap.toLowerCase()
+    );
+    const updatedIdx = db.users.findIndex((u) => u.id === user.id);
+    if (updatedIdx !== -1) {
+      db.users[updatedIdx] = user;
+    } else {
+      db.users.push(user);
     }
     saveMockDb(db);
     indexedDbStorage.setItem('ubkt_mock_db', db).catch(() => {});

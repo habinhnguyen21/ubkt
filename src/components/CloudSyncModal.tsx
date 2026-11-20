@@ -99,12 +99,18 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose,
       const summary = await cloudSyncService.getCloudSummary();
       setCloudSummary(summary);
       const isAuthReady = !!summary.authReady || !!fbUser;
+      if (isAuthReady) {
+        setAuthCheckingTimedOut(false);
+      }
       setAuthInfo({
         email: summary.authEmail || fbUser?.email || (currentUser?.ten_dang_nhap ? `@${currentUser.ten_dang_nhap}` : null),
         uid: summary.authUid || fbUser?.uid || currentUser?.firebaseUid || null,
         isReady: isAuthReady,
       });
     } catch {
+      if (fbUser) {
+        setAuthCheckingTimedOut(false);
+      }
       setAuthInfo({
         email: fbUser?.email || (currentUser?.ten_dang_nhap ? `@${currentUser.ten_dang_nhap}` : null),
         uid: fbUser?.uid || currentUser?.firebaseUid || null,
