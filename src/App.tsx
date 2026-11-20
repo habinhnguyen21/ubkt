@@ -18,9 +18,9 @@ import { CloudSyncModal } from './components/CloudSyncModal';
 import { VersionConflictModal } from './components/VersionConflictModal';
 import { cloudSyncService } from './services/cloudSyncService';
 import { centralDataService } from './services/centralDataService';
-import { auth, db as firestoreDb } from './services/firebase';
+import { auth, db as firestoreDb, usernameToAuthEmail } from './services/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { isSameData } from './utils/syncUtils';
 import { sanitizeUserForCloud } from './utils/passwordCrypto';
 import { sessionStore, SESSION_IDLE_TIMEOUT_MS } from './utils/sessionStore';
@@ -199,6 +199,12 @@ export function App() {
     const unsubAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       cleanupRealtime();
       if (firebaseUser) {
+        // Nếu đang trong quá trình thực thi api.login(), bỏ qua để login() tự quản lý phiên
+        if (sessionStore.isLoggingIn()) {
+          setIsAuthChecking(false);
+          return;
+        }
+
         // 1. Kiểm tra hết hạn tuyệt đối (12 giờ)
         if (sessionStore.isSessionExpired()) {
           console.warn('[App] Phiên đăng nhập đã hết hạn tuyệt đối 12 giờ.');
@@ -212,10 +218,19 @@ export function App() {
 
         // 2. Không tin riêng dữ liệu trong storage: Firebase UID phải khớp với ID bản ghi trong storage
         // Máy không có sessionId cục bộ hoặc không có thông tin phiên khớp Firebase UID: KHÔNG coi là hợp lệ
-        const storedUser = sessionStore.getCurrentUser();
+        let storedUser = sessionStore.getCurrentUser();
         const localSessionId = sessionStore.getSessionId();
 
-        if (!storedUser || !localSessionId || storedUser.id !== firebaseUser.uid) {
+        const authEmail = firebaseUser.email?.toLowerCase() || '';
+        const isMatchingUser = Boolean(
+          storedUser &&
+          (storedUser.id === firebaseUser.uid ||
+            storedUser.firebaseUid === firebaseUser.uid ||
+            (storedUser.ten_dang_nhap &&
+              usernameToAuthEmail(storedUser.ten_dang_nhap).toLowerCase() === authEmail))
+        );
+
+        if (!storedUser || !localSessionId || !isMatchingUser) {
           console.warn('[App] Không tìm thấy phiên hợp lệ trên thiết bị hoặc Firebase UID không khớp. Buộc đăng xuất.');
           sessionStore.clearSession();
           await signOut(auth).catch(() => {});
@@ -225,68 +240,84 @@ export function App() {
           return;
         }
 
+        // Tự động chuẩn hóa storedUser.id thành firebaseUser.uid nếu trước đó đang mang ID cũ
+        if (storedUser.id !== firebaseUser.uid) {
+          storedUser.id = firebaseUser.uid;
+          storedUser.firebaseUid = firebaseUser.uid;
+          sessionStore.setCurrentUser(storedUser);
+          setCurrentUser(storedUser);
+        }
+
         // 3. Xác thực vai trò, trạng thái và activeSessionId từ Firestore
         let verifiedUser: User = storedUser;
         try {
           const userDocSnap = await getDoc(doc(firestoreDb, 'users', firebaseUser.uid));
           if (!userDocSnap.exists()) {
-            console.warn('[App] Không tìm thấy tài khoản người dùng trên Cloud. Buộc đăng xuất.');
-            sessionStore.clearSession();
-            await signOut(auth).catch(() => {});
-            setCurrentUser(null);
-            setIsSessionLocked(false);
-            setIsAuthChecking(false);
-            return;
-          }
-
-          const cloudUser = userDocSnap.data() as User;
-          if (cloudUser.trang_thai === 0) {
-            console.warn('[App] Tài khoản đang bị tạm khóa.');
-            sessionStore.clearSession();
-            await signOut(auth).catch(() => {});
-            setCurrentUser(null);
-            setIsSessionLocked(false);
-            setIsAuthChecking(false);
-            return;
-          }
-
-          if (storedUser.vai_tro !== cloudUser.vai_tro) {
-            console.warn('[App] Phát hiện sai lệch vai trò giữa storage và máy chủ! Buộc đăng xuất.');
-            sessionStore.clearSession();
-            await signOut(auth).catch(() => {});
-            setCurrentUser(null);
-            setIsSessionLocked(false);
-            setIsAuthChecking(false);
-            return;
-          }
-
-          // Kiểm tra Single-Session:
-          // Kể cả trường hợp Cloud chưa có activeSessionId (tài khoản cũ chưa từng đăng nhập theo cơ chế mới),
-          // hoặc activeSessionId trên Cloud khác localSessionId -> Đều không hợp lệ, buộc đăng xuất để đăng nhập lại
-          if (!cloudUser.activeSessionId || cloudUser.activeSessionId !== localSessionId) {
-            console.warn(
-              `[App] Phiên không hợp lệ hoặc đã bị thay thế trên thiết bị khác: cloud=${cloudUser.activeSessionId}, local=${localSessionId}. Buộc đăng nhập lại.`
+            console.warn('[App] Document users/{uid} chưa có trên Cloud, tự động khởi tạo.');
+            await setDoc(
+              doc(firestoreDb, 'users', firebaseUser.uid),
+              {
+                ...sanitizeUserForCloud(storedUser),
+                id: firebaseUser.uid,
+                firebaseUid: firebaseUser.uid,
+                activeSessionId: localSessionId,
+              },
+              { merge: true }
             );
-            sessionStore.clearSession();
-            await signOut(auth).catch(() => {});
-            setCurrentUser(null);
-            setIsSessionLocked(false);
-            setIsAuthChecking(false);
-            setKickMessage(
-              !cloudUser.activeSessionId
-                ? 'Tài khoản cần đăng nhập lại để khởi tạo phiên làm việc hợp lệ.'
-                : 'Tài khoản của bạn đã được đăng nhập trên một thiết bị khác.'
-            );
-            return;
-          }
+          } else {
+            const cloudUser = userDocSnap.data() as User;
+            if (cloudUser.trang_thai === 0) {
+              console.warn('[App] Tài khoản đang bị tạm khóa.');
+              sessionStore.clearSession();
+              await signOut(auth).catch(() => {});
+              setCurrentUser(null);
+              setIsSessionLocked(false);
+              setIsAuthChecking(false);
+              return;
+            }
 
-          // Giữ nguyên thời điểm đăng nhập và thời điểm thao tác cuối đã lưu (không gọi saveSession mới)
-          // Loại bỏ hoàn toàn các trường phiên khỏi bản sao người dùng cục bộ
-          const merged = { ...storedUser, ...cloudUser, id: firebaseUser.uid };
-          verifiedUser = sanitizeUserForCloud(merged) as User;
-          sessionStore.setCurrentUser(verifiedUser);
+            if (storedUser.vai_tro !== cloudUser.vai_tro) {
+              console.warn('[App] Phát hiện sai lệch vai trò giữa storage và máy chủ! Buộc đăng xuất.');
+              sessionStore.clearSession();
+              await signOut(auth).catch(() => {});
+              setCurrentUser(null);
+              setIsSessionLocked(false);
+              setIsAuthChecking(false);
+              return;
+            }
+
+            // Kiểm tra Single-Session:
+            if (!cloudUser.activeSessionId) {
+              // Nếu Cloud chưa có activeSessionId (tài khoản cũ), tự động cập nhật localSessionId lên Cloud
+              await setDoc(
+                doc(firestoreDb, 'users', firebaseUser.uid),
+                { activeSessionId: localSessionId },
+                { merge: true }
+              ).catch(() => {});
+            } else if (cloudUser.activeSessionId !== localSessionId) {
+              console.warn(
+                `[App] Phiên không hợp lệ hoặc đã bị thay thế trên thiết bị khác: cloud=${cloudUser.activeSessionId}, local=${localSessionId}. Buộc đăng nhập lại.`
+              );
+              sessionStore.clearSession();
+              await signOut(auth).catch(() => {});
+              setCurrentUser(null);
+              setIsSessionLocked(false);
+              setIsAuthChecking(false);
+              setKickMessage('Tài khoản của bạn đã được đăng nhập trên một thiết bị khác.');
+              return;
+            }
+
+            // Giữ nguyên thời điểm đăng nhập và thời điểm thao tác cuối đã lưu (không gọi saveSession mới)
+            // Loại bỏ hoàn toàn các trường phiên khỏi bản sao người dùng cục bộ
+            const merged = { ...storedUser, ...cloudUser, id: firebaseUser.uid };
+            delete (merged as any).activeSessionId;
+            delete (merged as any).lastLoginDevice;
+            delete (merged as any).lastActiveAt;
+            sessionStore.setCurrentUser(merged);
+            verifiedUser = merged;
+          }
         } catch (fetchErr) {
-          console.warn('[App] Không thể kiểm tra vai trò người dùng từ Firestore:', fetchErr);
+          console.warn('[App] Không thể xác thực người dùng từ Cloud (offline mode):', fetchErr);
         }
 
         // 4. Kiểm tra thời gian không thao tác (idle timeout > 15 phút)

@@ -365,6 +365,20 @@ export function isRememberMe(): boolean {
   }
 }
 
+let isLoggingInFlag = false;
+
+/**
+ * Kiểm tra xem có đang trong quá trình thực hiện api.login() hay không
+ * để tránh race-condition với onAuthStateChanged.
+ */
+export function isLoggingIn(): boolean {
+  return isLoggingInFlag;
+}
+
+export function setLoggingIn(val: boolean): void {
+  isLoggingInFlag = val;
+}
+
 export const sessionStore = {
   SESSION_IDLE_TIMEOUT_MS,
   SESSION_MAX_LIFETIME_MS,
@@ -386,5 +400,7 @@ export const sessionStore = {
   isSessionLocked,
   setSessionLocked,
   isRememberMe,
+  isLoggingIn,
+  setLoggingIn,
 };
 

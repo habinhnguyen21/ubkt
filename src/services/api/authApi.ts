@@ -153,204 +153,217 @@ registerMockCommands({
       throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
     }
 
-    if (typeof window !== 'undefined') {
-      try {
-        const persistence = req.ghi_nho
-          ? browserLocalPersistence
-          : browserSessionPersistence;
-        await setPersistence(auth, persistence);
-      } catch (pErr) {
-        console.warn('[Auth] Không thể thiết lập persistence cho Firebase Auth:', pErr);
-      }
-    }
-
-    const authEmail = usernameToAuthEmail(normalizedU);
-    const legacyUser = db.users.find(
-      (u) => u.ten_dang_nhap.toLowerCase() === normalizedU
-    ) as (User & { mat_khau?: string; mat_khau_hash?: string }) | undefined;
-
-    if (legacyUser && legacyUser.trang_thai === 0) {
-      throw new Error('Tài khoản đang bị tạm khóa. Vui lòng liên hệ Quản trị viên');
-    }
-
-    let firebaseUser = null;
-
+    sessionStore.setLoggingIn(true);
     try {
-      const cred = await signInWithEmailAndPassword(auth, authEmail, req.mat_khau);
-      firebaseUser = cred.user;
-    } catch (authErr: any) {
-      const code = authErr?.code || '';
-      const isNotFoundOrInvalid =
-        code === 'auth/user-not-found' ||
-        code === 'auth/invalid-credential' ||
-        code === 'auth/invalid-login-credentials';
+      if (typeof window !== 'undefined') {
+        try {
+          const persistence = req.ghi_nho
+            ? browserLocalPersistence
+            : browserSessionPersistence;
+          await setPersistence(auth, persistence);
+        } catch (pErr) {
+          console.warn('[Auth] Không thể thiết lập persistence cho Firebase Auth:', pErr);
+        }
+      }
 
-      if (isNotFoundOrInvalid) {
-        let isLegacyValid = false;
-        if (legacyUser?.mat_khau_hash) {
-          isLegacyValid = await verifyPasswordClient(req.mat_khau, legacyUser.mat_khau_hash);
-        } else if (legacyUser?.mat_khau) {
-          const legacyVal = String(legacyUser.mat_khau);
-          if (
-            legacyVal.startsWith('$2a$') ||
-            legacyVal.startsWith('$2b$') ||
-            legacyVal.startsWith('$2y$') ||
-            legacyVal.startsWith('pbkdf2$')
+      const authEmail = usernameToAuthEmail(normalizedU);
+      const legacyUser = db.users.find(
+        (u) => u.ten_dang_nhap.toLowerCase() === normalizedU
+      ) as (User & { mat_khau?: string; mat_khau_hash?: string }) | undefined;
+
+      if (legacyUser && legacyUser.trang_thai === 0) {
+        throw new Error('Tài khoản đang bị tạm khóa. Vui lòng liên hệ Quản trị viên');
+      }
+
+      // Khởi tạo trước Session ID để đồng bộ ngay khi đăng nhập
+      const sessionId = sessionStore.generateSessionId();
+      sessionStore.setSessionId(sessionId);
+
+      let firebaseUser = null;
+
+      try {
+        const cred = await signInWithEmailAndPassword(auth, authEmail, req.mat_khau);
+        firebaseUser = cred.user;
+      } catch (authErr: any) {
+        const code = authErr?.code || '';
+        const isNotFoundOrInvalid =
+          code === 'auth/user-not-found' ||
+          code === 'auth/invalid-credential' ||
+          code === 'auth/invalid-login-credentials';
+
+        if (isNotFoundOrInvalid) {
+          let isLegacyValid = false;
+          if (legacyUser?.mat_khau_hash) {
+            isLegacyValid = await verifyPasswordClient(req.mat_khau, legacyUser.mat_khau_hash);
+          } else if (legacyUser?.mat_khau) {
+            const legacyVal = String(legacyUser.mat_khau);
+            if (
+              legacyVal.startsWith('$2a$') ||
+              legacyVal.startsWith('$2b$') ||
+              legacyVal.startsWith('$2y$') ||
+              legacyVal.startsWith('pbkdf2$')
+            ) {
+              isLegacyValid = await verifyPasswordClient(req.mat_khau, legacyVal);
+            } else if (legacyVal === req.mat_khau) {
+              isLegacyValid = true;
+            }
+          } else if (
+            legacyUser?.ten_dang_nhap.toLowerCase() === 'admin' &&
+            legacyUser.must_change_password &&
+            !legacyUser.mat_khau_hash &&
+            !legacyUser.mat_khau
           ) {
-            isLegacyValid = await verifyPasswordClient(req.mat_khau, legacyVal);
-          } else if (legacyVal === req.mat_khau) {
+            isLegacyValid = await verifyPasswordClient(req.mat_khau, INITIAL_SEED_ADMIN_HASH);
+          } else {
+            // Người dùng trong hệ thống nhưng chưa được tạo trên Firebase Auth:
+            // Thử tự động tạo tài khoản trên Firebase Auth với mật khẩu người dùng vừa nhập
             isLegacyValid = true;
           }
-        } else if (
-          legacyUser?.ten_dang_nhap.toLowerCase() === 'admin' &&
-          legacyUser.must_change_password &&
-          !legacyUser.mat_khau_hash &&
-          !legacyUser.mat_khau
-        ) {
-          isLegacyValid = await verifyPasswordClient(req.mat_khau, INITIAL_SEED_ADMIN_HASH);
-        } else {
-          // Người dùng trong hệ thống nhưng chưa được tạo trên Firebase Auth:
-          // Thử tự động tạo tài khoản trên Firebase Auth với mật khẩu người dùng vừa nhập
-          isLegacyValid = true;
-        }
 
-        if (isLegacyValid) {
-          try {
-            const createdCred = await createUserWithEmailAndPassword(
-              auth,
-              authEmail,
-              req.mat_khau
-            );
-            firebaseUser = createdCred.user;
-          } catch (createErr: any) {
-            const createCode = createErr?.code || '';
-            if (createCode === 'auth/email-already-in-use') {
-              // Tài khoản đã có trên Firebase Auth nhưng đăng nhập thất bại -> sai mật khẩu
-              throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
+          if (isLegacyValid) {
+            try {
+              const createdCred = await createUserWithEmailAndPassword(
+                auth,
+                authEmail,
+                req.mat_khau
+              );
+              firebaseUser = createdCred.user;
+            } catch (createErr: any) {
+              const createCode = createErr?.code || '';
+              if (createCode === 'auth/email-already-in-use') {
+                // Tài khoản đã có trên Firebase Auth nhưng đăng nhập thất bại -> sai mật khẩu
+                throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
+              }
+              if (createCode === 'auth/weak-password') {
+                throw new Error('Mật khẩu quá ngắn (yêu cầu tối thiểu 6 ký tự trên Firebase Auth)');
+              }
+              console.warn('[Auth] Không thể tạo tài khoản tự động trên Firebase Auth:', createErr);
             }
-            if (createCode === 'auth/weak-password') {
-              throw new Error('Mật khẩu quá ngắn (yêu cầu tối thiểu 6 ký tự trên Firebase Auth)');
-            }
-            console.warn('[Auth] Không thể tạo tài khoản tự động trên Firebase Auth:', createErr);
           }
         }
-      }
 
-      if (!firebaseUser) {
-        if (code === 'auth/too-many-requests') {
-          throw new Error(
-            'Tài khoản này đã nhập sai mật khẩu quá nhiều lần. Vui lòng thử lại sau 15 phút.'
-          );
+        if (!firebaseUser) {
+          if (code === 'auth/too-many-requests') {
+            throw new Error(
+              'Tài khoản này đã nhập sai mật khẩu quá nhiều lần. Vui lòng thử lại sau 15 phút.'
+            );
+          }
+          throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
         }
-        throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
       }
-    }
 
-    const uid = firebaseUser.uid;
-    const now = new Date().toISOString();
+      const uid = firebaseUser.uid;
+      const now = new Date().toISOString();
 
-    let userProfile: User | null = null;
-    try {
-      const userDocSnap = await getDoc(doc(firestoreDb, 'users', uid));
-      if (userDocSnap.exists()) {
-        userProfile = sanitizeUserForCloud({
-          ...(userDocSnap.data() as User),
+      let userProfile: User | null = null;
+      try {
+        const userDocSnap = await getDoc(doc(firestoreDb, 'users', uid));
+        if (userDocSnap.exists()) {
+          userProfile = sanitizeUserForCloud({
+            ...(userDocSnap.data() as User),
+            id: uid,
+            firebaseUid: uid,
+          }) as User;
+        }
+      } catch (readErr) {
+        console.warn('[Auth] Không thể đọc trực tiếp users/{uid}, kiểm tra dữ liệu di trú:', readErr);
+      }
+
+      if (!userProfile) {
+        const oldId = legacyUser?.id;
+        userProfile = {
           id: uid,
-        }) as User;
-      }
-    } catch (readErr) {
-      console.warn('[Auth] Không thể đọc trực tiếp users/{uid}, kiểm tra dữ liệu di trú:', readErr);
-    }
+          firebaseUid: uid,
+          ten_dang_nhap: legacyUser?.ten_dang_nhap || normalizedU,
+          ho_ten:
+            legacyUser?.ho_ten ||
+            (normalizedU === 'admin' ? 'Quản trị viên Hệ thống' : normalizedU),
+          vai_tro: legacyUser?.vai_tro || (normalizedU === 'admin' ? 'ADMIN' : 'BIEN_TAP'),
+          chuc_danh:
+            legacyUser?.chuc_danh ||
+            (normalizedU === 'admin' ? 'Chủ nhiệm UBKT' : 'Chuyên viên UBKT'),
+          don_vi_id: legacyUser?.don_vi_id || null,
+          pham_vi_quan_ly: legacyUser?.pham_vi_quan_ly || null,
+          trang_thai: legacyUser?.trang_thai ?? 1,
+          must_change_password: legacyUser?.must_change_password ?? false,
+          created_at: legacyUser?.created_at || now,
+          updated_at: now,
+        };
 
-    if (!userProfile) {
-      const oldId = legacyUser?.id;
-      userProfile = {
-        id: uid,
-        ten_dang_nhap: legacyUser?.ten_dang_nhap || normalizedU,
-        ho_ten:
-          legacyUser?.ho_ten ||
-          (normalizedU === 'admin' ? 'Quản trị viên Hệ thống' : normalizedU),
-        vai_tro: legacyUser?.vai_tro || (normalizedU === 'admin' ? 'ADMIN' : 'BIEN_TAP'),
-        chuc_danh:
-          legacyUser?.chuc_danh ||
-          (normalizedU === 'admin' ? 'Chủ nhiệm UBKT' : 'Chuyên viên UBKT'),
-        don_vi_id: legacyUser?.don_vi_id || null,
-        pham_vi_quan_ly: legacyUser?.pham_vi_quan_ly || null,
-        trang_thai: legacyUser?.trang_thai ?? 1,
-        must_change_password: legacyUser?.must_change_password ?? false,
-        created_at: legacyUser?.created_at || now,
-        updated_at: now,
-      };
+        try {
+          await setDoc(doc(firestoreDb, 'users', uid), sanitizeUserForCloud(userProfile), { merge: true });
+          if (oldId && oldId !== uid) {
+            const oldPcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(
+              () => null
+            );
+            if (oldPcSnap && oldPcSnap.exists()) {
+              const pcData = oldPcSnap.data();
+              await setDoc(doc(firestoreDb, 'phan_cong_dia_ban', uid), {
+                ...pcData,
+                id: uid,
+                user_id: uid,
+                updated_at: now,
+              }).catch(() => {});
+              await deleteDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => {});
+            }
+            await deleteDoc(doc(firestoreDb, 'users', oldId)).catch(() => {});
+          }
+        } catch (migErr) {
+          console.warn('[Auth] Lưu hồ sơ di trú users/{uid}:', migErr);
+        }
+      }
+
+      if (userProfile.trang_thai === 0) {
+        await signOut(auth).catch(() => {});
+        throw new Error('Tài khoản đang bị tạm khóa. Vui lòng liên hệ Quản trị viên');
+      }
+
+      const cleanProfile = stripSecretsFromUser(userProfile) as User;
+      const existingIdx = db.users.findIndex(
+        (u) => u.id === uid || u.ten_dang_nhap.toLowerCase() === normalizedU
+      );
+      if (existingIdx !== -1) {
+        db.users[existingIdx] = cleanProfile;
+      } else {
+        db.users.push(cleanProfile);
+      }
+      saveMockDb(db);
+
+      const idToken = await firebaseUser.getIdToken();
+      const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown Device';
 
       try {
-        await setDoc(doc(firestoreDb, 'users', uid), sanitizeUserForCloud(userProfile), { merge: true });
-        if (oldId && oldId !== uid) {
-          const oldPcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(
-            () => null
-          );
-          if (oldPcSnap && oldPcSnap.exists()) {
-            const pcData = oldPcSnap.data();
-            await setDoc(doc(firestoreDb, 'phan_cong_dia_ban', uid), {
-              ...pcData,
-              id: uid,
-              user_id: uid,
-              updated_at: now,
-            }).catch(() => {});
-            await deleteDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => {});
-          }
-          await deleteDoc(doc(firestoreDb, 'users', oldId)).catch(() => {});
-        }
-      } catch (migErr) {
-        console.warn('[Auth] Lưu hồ sơ di trú users/{uid}:', migErr);
+        await setDoc(
+          doc(firestoreDb, 'users', uid),
+          {
+            ...sanitizeUserForCloud(userProfile),
+            id: uid,
+            firebaseUid: uid,
+            activeSessionId: sessionId,
+            lastLoginDevice: userAgent,
+            lastActiveAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } catch (sessionErr) {
+        console.warn('[Auth] Không thể cập nhật activeSessionId lên Firestore (chế độ offline):', sessionErr);
       }
+
+      // Lưu ngay phiên làm việc vào sessionStore trước khi kết thúc hàm login
+      sessionStore.saveSession(cleanProfile, idToken, Boolean(req.ghi_nho), sessionId);
+
+      if (typeof (auth as any).authStateReady === 'function') {
+        await (auth as any).authStateReady().catch(() => {});
+      }
+
+      return {
+        user: cleanProfile,
+        token: idToken,
+        sessionId,
+      };
+    } finally {
+      sessionStore.setLoggingIn(false);
     }
-
-    if (userProfile.trang_thai === 0) {
-      await signOut(auth).catch(() => {});
-      throw new Error('Tài khoản đang bị tạm khóa. Vui lòng liên hệ Quản trị viên');
-    }
-
-    const cleanProfile = stripSecretsFromUser(userProfile) as User;
-    const existingIdx = db.users.findIndex(
-      (u) => u.id === uid || u.ten_dang_nhap.toLowerCase() === normalizedU
-    );
-    if (existingIdx !== -1) {
-      db.users[existingIdx] = cleanProfile;
-    } else {
-      db.users.push(cleanProfile);
-    }
-    saveMockDb(db);
-
-    const idToken = await firebaseUser.getIdToken();
-
-    // Single-Session: Tạo sessionId duy nhất và ghi đè activeSessionId lên Firestore users/{uid}
-    const sessionId = sessionStore.generateSessionId();
-    const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown Device';
-
-    try {
-      await setDoc(
-        doc(firestoreDb, 'users', uid),
-        {
-          ...sanitizeUserForCloud(userProfile),
-          activeSessionId: sessionId,
-          lastLoginDevice: userAgent,
-          lastActiveAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-    } catch (sessionErr) {
-      console.warn('[Auth] Không thể cập nhật activeSessionId lên Firestore (chế độ offline):', sessionErr);
-    }
-
-    if (typeof (auth as any).authStateReady === 'function') {
-      await (auth as any).authStateReady().catch(() => {});
-    }
-
-    return {
-      user: cleanProfile,
-      token: idToken,
-      sessionId,
-    };
   },
 
   change_password: async (db, args) => {
