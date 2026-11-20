@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { reconcileById, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import type { ChuongTrinhKtGs, LoaiHinhKtGs, TrangThaiKtGs, User } from '../types';
-import { filterVisibleItemsForUser } from '../utils/permissionScope';
+import { canEditProgramItem } from '../utils/permissionScope';
 import {
   Calendar,
   FileText,
@@ -25,10 +25,21 @@ export const LichThangManager: React.FC<LichThangManagerProps> = ({ user }) => {
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const hasInitialLoadedRef = useRef(false);
 
-  // Lọc dữ liệu theo phân quyền người dùng
-  const visibleList = useMemo(() => {
-    return filterVisibleItemsForUser(list, user);
-  }, [list, user]);
+  // Quyền xem (Read): Biên tập viên thấy 100% toàn bộ lịch theo tháng của toàn cơ quan giống hệt Admin
+  const visibleList = list;
+
+  const canEditItem = (item: ChuongTrinhKtGs) => {
+    return canEditProgramItem(item, user);
+  };
+
+  const handleUpdateStatus = async (item: ChuongTrinhKtGs, newStatus: TrangThaiKtGs) => {
+    try {
+      await api.updateChuongTrinh({ ...item, trang_thai: newStatus });
+      await loadData(true);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const loadData = async (silent = false) => {
     const showSpinner = !silent && !hasInitialLoadedRef.current;
@@ -280,6 +291,8 @@ export const LichThangManager: React.FC<LichThangManagerProps> = ({ user }) => {
               events={activeMonthData.events}
               renderLoaiHinhBadge={renderLoaiHinhBadge}
               renderTrangThaiBadge={renderTrangThaiBadge}
+              canEditItem={canEditItem}
+              onUpdateStatus={handleUpdateStatus}
             />
           ) : (
             <div className="overflow-x-auto">
@@ -326,7 +339,22 @@ export const LichThangManager: React.FC<LichThangManagerProps> = ({ user }) => {
                         </div>
                       </td>
                       <td className="py-3 px-3 text-center">
-                        {renderTrangThaiBadge(ev.trang_thai)}
+                        {canEditItem(ev) ? (
+                          <select
+                            value={ev.trang_thai}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => handleUpdateStatus(ev, e.target.value as TrangThaiKtGs)}
+                            className="text-[11px] font-medium rounded px-1.5 py-0.5 border border-slate-300 bg-white cursor-pointer shadow-2xs focus:ring-1 focus:ring-blue-500"
+                            title="Bấm để cập nhật tiến độ / trạng thái thực hiện"
+                          >
+                            <option value="CHUA_THUC_HIEN">Chưa thực hiện</option>
+                            <option value="DANG_THUC_HIEN">Đang thực hiện</option>
+                            <option value="DA_HOAN_THANH">Đã hoàn thành</option>
+                            <option value="QUA_HAN">Quá hạn</option>
+                          </select>
+                        ) : (
+                          renderTrangThaiBadge(ev.trang_thai)
+                        )}
                       </td>
                       <td className="py-3 px-3 text-center">
                         {ev.file_pdf_ten ? (

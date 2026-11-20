@@ -120,7 +120,6 @@ export function AppLayout({
           { key: 'ho_so_dia_ban', icon: '📍', label: 'Hồ sơ địa bàn' },
           { key: 'don_thu', icon: '📬', label: 'Quản lý Đơn thư' },
           { key: 'lich_thang', icon: '📅', label: 'Lịch theo tháng' },
-          { key: 'kho_pdf', icon: '🗄️', label: 'Kho dữ liệu' },
           { key: 'thong_ke', icon: '📊', label: 'Thống kê' },
         ];
 

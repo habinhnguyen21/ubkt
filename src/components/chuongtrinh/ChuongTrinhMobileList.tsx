@@ -26,6 +26,7 @@ export interface ChuongTrinhMobileListProps {
   loading?: boolean;
   isAdmin?: boolean;
   canEdit?: boolean;
+  canEditItem?: (item: ChuongTrinhKtGs) => boolean;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   // Phân trang
@@ -55,6 +56,7 @@ export const ChuongTrinhMobileList: React.FC<ChuongTrinhMobileListProps> = ({
   loading = false,
   isAdmin = false,
   canEdit = false,
+  canEditItem,
   searchQuery,
   onSearchChange,
   currentPage,
@@ -276,6 +278,7 @@ export const ChuongTrinhMobileList: React.FC<ChuongTrinhMobileListProps> = ({
           {paginatedItems.map((item, idx) => {
             const stt = (currentPage - 1) * pageSize + idx + 1;
             const isMenuOpen = activeMenuId === item.id;
+            const itemEditable = canEditItem ? canEditItem(item) : canEdit;
 
             // Tìm đơn vị địa bàn để hiển thị nút mở Hồ sơ địa bàn
             const targetDv =
@@ -337,31 +340,35 @@ export const ChuongTrinhMobileList: React.FC<ChuongTrinhMobileListProps> = ({
                           <span>Xem chi tiết</span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveMenuId(null);
-                            onEdit(item);
-                          }}
-                          className="w-full min-h-[44px] px-3.5 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center space-x-2 cursor-pointer"
-                        >
-                          <Edit2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Chỉnh sửa</span>
-                        </button>
+                        {itemEditable && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveMenuId(null);
+                              onEdit(item);
+                            }}
+                            className="w-full min-h-[44px] px-3.5 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center space-x-2 cursor-pointer"
+                          >
+                            <Edit2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Chỉnh sửa</span>
+                          </button>
+                        )}
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveMenuId(null);
-                            onDuplicate(item);
-                          }}
-                          className="w-full min-h-[44px] px-3.5 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center space-x-2 cursor-pointer"
-                        >
-                          <Copy className="w-3.5 h-3.5 text-amber-600" />
-                          <span>Nhân bản</span>
-                        </button>
+                        {itemEditable && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveMenuId(null);
+                              onDuplicate(item);
+                            }}
+                            className="w-full min-h-[44px] px-3.5 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center space-x-2 cursor-pointer"
+                          >
+                            <Copy className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Nhân bản</span>
+                          </button>
+                        )}
 
-                        {canEdit && onDelete && (
+                        {isAdmin && onDelete && (
                           <button
                             type="button"
                             onClick={() => {
@@ -457,7 +464,7 @@ export const ChuongTrinhMobileList: React.FC<ChuongTrinhMobileListProps> = ({
                   )}
 
                   {/* Nút chuyển trạng thái nhanh */}
-                  {item.trang_thai === 'CHUA_THUC_HIEN' && onQuickDangThucHien && (
+                  {itemEditable && item.trang_thai === 'CHUA_THUC_HIEN' && onQuickDangThucHien && (
                     <button
                       type="button"
                       onClick={() => onQuickDangThucHien(item)}
@@ -469,7 +476,7 @@ export const ChuongTrinhMobileList: React.FC<ChuongTrinhMobileListProps> = ({
                     </button>
                   )}
 
-                  {canEdit && onQuickHoanThanh && (item.trang_thai === 'DANG_THUC_HIEN' || item.trang_thai === 'QUA_HAN') && (
+                  {itemEditable && onQuickHoanThanh && (item.trang_thai === 'DANG_THUC_HIEN' || item.trang_thai === 'QUA_HAN') && (
                     <button
                       type="button"
                       onClick={() => onQuickHoanThanh(item)}

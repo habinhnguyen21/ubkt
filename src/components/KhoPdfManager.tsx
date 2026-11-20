@@ -72,6 +72,18 @@ interface KhoPdfManagerProps {
 
 export const KhoPdfManager: React.FC<KhoPdfManagerProps> = ({ user, onDataChanged }) => {
   const isMobile = useIsMobile();
+
+  if (user.vai_tro !== 'ADMIN') {
+    return (
+      <div className="max-w-xl mx-auto my-12 p-6 bg-white rounded-xl border border-slate-200 text-center shadow-xs">
+        <h3 className="text-base font-bold text-slate-800 mb-2">Giới hạn quyền truy cập</h3>
+        <p className="text-sm text-slate-600">
+          Chức năng Kho dữ liệu điện tử chỉ dành cho quản trị viên (Admin). Vui lòng quay lại Tổng quan.
+        </p>
+      </div>
+    );
+  }
+
   const [dataList, setDataList] = useState<PdfKhoItem[]>([]);
   const [allPrograms, setAllPrograms] = useState<ChuongTrinhKtGs[]>([]);
   const [allDonVi, setAllDonVi] = useState<DonVi[]>([]);

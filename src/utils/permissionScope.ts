@@ -194,3 +194,29 @@ export function filterVisibleItemsForUser<T>(
     return false;
   });
 }
+
+/**
+ * Kiểm tra xem người dùng có quyền sửa/cập nhật tiến độ/đổi trạng thái đối với một bản ghi KT-GS / Lịch:
+ * - Admin: Toàn quyền (Thêm mới, Sửa, Xóa, Đổi trạng thái)
+ * - Biên tập viên: Chỉ được phép sửa / cập nhật tiến độ / đổi trạng thái đối với các bản ghi
+ *   thuộc đơn vị/địa bàn mà người đó quản lý hoặc được phân công phụ trách.
+ */
+export function canEditProgramItem(
+  item: any,
+  currentUser: User | null | undefined,
+  assignedUnitIds?: Set<string> | string[],
+  phanCongList?: PhanCongDiaBan[]
+): boolean {
+  if (!currentUser) return false;
+  if (isUserAdmin(currentUser)) return true;
+
+  const unitIdsSet: Set<string> =
+    assignedUnitIds instanceof Set
+      ? assignedUnitIds
+      : Array.isArray(assignedUnitIds)
+      ? new Set(assignedUnitIds)
+      : getAssignedUnitIds(currentUser, phanCongList);
+
+  return isDirectlyAssignedToUser(item, currentUser, unitIdsSet);
+}
+

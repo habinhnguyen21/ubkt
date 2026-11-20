@@ -363,13 +363,11 @@ service cloud.firestore {
       allow delete: if isAdmin() || isReportAssignedToBienTap(resource.data);
     }
 
-    match /pdf_files/{docId} {
+    match /lich_thang/{docId} {
       allow read: if isSignedIn();
       allow create: if hasValidSession()
-        && isValidPdfFilePayload(docId, request.resource.data)
         && (isAdmin() || isAssignedToUnit(extractRecordUnitId(request.resource.data)));
       allow update: if hasValidSession()
-        && isValidPdfFilePayload(docId, request.resource.data)
         && (
           isAdmin()
           || (
@@ -378,6 +376,14 @@ service cloud.firestore {
           )
         );
       allow delete: if isAdmin();
+    }
+
+    match /pdf_files/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /kho_pdf/{docId} {
+      allow read, write: if isAdmin();
     }
 
     match /don_thu/{docId} {

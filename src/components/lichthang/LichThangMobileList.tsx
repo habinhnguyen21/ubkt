@@ -6,12 +6,16 @@ export interface LichThangMobileListProps {
   events: ChuongTrinhKtGs[];
   renderLoaiHinhBadge: (loai?: LoaiHinhKtGs | null) => React.ReactNode;
   renderTrangThaiBadge: (trangThai: TrangThaiKtGs) => React.ReactNode;
+  canEditItem?: (item: ChuongTrinhKtGs) => boolean;
+  onUpdateStatus?: (item: ChuongTrinhKtGs, newStatus: TrangThaiKtGs) => void;
 }
 
 export const LichThangMobileList: React.FC<LichThangMobileListProps> = ({
   events,
   renderLoaiHinhBadge,
   renderTrangThaiBadge,
+  canEditItem,
+  onUpdateStatus,
 }) => {
   return (
     <div className="space-y-3 font-sans">
@@ -44,7 +48,21 @@ export const LichThangMobileList: React.FC<LichThangMobileListProps> = ({
           {/* Hàng 2: Nhãn Loại hình + Trạng thái */}
           <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
             {renderLoaiHinhBadge(ev.loai_hinh)}
-            {renderTrangThaiBadge((ev.trang_thai as TrangThaiKtGs) || 'CHUA_THUC_HIEN')}
+            {canEditItem && canEditItem(ev) && onUpdateStatus ? (
+              <select
+                value={ev.trang_thai}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => onUpdateStatus(ev, e.target.value as TrangThaiKtGs)}
+                className="text-[11px] font-medium rounded px-1.5 py-0.5 border border-slate-300 bg-white cursor-pointer shadow-2xs focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="CHUA_THUC_HIEN">Chưa thực hiện</option>
+                <option value="DANG_THUC_HIEN">Đang thực hiện</option>
+                <option value="DA_HOAN_THANH">Đã hoàn thành</option>
+                <option value="QUA_HAN">Quá hạn</option>
+              </select>
+            ) : (
+              renderTrangThaiBadge((ev.trang_thai as TrangThaiKtGs) || 'CHUA_THUC_HIEN')
+            )}
             {ev.so_van_ban && (
               <span className="font-mono text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
                 {ev.so_van_ban}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { api } from '../services/api';
 import { reconcileById, isSameData, captureActiveInput, restoreActiveInput } from '../utils/syncUtils';
 import { consumePendingOpen, clearPendingOpen, OPEN_REQUEST_EVENT } from '../utils/openRequest';
@@ -15,7 +15,7 @@ import type {
   PhanCongDiaBan,
   DiaBanRecord,
 } from '../types';
-import { filterVisibleItemsForUser } from '../utils/permissionScope';
+import { canEditProgramItem, getAssignedUnitIds } from '../utils/permissionScope';
 import {
   isGoogleDriveConfigured,
   getGoogleDriveConfig,
@@ -163,12 +163,19 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
     }
   });
 
-  // Lọc tập dữ liệu hiển thị theo phân quyền người dùng:
-  // - Admin: 100% dữ liệu
-  // - Biên tập viên: Nhiệm vụ chung (BTV, BCH, UBKT Đảng ủy phường) + Nhiệm vụ cá nhân / địa bàn phụ trách
-  const scopedList = useMemo(() => {
-    return filterVisibleItemsForUser(list, user, undefined, assignments);
-  }, [list, user, assignments]);
+  // Quyền xem (Read): Biên tập viên được thấy đầy đủ 100% toàn bộ danh sách chương trình KT-GS giống hệt Admin
+  const scopedList = list;
+
+  const assignedUnitsSet = useMemo(() => {
+    return getAssignedUnitIds(user, assignments);
+  }, [user, assignments]);
+
+  const canEditItem = useCallback(
+    (item: ChuongTrinhKtGs) => {
+      return canEditProgramItem(item, user, assignedUnitsSet, assignments);
+    },
+    [user, assignedUnitsSet, assignments]
+  );
 
   const [diaBanRecords, setDiaBanRecords] = useState<DiaBanRecord[]>(() => {
     try {
@@ -610,6 +617,10 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   }, [scopedList, filterNam, currentMonth, currentYear]);
 
   const handleQuickSetDangThucHien = async (item: ChuongTrinhKtGs) => {
+    if (!canEditItem(item)) {
+      alert('Bạn không có quyền cập nhật tiến độ cho chương trình của đơn vị khác.');
+      return;
+    }
     try {
       await api.updateChuongTrinh({
         ...item,
@@ -687,6 +698,10 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   }, [scopedList, filterNam]);
 
   const handleQuickSetHoanThanh = async (item: ChuongTrinhKtGs) => {
+    if (!canEditItem(item)) {
+      alert('Bạn không có quyền cập nhật tiến độ cho chương trình của đơn vị khác.');
+      return;
+    }
     try {
       await api.updateChuongTrinh({
         ...item,
@@ -1495,6 +1510,10 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   };
 
   const handleOpenEditHn = (item: ChuongTrinhKtGs) => {
+    if (!canEditItem(item)) {
+      alert('Bạn không có quyền chỉnh sửa chương trình của đơn vị khác.');
+      return;
+    }
     const matched = item.don_vi_id
       ? activeDonViList.find((d) => d.id === item.don_vi_id) || null
       : findBestMatchingDonVi(item.chu_the || item.co_quan_ban_hanh || '', activeDonViList);
@@ -1523,6 +1542,10 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   };
 
   const handleDuplicateHn = (item: ChuongTrinhKtGs) => {
+    if (!canEditItem(item)) {
+      alert('Bạn không có quyền nhân bản chương trình của đơn vị khác.');
+      return;
+    }
     const matched = item.don_vi_id
       ? activeDonViList.find((d) => d.id === item.don_vi_id) || null
       : findBestMatchingDonVi(item.chu_the || item.co_quan_ban_hanh || '', activeDonViList);
@@ -1937,6 +1960,12 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
   // Handlers cho Card 1 và tương tác bảng
   const handleSelectForEdit = (item: ChuongTrinhKtGs) => {
+    if (!canEditItem(item)) {
+      setSelectedProgram(item);
+      setNhiemKyModalTab('DETAIL');
+      setIsNhiemKyEditorOpen(true);
+      return;
+    }
     setSelectedProgram(item);
     setFormEditingId(item.id);
     setFormTenChuongTrinh(item.ten_chuong_trinh || item.noi_dung.slice(0, 80));
@@ -1990,6 +2019,10 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
   };
 
   const handleDuplicate = (item: ChuongTrinhKtGs) => {
+    if (!canEditItem(item)) {
+      alert('Bạn không có quyền nhân bản chương trình này.');
+      return;
+    }
     setFormEditingId(null);
     setFormTenChuongTrinh((item.ten_chuong_trinh || item.noi_dung.slice(0, 60)) + ' (Bản sao)');
     setFormHasNhiemKy(item.has_nhiem_ky !== false);
@@ -2726,6 +2759,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
               loading={loading}
               isAdmin={isAdmin}
               canEdit={canEdit}
+              canEditItem={canEditItem}
               searchQuery={searchQuery}
               onSearchChange={(q) => {
                 setSearchQuery(q);
@@ -3154,17 +3188,19 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                         {/* 11. THAO TÁC */}
                         <td className="py-3.5 px-3 text-center">
                           <div className="inline-flex items-center space-x-1">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSelectForEdit(item);
-                              }}
-                              title="Chỉnh sửa chương trình (Mở form sửa & chi tiết)"
-                              className="p-1 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
+                            {canEditItem(item) && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSelectForEdit(item);
+                                }}
+                                title="Chỉnh sửa chương trình (Mở form sửa & chi tiết)"
+                                className="p-1 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={(e) => {
@@ -3178,18 +3214,20 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                             >
                               <Eye className="w-3.5 h-3.5" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDuplicate(item);
-                              }}
-                              title="Nhân bản chương trình"
-                              className="p-1 text-slate-400 hover:text-amber-700 hover:bg-amber-50 rounded cursor-pointer"
-                            >
-                              <Copy className="w-3.5 h-3.5" />
-                            </button>
-                            {canEdit && (
+                            {canEditItem(item) && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDuplicate(item);
+                                }}
+                                title="Nhân bản chương trình"
+                                className="p-1 text-slate-400 hover:text-amber-700 hover:bg-amber-50 rounded cursor-pointer"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {user.vai_tro === 'ADMIN' && (
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -4050,16 +4088,18 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
               {/* Nhóm nút bên phải: Nút Chỉnh tiến độ năm & Tỷ lệ hoàn thành */}
               <div className="flex items-center space-x-2.5 flex-wrap gap-y-2">
-                {/* Nút Chỉnh tổng quan tiến độ năm */}
-                <button
-                  type="button"
-                  onClick={() => setIsChinhTienDoOpen(true)}
-                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-sm transition cursor-pointer"
-                  title="Mở bảng điều chỉnh và cập nhật nhanh tiến độ thực hiện theo năm"
-                >
-                  <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-200" />
-                  <span>Chỉnh tiến độ năm {filterNam === 'ALL' ? '' : filterNam}</span>
-                </button>
+                {/* Nút Chỉnh tổng quan tiến độ năm (chỉ dành cho Admin) */}
+                {user.vai_tro === 'ADMIN' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsChinhTienDoOpen(true)}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-sm transition cursor-pointer"
+                    title="Mở bảng điều chỉnh và cập nhật nhanh tiến độ thực hiện theo năm"
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-200" />
+                    <span>Chỉnh tiến độ năm {filterNam === 'ALL' ? '' : filterNam}</span>
+                  </button>
+                )}
 
                 {/* Tỷ lệ hoàn thành chung của năm (KPI Badge nhẹ nhàng) */}
                 <div className="flex items-center space-x-3 bg-slate-50/80 px-3 py-1.5 rounded-xl border border-slate-200/80">
@@ -4598,6 +4638,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                   loading={loading}
                   isAdmin={isAdmin}
                   canEdit={canEdit}
+                  canEditItem={canEditItem}
                   searchQuery={searchQuery}
                   onSearchChange={(q) => {
                     setSearchQuery(q);
@@ -4802,8 +4843,8 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
 
                   {/* Nút Phần F: Thao tác & Quản lý dữ liệu tích hợp */}
                   <div className="flex flex-wrap items-center gap-1.5">
-                    {/* Nhập file Excel nhiều cái 1 lần */}
-                    {canEdit && (
+                    {/* Nhập file Excel nhiều cái 1 lần (chỉ dành cho Admin) */}
+                    {user.vai_tro === 'ADMIN' && (
                       <button
                         type="button"
                         onClick={() => setIsHnImportExcelOpen(true)}
@@ -5208,7 +5249,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                                 <td className="py-3.5 px-3 text-center">
                                   <div className="flex flex-col items-center gap-1.5">
                                     {renderTrangThaiBadge(item.trang_thai)}
-                                    {item.trang_thai === 'CHUA_THUC_HIEN' && (
+                                    {canEditItem(item) && item.trang_thai === 'CHUA_THUC_HIEN' && (
                                       <button
                                         type="button"
                                         onClick={(e) => {
@@ -5228,7 +5269,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                                           <Clock className="w-3 h-3 text-rose-600" />
                                           <span>Quá hạn</span>
                                         </span>
-                                        {canEdit && (
+                                        {canEditItem(item) && (
                                           <button
                                             type="button"
                                             onClick={(e) => {
@@ -5295,29 +5336,33 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                                     >
                                       <Eye className="w-3.5 h-3.5" />
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenEditHn(item);
-                                      }}
-                                      title="Chỉnh sửa thông tin chương trình"
-                                      className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded transition cursor-pointer"
-                                    >
-                                      <Edit2 className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDuplicateHn(item);
-                                      }}
-                                      title="Nhân bản chương trình này"
-                                      className="p-1.5 text-slate-500 hover:text-amber-700 hover:bg-amber-50 rounded transition cursor-pointer"
-                                    >
-                                      <Copy className="w-3.5 h-3.5" />
-                                    </button>
-                                    {canEdit && (
+                                    {canEditItem(item) && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenEditHn(item);
+                                        }}
+                                        title="Chỉnh sửa thông tin chương trình"
+                                        className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded transition cursor-pointer"
+                                      >
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                    {canEditItem(item) && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDuplicateHn(item);
+                                        }}
+                                        title="Nhân bản chương trình này"
+                                        className="p-1.5 text-slate-500 hover:text-amber-700 hover:bg-amber-50 rounded transition cursor-pointer"
+                                      >
+                                        <Copy className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                    {user.vai_tro === 'ADMIN' && (
                                       <button
                                         type="button"
                                         onClick={(e) => {
@@ -5536,7 +5581,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                     <p className="text-[11px] mt-1.5 text-amber-900/80">
                       Có mốc thời gian thực hiện trong tháng {currentMonth}/{currentYear}
                     </p>
-                    {statsHangNam.tienDoChiTiet.sapDenHan > 0 && canEdit && (
+                    {statsHangNam.tienDoChiTiet.sapDenHan > 0 && user.vai_tro === 'ADMIN' && (
                       <div className="mt-2 pt-2 border-t border-amber-200/60">
                         <button
                           type="button"
@@ -5618,7 +5663,7 @@ export const ChuongTrinhManager: React.FC<ChuongTrinhManagerProps> = ({ user, on
                     <p className="text-[11px] mt-1.5 text-rose-900/80">
                       Đã quá mốc thời gian quy định nhưng chưa xác nhận hoàn thành
                     </p>
-                    {statsHangNam.tienDoChiTiet.chamTienDoQuaHan > 0 && canEdit && (
+                    {statsHangNam.tienDoChiTiet.chamTienDoQuaHan > 0 && user.vai_tro === 'ADMIN' && (
                       <div className="mt-2 pt-2 border-t border-rose-200/60">
                         <button
                           type="button"

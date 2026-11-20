@@ -95,7 +95,7 @@ export function App() {
   });
 
   const handleTabChange = useCallback((tab: TabKey) => {
-    if (tab === 'bao_cao' && currentUser?.vai_tro !== 'ADMIN') {
+    if ((tab === 'bao_cao' || tab === 'kho_pdf') && currentUser?.vai_tro !== 'ADMIN') {
       tab = 'tong_quan';
     }
     setActiveTab(tab);
@@ -177,6 +177,29 @@ export function App() {
       }
     }
 
+    const isRequestingKhoPdf =
+      hash.includes('kho-pdf') ||
+      hash.includes('kho_pdf') ||
+      search.includes('tab=kho_pdf') ||
+      search.includes('tab=kho-pdf') ||
+      pathname.endsWith('/kho-pdf') ||
+      pathname.endsWith('/kho_pdf');
+
+    if (isRequestingKhoPdf) {
+      if (!user) return;
+      if (user.vai_tro !== 'ADMIN') {
+        setActiveTab('tong_quan');
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, '', window.location.pathname + '#tong-quan');
+        } else {
+          window.location.hash = '#tong-quan';
+        }
+        setAccessDeniedMessage('Từ chối truy cập: Tài khoản Biên tập viên không có quyền truy cập Kho dữ liệu điện tử.');
+        setTimeout(() => setAccessDeniedMessage(null), 5000);
+        return;
+      }
+    }
+
     const targetTab = HASH_TO_TAB[hash];
     if (targetTab) {
       if (targetTab === 'phan_cong') {
@@ -185,7 +208,7 @@ export function App() {
         } else {
           setActiveTab('don_vi');
         }
-      } else if (targetTab === 'bao_cao' && user?.vai_tro !== 'ADMIN') {
+      } else if ((targetTab === 'bao_cao' || targetTab === 'kho_pdf') && user?.vai_tro !== 'ADMIN') {
         setActiveTab('tong_quan');
       } else {
         setActiveTab(targetTab);
@@ -657,6 +680,9 @@ export function App() {
       case 'lich_thang':
         return <LichThangManager user={currentUser} />;
       case 'kho_pdf':
+        if (currentUser.vai_tro !== 'ADMIN') {
+          return <Dashboard currentUser={currentUser} appInfo={appInfo} />;
+        }
         return <KhoPdfManager user={currentUser} onDataChanged={fetchAppInfo} />;
       case 'thong_ke':
         return (
