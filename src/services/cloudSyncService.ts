@@ -1296,22 +1296,39 @@ export const cloudSyncService = {
       currentMockDb.donThuList = Array.from(donThuMap.values());
 
       // H. TÀI KHOẢN (users) — Không lưu mật khẩu trong Firestore; chỉ ADMIN quản lý danh sách users
-      const cloudUsers = usersDocs.map((d) => sanitizeUserForCloud(d.data() as User));
+      const cloudUsers = usersDocs.map((d) => {
+        const data = d.data() as User;
+        return sanitizeUserForCloud({
+          ...data,
+          id: d.id,
+          firebaseUid: data.firebaseUid || (d.id.length >= 20 ? d.id : undefined),
+        });
+      });
       const localUsers: User[] = (currentMockDb.users || []).filter(
         (u: User) => !cloudTombstones.has(u.id)
       );
       const userMap = new Map<string, User>();
 
       for (const u of localUsers) {
-        const k = u.id || u.ten_dang_nhap?.toLowerCase();
+        const k = u.ten_dang_nhap?.trim().toLowerCase() || u.id;
         if (!k || cloudTombstones.has(u.id)) continue;
         userMap.set(k, sanitizeUserForCloud(u) as User);
       }
 
       for (const cu of cloudUsers) {
-        const k = cu.id || cu.ten_dang_nhap?.toLowerCase();
+        const k = cu.ten_dang_nhap?.trim().toLowerCase() || cu.id;
         if (!k || cloudTombstones.has(cu.id)) continue;
-        userMap.set(k, sanitizeUserForCloud(cu) as User);
+        const existing = userMap.get(k);
+        if (existing) {
+          userMap.set(k, {
+            ...existing,
+            ...cu,
+            id: cu.id && cu.id.length >= 20 ? cu.id : (existing.id || cu.id),
+            firebaseUid: cu.firebaseUid || (cu.id.length >= 20 ? cu.id : existing.firebaseUid),
+          });
+        } else {
+          userMap.set(k, cu);
+        }
       }
 
       if (isAdminSync) {

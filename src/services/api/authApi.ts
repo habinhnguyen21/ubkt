@@ -31,7 +31,119 @@ import {
 } from '../../utils/passwordCrypto';
 import { sessionStore } from '../../utils/sessionStore';
 import { indexedDbStorage } from '../indexedDbStorage';
-import { mockInvoke, registerMockCommands, requestApi, saveMockDb } from './core';
+import { mockInvoke, registerMockCommands, requestApi, saveMockDb, type MockDb } from './core';
+
+/**
+ * Tra cứu người dùng đồng bộ từ bộ nhớ cục bộ (db.users) và Firestore Cloud
+ * theo thứ tự ưu tiên chặt chẽ:
+ * 1. Khớp ID (user_id, originalId, firebaseUid)
+ * 2. Khớp Tên đăng nhập (case-insensitive)
+ * 3. Khớp Họ và tên
+ * 4. Truy vấn trực tiếp Firestore users/{id} và query collection('users')
+ */
+export async function resolveUserFromDbOrCloud(
+  db: MockDb,
+  identifiers: {
+    user_id?: string;
+    originalId?: string;
+    ten_dang_nhap?: string;
+    firebaseUid?: string;
+    ho_ten?: string;
+  }
+): Promise<{ user: User & { mat_khau?: string; mat_khau_hash?: string }; userIndex: number } | null> {
+  const targetId = (identifiers.user_id || '').trim();
+  const origId = (identifiers.originalId || '').trim();
+  const normUsername = (identifiers.ten_dang_nhap || '').trim().toLowerCase();
+  const targetUid = (identifiers.firebaseUid || '').trim();
+  const targetName = (identifiers.ho_ten || '').trim().toLowerCase();
+
+  // 1. Tìm trong db.users theo ID, Firebase UID hoặc Username
+  const matchUser = (u: User) => {
+    const uId = (u.id || '').trim();
+    const uUid = (u.firebaseUid || '').trim();
+    const uName = (u.ten_dang_nhap || '').trim().toLowerCase();
+
+    // Khớp ID trực tiếp
+    if (targetId && (uId === targetId || uUid === targetId)) return true;
+    if (origId && (uId === origId || uUid === origId)) return true;
+    if (targetUid && (uId === targetUid || uUid === targetUid)) return true;
+
+    // Khớp username
+    if (normUsername && uName === normUsername) return true;
+
+    return false;
+  };
+
+  let idx = db.users.findIndex(matchUser);
+  if (idx !== -1) {
+    return { user: db.users[idx] as any, userIndex: idx };
+  }
+
+  // Khớp theo họ tên nếu có
+  if (targetName) {
+    idx = db.users.findIndex((u) => (u.ho_ten || '').trim().toLowerCase() === targetName);
+    if (idx !== -1) {
+      return { user: db.users[idx] as any, userIndex: idx };
+    }
+  }
+
+  // 2. Tra cứu từ Firestore nếu chưa thấy trong db.users
+  try {
+    let snap: any = null;
+    const candidates = [targetId, origId, targetUid].filter((id) => id && id.length >= 10);
+    for (const id of candidates) {
+      const s = await getDoc(doc(firestoreDb, 'users', id)).catch(() => null);
+      if (s && s.exists()) {
+        snap = s;
+        break;
+      }
+    }
+
+    if (!snap && normUsername) {
+      const allDocs = await getDocs(collection(firestoreDb, 'users')).catch(() => null);
+      if (allDocs) {
+        const found = allDocs.docs.find(
+          (d) => String(d.data().ten_dang_nhap || '').trim().toLowerCase() === normUsername
+        );
+        if (found) snap = found;
+      }
+    }
+
+    if (!snap && targetName) {
+      const allDocs = await getDocs(collection(firestoreDb, 'users')).catch(() => null);
+      if (allDocs) {
+        const found = allDocs.docs.find(
+          (d) => String(d.data().ho_ten || '').trim().toLowerCase() === targetName
+        );
+        if (found) snap = found;
+      }
+    }
+
+    if (snap) {
+      const data = snap.data() as User;
+      const foundUser: User = {
+        ...data,
+        id: snap.id,
+        firebaseUid: data.firebaseUid || (snap.id.length >= 20 ? snap.id : undefined),
+      };
+      // Đưa vào db.users để đồng bộ
+      const existingIdx = db.users.findIndex(
+        (u) => u.id === foundUser.id || (normUsername && u.ten_dang_nhap?.toLowerCase() === normUsername)
+      );
+      if (existingIdx !== -1) {
+        db.users[existingIdx] = foundUser;
+        return { user: db.users[existingIdx] as any, userIndex: existingIdx };
+      } else {
+        db.users.push(foundUser);
+        return { user: foundUser as any, userIndex: db.users.length - 1 };
+      }
+    }
+  } catch (err) {
+    console.warn('[Auth] Lỗi tra cứu người dùng từ Firestore:', err);
+  }
+
+  return null;
+}
 
 registerMockCommands({
   login: async (db, args) => {
@@ -392,15 +504,25 @@ registerMockCommands({
   },
 
   reset_user_password: async (db, args) => {
-    const { req } = args as { req: { user_id: string; mat_khau_moi: string } };
+    const { req } = args as {
+      req: {
+        user_id: string;
+        originalId?: string;
+        ten_dang_nhap?: string;
+        mat_khau_moi: string;
+      };
+    };
     const resetPolicyErr = validatePasswordPolicy(req.mat_khau_moi);
     if (resetPolicyErr) {
       throw new Error(resetPolicyErr);
     }
-    const user = db.users.find((u) => u.id === req.user_id) as
-      | (User & { mat_khau?: string; mat_khau_hash?: string })
-      | undefined;
-    if (!user) throw new Error('Người dùng không tồn tại');
+    const resolved = await resolveUserFromDbOrCloud(db, {
+      user_id: req.user_id,
+      originalId: req.originalId,
+      ten_dang_nhap: req.ten_dang_nhap,
+    });
+    if (!resolved) throw new Error('Người dùng không tồn tại');
+    const { user } = resolved;
 
     const normalizedU = user.ten_dang_nhap.trim().toLowerCase();
     let resolvedUid = '';
@@ -504,9 +626,14 @@ registerMockCommands({
   },
 
   sync_user_uid: async (db, args) => {
-    const { user_id, password } = args as { user_id: string; password?: string };
-    const user = db.users.find((u) => u.id === user_id);
-    if (!user) throw new Error('Người dùng không tồn tại');
+    const { user_id, password, ten_dang_nhap } = args as {
+      user_id: string;
+      password?: string;
+      ten_dang_nhap?: string;
+    };
+    const resolved = await resolveUserFromDbOrCloud(db, { user_id, ten_dang_nhap });
+    if (!resolved) throw new Error('Người dùng không tồn tại');
+    const { user } = resolved;
 
     const normalizedU = user.ten_dang_nhap.trim().toLowerCase();
     const tempPassword = password || 'Ubkt@2026!';
@@ -624,77 +751,40 @@ registerMockCommands({
       };
     };
 
-    const targetId = (req.user_id || req.originalId || '').trim();
-    const originalId = (req.originalId || '').trim();
-    const normalizedUsername = (req.ten_dang_nhap || '').trim().toLowerCase();
     const targetFirebaseUid = (req.firebaseUid || '').trim();
 
-    // 1. Tìm người dùng trong db.users theo thứ tự ưu tiên:
-    // (1) id === req.user_id || id === req.originalId
-    // (2) username === req.ten_dang_nhap
-    // (3) firebaseUid === req.firebaseUid
+    const resolved = await resolveUserFromDbOrCloud(db, {
+      user_id: req.user_id,
+      originalId: req.originalId,
+      ten_dang_nhap: req.ten_dang_nhap,
+      firebaseUid: req.firebaseUid,
+      ho_ten: req.ho_ten,
+    });
+
+    let user: User & { mat_khau?: string; mat_khau_hash?: string };
     let userIndex = -1;
-    if (targetId || originalId) {
-      userIndex = db.users.findIndex(
-        (u) => (targetId && u.id === targetId) || (originalId && u.id === originalId)
-      );
-    }
-    if (userIndex === -1 && normalizedUsername) {
-      userIndex = db.users.findIndex(
-        (u) => (u.ten_dang_nhap || '').trim().toLowerCase() === normalizedUsername
-      );
-    }
-    if (userIndex === -1 && targetFirebaseUid && targetFirebaseUid.length >= 20) {
-      userIndex = db.users.findIndex(
-        (u) => u.firebaseUid === targetFirebaseUid || u.id === targetFirebaseUid
-      );
-    }
 
-    let user = userIndex !== -1 ? (db.users[userIndex] as User & { mat_khau?: string; mat_khau_hash?: string }) : undefined;
-
-    // 2. Nếu chưa tìm thấy trong db.users, thử tra cứu từ Firestore theo cùng thứ tự ưu tiên
-    if (!user) {
-      try {
-        let firestoreUserSnap: any = null;
-        if (targetId) {
-          const s = await getDoc(doc(firestoreDb, 'users', targetId)).catch(() => null);
-          if (s && s.exists()) firestoreUserSnap = s;
-        }
-        if (!firestoreUserSnap && originalId && originalId !== targetId) {
-          const s = await getDoc(doc(firestoreDb, 'users', originalId)).catch(() => null);
-          if (s && s.exists()) firestoreUserSnap = s;
-        }
-        if (!firestoreUserSnap && normalizedUsername) {
-          const allDocs = await getDocs(collection(firestoreDb, 'users')).catch(() => null);
-          if (allDocs) {
-            const found = allDocs.docs.find(
-              (d) => String(d.data().ten_dang_nhap || '').trim().toLowerCase() === normalizedUsername
-            );
-            if (found) firestoreUserSnap = found;
-          }
-        }
-        if (!firestoreUserSnap && targetFirebaseUid && targetFirebaseUid.length >= 20) {
-          const s = await getDoc(doc(firestoreDb, 'users', targetFirebaseUid)).catch(() => null);
-          if (s && s.exists()) firestoreUserSnap = s;
-        }
-
-        if (firestoreUserSnap) {
-          const data = firestoreUserSnap.data() as User;
-          user = {
-            ...data,
-            id: firestoreUserSnap.id,
-            firebaseUid: data.firebaseUid || (firestoreUserSnap.id.length >= 20 ? firestoreUserSnap.id : undefined),
-          };
-          db.users.push(user);
-          userIndex = db.users.length - 1;
-        }
-      } catch (err) {
-        console.warn('[Auth] Lỗi tra cứu người dùng từ Firestore khi update_user:', err);
-      }
-    }
-
-    if (!user) {
-      throw new Error('Người dùng không tồn tại');
+    if (resolved) {
+      user = resolved.user;
+      userIndex = resolved.userIndex;
+    } else {
+      console.warn(`[Auth] Không tìm thấy user với id=${req.user_id}, khôi phục tạo mới từ dữ liệu cập nhật`);
+      const now = new Date().toISOString();
+      const resolvedId = req.firebaseUid?.trim() || req.originalId?.trim() || req.user_id?.trim() || `user_${Date.now()}`;
+      user = {
+        id: resolvedId,
+        firebaseUid: req.firebaseUid?.trim() || undefined,
+        ten_dang_nhap: req.ten_dang_nhap?.trim() || resolvedId,
+        ho_ten: req.ho_ten.trim(),
+        vai_tro: req.vai_tro as User['vai_tro'],
+        chuc_danh: req.chuc_danh || 'Chuyên viên UBKT',
+        trang_thai: req.trang_thai,
+        must_change_password: false,
+        created_at: now,
+        updated_at: now,
+      };
+      db.users.push(user);
+      userIndex = db.users.length - 1;
     }
 
     const oldId = user.id;
@@ -831,15 +921,18 @@ registerMockCommands({
   },
 
   delete_user: async (db, args) => {
-    const { user_id, actor_id, actor_name } = args as {
+    const { user_id, actor_id, actor_name, ten_dang_nhap } = args as {
       user_id: string;
       actor_id?: string;
       actor_name?: string;
+      ten_dang_nhap?: string;
     };
-    const deletedUser = db.users.find((u) => u.id === user_id);
-    db.users = db.users.filter((u) => u.id !== user_id);
+    const resolved = await resolveUserFromDbOrCloud(db, { user_id, ten_dang_nhap });
+    const deletedUser = resolved?.user || db.users.find((u) => u.id === user_id);
+    const targetUserId = resolved ? resolved.user.id : user_id;
+    db.users = db.users.filter((u) => u.id !== user_id && u.id !== targetUserId);
     saveMockDb(db);
-    await centralDataService.deleteDoc('users', user_id, actor_name);
+    await centralDataService.deleteDoc('users', targetUserId, actor_name);
 
     // 1. Xóa bản phân công của người đó (cả localStorage và Firestore)
     const rawPc = typeof localStorage !== 'undefined' ? localStorage.getItem('ubkt_phan_cong_dia_ban') : null;
@@ -940,7 +1033,12 @@ export const authApi = {
   ) => mockInvoke<User>('create_user', { req, actor_id, actor_name }),
 
   resetUserPassword: (
-    req: { user_id: string; mat_khau_moi: string },
+    req: {
+      user_id: string;
+      originalId?: string;
+      ten_dang_nhap?: string;
+      mat_khau_moi: string;
+    },
     actor_id: string,
     actor_name: string
   ) => mockInvoke<void>('reset_user_password', { req, actor_id, actor_name }),
@@ -960,11 +1058,11 @@ export const authApi = {
     actor_name: string
   ) => mockInvoke<void>('update_user', { req, actor_id, actor_name }),
 
-  deleteUser: (user_id: string, actor_id: string, actor_name: string) =>
-    mockInvoke<void>('delete_user', { user_id, actor_id, actor_name }),
+  deleteUser: (user_id: string, actor_id: string, actor_name: string, ten_dang_nhap?: string) =>
+    mockInvoke<void>('delete_user', { user_id, actor_id, actor_name, ten_dang_nhap }),
 
-  syncUserUid: (user_id: string, password?: string) =>
-    mockInvoke<User>('sync_user_uid', { user_id, password }),
+  syncUserUid: (user_id: string, password?: string, ten_dang_nhap?: string) =>
+    mockInvoke<User>('sync_user_uid', { user_id, password, ten_dang_nhap }),
 
   syncAllUsersUid: () =>
     mockInvoke<{ success: boolean; count: number; total: number }>('sync_all_users_uid'),

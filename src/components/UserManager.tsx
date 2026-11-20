@@ -73,7 +73,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
     setSyncingUidUserId(u.id);
     setError('');
     try {
-      await api.syncUserUid(u.id);
+      await api.syncUserUid(u.id, undefined, u.ten_dang_nhap);
       showSuccess(`Đã kích hoạt và đồng bộ Firebase UID cho tài khoản "${u.ho_ten}" (@${u.ten_dang_nhap}) thành công.`);
       await load();
     } catch (err: any) {
@@ -262,7 +262,12 @@ export default function UserManager({ currentUser, onClose }: Props) {
     setError('');
     try {
       await api.resetUserPassword(
-        { user_id: selectedUser.id, mat_khau_moi: formNewPw },
+        {
+          user_id: selectedUser.id,
+          originalId: selectedUser.id,
+          ten_dang_nhap: selectedUser.ten_dang_nhap,
+          mat_khau_moi: formNewPw,
+        },
         currentUser.id,
         currentUser.ho_ten,
       );
@@ -281,7 +286,7 @@ export default function UserManager({ currentUser, onClose }: Props) {
     setLoading(true);
     setError('');
     try {
-      await api.deleteUser(selectedUser.id, currentUser.id, currentUser.ho_ten);
+      await api.deleteUser(selectedUser.id, currentUser.id, currentUser.ho_ten, selectedUser.ten_dang_nhap);
       await load();
       closeModal();
       showSuccess(`Đã xóa tài khoản "${selectedUser.ho_ten}"`);
