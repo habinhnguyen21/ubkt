@@ -229,6 +229,8 @@ export default function UserManager({ currentUser, onClose }: Props) {
       await api.updateUser(
         {
           user_id: selectedUser.id,
+          originalId: selectedUser.id,
+          ten_dang_nhap: selectedUser.ten_dang_nhap,
           ho_ten: formHoTen.trim(),
           vai_tro: formVaiTro,
           trang_thai: formTrangThai,

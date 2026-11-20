@@ -1087,7 +1087,9 @@ export const centralDataService = {
         break;
       }
       case 'users': {
-        const idx = memoryCache.users.findIndex((u) => u.id === item.id);
+        const idx = memoryCache.users.findIndex(
+          (u) => u.id === item.id || (item.ten_dang_nhap && u.ten_dang_nhap?.toLowerCase() === item.ten_dang_nhap.toLowerCase())
+        );
         if (idx !== -1) memoryCache.users[idx] = item;
         else memoryCache.users.push(item);
         break;

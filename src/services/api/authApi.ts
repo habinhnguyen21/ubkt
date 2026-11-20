@@ -30,6 +30,7 @@ import {
   validatePasswordPolicy,
 } from '../../utils/passwordCrypto';
 import { sessionStore } from '../../utils/sessionStore';
+import { indexedDbStorage } from '../indexedDbStorage';
 import { mockInvoke, registerMockCommands, requestApi, saveMockDb } from './core';
 
 registerMockCommands({
@@ -613,6 +614,8 @@ registerMockCommands({
     const { req } = args as {
       req: {
         user_id: string;
+        originalId?: string;
+        ten_dang_nhap?: string;
         ho_ten: string;
         vai_tro: string;
         trang_thai: number;
@@ -620,92 +623,171 @@ registerMockCommands({
         firebaseUid?: string;
       };
     };
-    const user = db.users.find((u) => u.id === req.user_id) as
-      | (User & { mat_khau?: string; mat_khau_hash?: string })
-      | undefined;
-    if (!user) throw new Error('Người dùng không tồn tại');
+
+    const targetId = (req.user_id || req.originalId || '').trim();
+    const originalId = (req.originalId || '').trim();
+    const normalizedUsername = (req.ten_dang_nhap || '').trim().toLowerCase();
+    const targetFirebaseUid = (req.firebaseUid || '').trim();
+
+    // 1. Tìm người dùng trong db.users theo thứ tự ưu tiên:
+    // (1) id === req.user_id || id === req.originalId
+    // (2) username === req.ten_dang_nhap
+    // (3) firebaseUid === req.firebaseUid
+    let userIndex = -1;
+    if (targetId || originalId) {
+      userIndex = db.users.findIndex(
+        (u) => (targetId && u.id === targetId) || (originalId && u.id === originalId)
+      );
+    }
+    if (userIndex === -1 && normalizedUsername) {
+      userIndex = db.users.findIndex(
+        (u) => (u.ten_dang_nhap || '').trim().toLowerCase() === normalizedUsername
+      );
+    }
+    if (userIndex === -1 && targetFirebaseUid && targetFirebaseUid.length >= 20) {
+      userIndex = db.users.findIndex(
+        (u) => u.firebaseUid === targetFirebaseUid || u.id === targetFirebaseUid
+      );
+    }
+
+    let user = userIndex !== -1 ? (db.users[userIndex] as User & { mat_khau?: string; mat_khau_hash?: string }) : undefined;
+
+    // 2. Nếu chưa tìm thấy trong db.users, thử tra cứu từ Firestore theo cùng thứ tự ưu tiên
+    if (!user) {
+      try {
+        let firestoreUserSnap: any = null;
+        if (targetId) {
+          const s = await getDoc(doc(firestoreDb, 'users', targetId)).catch(() => null);
+          if (s && s.exists()) firestoreUserSnap = s;
+        }
+        if (!firestoreUserSnap && originalId && originalId !== targetId) {
+          const s = await getDoc(doc(firestoreDb, 'users', originalId)).catch(() => null);
+          if (s && s.exists()) firestoreUserSnap = s;
+        }
+        if (!firestoreUserSnap && normalizedUsername) {
+          const allDocs = await getDocs(collection(firestoreDb, 'users')).catch(() => null);
+          if (allDocs) {
+            const found = allDocs.docs.find(
+              (d) => String(d.data().ten_dang_nhap || '').trim().toLowerCase() === normalizedUsername
+            );
+            if (found) firestoreUserSnap = found;
+          }
+        }
+        if (!firestoreUserSnap && targetFirebaseUid && targetFirebaseUid.length >= 20) {
+          const s = await getDoc(doc(firestoreDb, 'users', targetFirebaseUid)).catch(() => null);
+          if (s && s.exists()) firestoreUserSnap = s;
+        }
+
+        if (firestoreUserSnap) {
+          const data = firestoreUserSnap.data() as User;
+          user = {
+            ...data,
+            id: firestoreUserSnap.id,
+            firebaseUid: data.firebaseUid || (firestoreUserSnap.id.length >= 20 ? firestoreUserSnap.id : undefined),
+          };
+          db.users.push(user);
+          userIndex = db.users.length - 1;
+        }
+      } catch (err) {
+        console.warn('[Auth] Lỗi tra cứu người dùng từ Firestore khi update_user:', err);
+      }
+    }
+
+    if (!user) {
+      throw new Error('Người dùng không tồn tại');
+    }
+
+    const oldId = user.id;
+    const now = new Date().toISOString();
+
     user.ho_ten = req.ho_ten;
     user.vai_tro = req.vai_tro as User['vai_tro'];
     user.trang_thai = req.trang_thai;
     if (req.chuc_danh !== undefined) {
       user.chuc_danh = req.chuc_danh;
     }
-    const oldId = user.id;
-
-    // Nếu Admin chỉ định hoặc cập nhật trực tiếp Firebase UID (ví dụ dán mã từ Firebase Console)
-    if (req.firebaseUid && req.firebaseUid.trim().length >= 20) {
-      const explicitUid = req.firebaseUid.trim();
-      user.firebaseUid = explicitUid;
-      user.id = explicitUid;
-      if (oldId && oldId !== explicitUid) {
-        try {
-          const oldPcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => null);
-          if (oldPcSnap && oldPcSnap.exists()) {
-            await setDoc(doc(firestoreDb, 'phan_cong_dia_ban', explicitUid), {
-              ...oldPcSnap.data(),
-              id: explicitUid,
-              user_id: explicitUid,
-              updated_at: new Date().toISOString(),
-            }, { merge: true });
-            await deleteDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => {});
-          }
-          await deleteDoc(doc(firestoreDb, 'users', oldId)).catch(() => {});
-        } catch (e) {
-          console.warn('[Auth] Di trú ID sang UID chỉ định khi sửa tài khoản:', e);
-        }
-      }
-    }
-
     delete user.mat_khau;
     delete (user as any).mat_khau_hash;
     delete (user as any).activeSessionId;
     delete (user as any).lastLoginDevice;
     delete (user as any).lastActiveAt;
-    user.updated_at = new Date().toISOString();
+    user.updated_at = now;
 
-    // Tự động kiểm tra và gắn Firebase UID nếu tài khoản cũ chưa có UID
-    if (!user.firebaseUid || user.id.length < 20) {
-      let resolvedUid = '';
+    // Xác định Firebase UID mới được gắn vào hoặc tự động provision nếu thiếu
+    let newFirebaseUid = targetFirebaseUid && targetFirebaseUid.length >= 20
+      ? targetFirebaseUid
+      : (user.firebaseUid && user.firebaseUid.length >= 20 ? user.firebaseUid : '');
+
+    if (!newFirebaseUid || newFirebaseUid.length < 20) {
       try {
         const provRes = await provisionFirebaseUserForStaff(user.ten_dang_nhap, 'Ubkt@2026!');
-        resolvedUid = provRes.uid;
-      } catch {
-        try {
-          const usersSnap = await getDocs(collection(firestoreDb, 'users'));
-          const matchingDoc = usersSnap.docs.find(
-            (d: any) => String(d.data().ten_dang_nhap || '').toLowerCase() === user.ten_dang_nhap.toLowerCase()
-          );
-          if (matchingDoc && matchingDoc.id.length >= 20) {
-            resolvedUid = matchingDoc.id;
-          }
-        } catch {}
-      }
-      if (resolvedUid) {
-        const prevId = user.id;
-        user.firebaseUid = resolvedUid;
-        user.id = resolvedUid;
-        if (prevId && prevId !== resolvedUid) {
-          try {
-            const oldPcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', prevId)).catch(() => null);
-            if (oldPcSnap && oldPcSnap.exists()) {
-              await setDoc(doc(firestoreDb, 'phan_cong_dia_ban', resolvedUid), {
-                ...oldPcSnap.data(),
-                id: resolvedUid,
-                user_id: resolvedUid,
-                updated_at: user.updated_at,
-              }, { merge: true });
-              await deleteDoc(doc(firestoreDb, 'phan_cong_dia_ban', prevId)).catch(() => {});
-            }
-            await deleteDoc(doc(firestoreDb, 'users', prevId)).catch(() => {});
-          } catch (e) {
-            console.warn('[Auth] Di trú ID cũ sang UID khi sửa tài khoản:', e);
-          }
-        }
+        if (provRes?.uid) newFirebaseUid = provRes.uid;
+      } catch (provErr) {
+        console.warn('[Auth] Không thể auto-provision UID khi update:', provErr);
       }
     }
 
+    const isUidChanged = Boolean(newFirebaseUid && newFirebaseUid.length >= 20 && oldId !== newFirebaseUid);
+
+    if (newFirebaseUid && newFirebaseUid.length >= 20) {
+      user.firebaseUid = newFirebaseUid;
+      user.id = newFirebaseUid;
+    }
+
+    const updatedUserData = sanitizeUserForCloud(user);
+
+    // 1) Sử dụng setDoc(doc(firestoreDb, 'users', newFirebaseUid), updatedUserData, { merge: true })
+    // Tuyệt đối không dùng updateDoc để tránh lỗi not-found khi document mang UID mới chưa tồn tại.
+    try {
+      await setDoc(doc(firestoreDb, 'users', user.id), updatedUserData, { merge: true });
+    } catch (saveErr) {
+      console.warn(`[Auth] Không thể setDoc users/${user.id}:`, saveErr);
+    }
+
+    // 2) Xóa document mang id cũ trên Firestore (nếu oldId !== newFirebaseUid) và di chuyển phân công địa bàn
+    if (isUidChanged && oldId) {
+      try {
+        const oldPcSnap = await getDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => null);
+        if (oldPcSnap && oldPcSnap.exists()) {
+          await setDoc(doc(firestoreDb, 'phan_cong_dia_ban', user.id), {
+            ...oldPcSnap.data(),
+            id: user.id,
+            user_id: user.id,
+            updated_at: now,
+          }, { merge: true });
+          await deleteDoc(doc(firestoreDb, 'phan_cong_dia_ban', oldId)).catch(() => {});
+        }
+        await deleteDoc(doc(firestoreDb, 'users', oldId)).catch(() => {});
+      } catch (migErr) {
+        console.warn('[Auth] Lỗi di trú document cũ sang UID mới trên Firestore:', migErr);
+      }
+    }
+
+    // 3) Cập nhật lại id của user trong bộ nhớ cục bộ (indexedDbStorage, sessionStore, localStorage, centralDataService)
+    if (userIndex !== -1) {
+      db.users[userIndex] = user;
+    }
     saveMockDb(db);
-    await centralDataService.saveDoc('users', user.id, sanitizeUserForCloud(user));
+    indexedDbStorage.setItem('ubkt_mock_db', db).catch(() => {});
+
+    // Đồng bộ sessionStore nếu user đang đăng nhập chính là user vừa được cập nhật
+    const currentSessionUser = sessionStore.getCurrentUser();
+    if (
+      currentSessionUser &&
+      (currentSessionUser.id === oldId ||
+        currentSessionUser.id === user.id ||
+        (currentSessionUser.ten_dang_nhap &&
+          currentSessionUser.ten_dang_nhap.toLowerCase() === user.ten_dang_nhap.toLowerCase()))
+    ) {
+      sessionStore.setCurrentUser({
+        ...currentSessionUser,
+        ...stripSecretsFromUser(user),
+        id: user.id,
+        firebaseUid: user.firebaseUid,
+      });
+    }
+
+    await centralDataService.saveDoc('users', user.id, updatedUserData).catch(() => {});
 
     // Nếu tài khoản bị khóa (trang_thai === 0), đồng bộ hồ sơ địa bàn đưa các đơn vị về "Chưa phân công"
     if (req.trang_thai === 0) {
@@ -866,6 +948,8 @@ export const authApi = {
   updateUser: (
     req: {
       user_id: string;
+      originalId?: string;
+      ten_dang_nhap?: string;
       ho_ten: string;
       vai_tro: string;
       trang_thai: number;
