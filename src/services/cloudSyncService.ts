@@ -78,7 +78,7 @@ export const cloudSyncService = {
 
   _persistDirtyQueue() {
     try {
-      const arr = Array.from(this._dirtyMap.values());
+      const arr: DirtySyncEntry[] = Array.from(this._dirtyMap.values());
       if (arr.length === 0) {
         localStorage.removeItem(STORAGE_DIRTY_QUEUE);
       } else {
@@ -201,7 +201,7 @@ export const cloudSyncService = {
     if (typeof navigator !== 'undefined' && !navigator.onLine) return { pushed: 0 };
     if (this._isSyncing) return { pushed: 0 };
 
-    const entries = Array.from(this._dirtyMap.values());
+    const entries: DirtySyncEntry[] = Array.from(this._dirtyMap.values());
     let pushed = 0;
     for (const entry of entries) {
       if (sessionStore.isSessionLocked()) {
